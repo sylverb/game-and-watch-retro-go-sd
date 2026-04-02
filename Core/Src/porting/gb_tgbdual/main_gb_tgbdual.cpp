@@ -622,6 +622,9 @@ void app_main_gb_tgbdual_cpp(uint8_t load_state, uint8_t start_paused, int8_t sa
     if (load_state) {
         odroid_system_emu_load_state(save_slot);
     } else {
+		// Load cartridge SRAM by default so battery saves are available
+        // even when starting without savestates.
+        LoadState(NULL);
         lcd_clear_buffers();
     }
 
