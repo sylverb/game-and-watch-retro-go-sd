@@ -50,6 +50,7 @@ static void gb_process_blit();
 
 // GB Palettes
 int index_palette = 0;
+static const int kPaletteStorageDefault = 0;
 
 static gb *g_gb = nullptr;
 static gw_renderer *render = nullptr;
@@ -61,6 +62,23 @@ bool tgb_drawFrame = false;
 
 static bool SaveState(const char *savePathName)
 {
+    if (g_gb->get_rom()->has_battery()) {
+        char *sram_path = odroid_system_get_path(ODROID_PATH_SAVE_SRAM, ACTIVE_FILE->path);
+        if (sram_path) {
+            const int sram_size = g_gb->get_rom()->get_sram_size();
+            FILE *sram_file = fopen(sram_path, "wb");
+            if (sram_file != NULL) {
+                fwrite(g_gb->get_rom()->get_sram(), sram_size, 1, sram_file);
+                fclose(sram_file);
+            }
+            free(sram_path);
+        }
+    }
+
+    if (savePathName == NULL) {
+        return true;
+    }
+
     size_t size = g_gb->get_state_size();
 
     // We store data in the not visible framebuffer
@@ -87,6 +105,25 @@ static bool SaveState(const char *savePathName)
 
 static bool LoadState(const char *savePathName)
 {
+    if (savePathName == NULL) {
+        if (!g_gb->get_rom()->has_battery()) {
+            return false;
+        }
+
+        bool loaded = false;
+        char *sram_path = odroid_system_get_path(ODROID_PATH_SAVE_SRAM, ACTIVE_FILE->path);
+        if (sram_path) {
+            const int sram_size = g_gb->get_rom()->get_sram_size();
+            FILE *sram_file = fopen(sram_path, "rb");
+            if (sram_file != NULL) {
+                loaded = (fread(g_gb->get_rom()->get_sram(), sram_size, 1, sram_file) == 1);
+                fclose(sram_file);
+            }
+            free(sram_path);
+        }
+        return loaded;
+    }
+
     // We store data in the not visible framebuffer
     unsigned char *data = (unsigned char *)lcd_get_active_buffer();
     size_t size = g_gb->get_state_size();
@@ -427,6 +464,8 @@ static bool palette_update_cb(odroid_dialog_choice_t *option, odroid_dialog_even
 
     if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
         g_gb->get_lcd()->set_palette(index_palette);
+        odroid_settings_Palette_set(index_palette);
+        odroid_settings_commit();
     }
 
     sprintf(option->value, "%d/%d", index_palette+1, max+1);
@@ -586,7 +625,17 @@ void app_main_gb_tgbdual_cpp(uint8_t load_state, uint8_t start_paused, int8_t sa
         lcd_clear_buffers();
     }
 
-    index_palette = g_gb->get_lcd()->get_current_palette();
+    if (g_gb->get_rom()->get_info()->gb_type != 3) {
+        int max_palette = g_gb->get_lcd()->get_palette_count() - 1;
+        int stored_palette = odroid_settings_Palette_get();
+        if (stored_palette < 0 || stored_palette > max_palette) {
+            stored_palette = kPaletteStorageDefault;
+        }
+        index_palette = stored_palette;
+        g_gb->get_lcd()->set_palette(index_palette);
+    } else {
+        index_palette = g_gb->get_lcd()->get_current_palette();
+    }
 
 #if CHEAT_CODES == 1
     for(int i=0; i<MAX_CHEAT_CODES && i<ACTIVE_FILE->cheat_count; i++) {
