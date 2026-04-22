@@ -1155,9 +1155,6 @@ create_sd_data: create_sd_folders prepare_msx_bios_files $(MAPPER_BINS) $(BUILD_
 	@$(CP) -O binary --only-section=.sd_fonts_cp1252_serif $(BUILD_DIR)/$(TARGET).elf $(FONTS_DIR)/cp1252_serif.bin
 	@$(CP) -O binary --only-section=.sd_fonts_cp1252_unbalanced $(BUILD_DIR)/$(TARGET).elf $(FONTS_DIR)/cp1252_unbalanced.bin
 
-	@$(CP) -O binary --only-section=.sd_fonts_unicode_katakana $(BUILD_DIR)/$(TARGET).elf $(FONTS_DIR)/unicode_katakana.bin
-	@$(CP) -O binary --only-section=.sd_fonts_unicode_kanji    $(BUILD_DIR)/$(TARGET).elf $(FONTS_DIR)/unicode_kanji.bin
-
 	@$(V)cp build/gw_retro_go_intflash.bin $(SD_FOLDER)/update_bank2.bin
 
 flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
@@ -1256,7 +1253,7 @@ docker_build:
 
 docker:
 	$(V)docker run --rm -it --privileged --network host --user $(shell id -u):$(shell id -g) -v $(PWD):/opt/workdir -v /dev/bus/usb:/dev/bus/usb sylverb/retro-go-sd-builder \
-	bash -l -c "make -j\$$(nproc) CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 INTFLASH_BANK=2 CHEAT_CODES=1 release"
+	bash -l -c "make -j\$$(nproc) CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 INTFLASH_BANK=2 CHEAT_CODES=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 release"
 .PHONY: docker
 
 help:

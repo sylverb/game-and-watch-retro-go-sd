@@ -126,15 +126,9 @@ static uint8_t curr_font = 0;
 #include "fonts/font_cp1252_haeberli12.h"
 #endif
 
-#if SD_CARD == 1
-//#define FONT_DATA_UNICODE_KATAKANA __attribute__((section(".sd_fonts_unicode_katakana")))
-//#define FONT_DATA_UNICODE_KANJI __attribute__((section(".sd_fonts_unicode_kanji")))
-//#include "fonts/font_unicode_kanji.h"
-//#include "fonts/font_unicode_katakana.h"
-#endif
-
+#if SD_CARD == 0
 #if INCLUDED_JA_JP == 1
-//#include "fonts/font_cp932_ja_jp.h"
+#include "fonts/font_cp932_ja_jp.h"
 #endif
 #if INCLUDED_ZH_CN == 1
 #include "fonts/font_cp936_zh_cn.h"
@@ -145,6 +139,8 @@ static uint8_t curr_font = 0;
 #if INCLUDED_ZH_TW == 1
 #include "fonts/font_cp950_zh_tw.h"
 #endif
+#endif // SD_CARD == 0
+
 #if INCLUDED_RU_RU == 1
 #include "fonts/font_cp1251_Serif.h"
 #if !SINGLE_FONT
@@ -170,6 +166,30 @@ static FontEntry *font_cache = NULL/*[CACHE_SIZE]*/;
 static uint16_t cache_index = 0; // Index of the next cache entry
 static uint8_t *font_data_cache = NULL/*[FONT_CACHE_SIZE]*/; // Raw font data buffer
 static uint16_t cache_data_index = 0; // Index of the next cache data entry
+
+// Fallback glyph for unknown/unsupported codepoints � : U+FFFD (replacement character)
+// Pre-rasterized at 11px wide, 12 rows, LSB-first (NotoSansCJK size 12)
+#define UNKNOWN_GLYPH_WIDTH 11
+static const uint8_t unknown_glyph_data[] = {
+    0x20, 0x00,  // row  0  ·····█·····
+    0x70, 0x00,  // row  1  ····███····
+    0x88, 0x00,  // row  2  ···█···█···
+    0x7C, 0x01,  // row  3  ··█████·█··
+    0x7E, 0x03,  // row  4  ·██████·██·
+    0xBF, 0x07,  // row  5  ██████·████
+    0xDE, 0x03,  // row  6  ·████·████·
+    0xDC, 0x01,  // row  7  ··███·███··
+    0xF8, 0x00,  // row  8  ···█████···
+    0x50, 0x00,  // row  9  ····█·█····
+    0x20, 0x00,  // row 10  ·····█·····
+    0x00, 0x00,  // row 11  ···········
+};
+static FontEntry unknown_glyph_entry = {
+    .codepoint = 0xFFFD,
+    .width     = UNKNOWN_GLYPH_WIDTH,
+    .valid     = true,
+    .char_data = (uint8_t *)unknown_glyph_data,
+};
 
 // Latin fonts
 const char *font_files[] = {
@@ -199,15 +219,29 @@ const char *font_files_cp1251[] = {
 
 const char *get_font_file(uint32_t codepoint) {
     if (codepoint >= 0x0400 && codepoint <= 0x04FF) {
-        return font_files_cp1251[curr_font];  // Use CP1251 cyrillic font
+        return font_files_cp1251[curr_font];        // Cyrillic (CP1251)
+    } else if (codepoint >= 0x0370 && codepoint <= 0x03FF) {
+        return "fonts/unicode_greek.bin";           // Greek and Coptic
+    } else if (codepoint >= 0x2200 && codepoint <= 0x22FF) {
+        return "fonts/unicode_math_operators.bin";  // Mathematical Operators
+    } else if (codepoint >= 0x25A0 && codepoint <= 0x25FF) {
+        return "fonts/unicode_geometric.bin";       // Geometric Shapes
+    } else if (codepoint >= 0x2600 && codepoint <= 0x26FF) {
+        return "fonts/unicode_misc_symbols.bin";    // Miscellaneous Symbols
+    } else if (codepoint >= 0x3000 && codepoint <= 0x303F) {
+        return "fonts/unicode_cjk_punct.bin";       // CJK Symbols and Punctuation
+    } else if (codepoint >= 0x3040 && codepoint <= 0x309F) {
+        return "fonts/unicode_hiragana.bin";        // Hiragana
     } else if (codepoint >= 0x30A0 && codepoint <= 0x30FF) {
-        printf("Using katakana font codepoint: 0x%lx\n", codepoint);
-        return "fonts/unicode_katakana.bin";  // Use katakana font
+        return "fonts/unicode_katakana.bin";        // Katakana
     } else if (codepoint >= 0x4E00 && codepoint <= 0x9FFF) {
-        printf("Using kanji font codepoint: 0x%lx\n", codepoint);
-        return "fonts/unicode_kanji.bin";  // Use kanji font
+        return "fonts/unicode_cjk.bin";             // CJK Unified Ideographs
+    } else if (codepoint >= 0xAC00 && codepoint <= 0xD7A3) {
+        return "fonts/unicode_hangul.bin";          // Hangul Syllables
+    } else if (codepoint >= 0xFF00 && codepoint <= 0xFFEF) {
+        return "fonts/unicode_fullwidth.bin";       // Halfwidth and Fullwidth Forms
     }
-    return font_files[curr_font];  // Use CP1252 latin font
+    return font_files[curr_font];  // CP1252 latin font
 }
 
 void invalidate_overlapping_entries(uint8_t *start_ptr, uint16_t length) {
@@ -258,34 +292,87 @@ FontEntry *get_font_data(uint32_t codepoint) {
     uint16_t char_offset = codepoint;
     file = fopen(filename, "rb");
     if (!file) {
-        return NULL;
+        // Font file missing or SD unavailable: return replacement character
+        return &unknown_glyph_entry;
     }
 
     bool is_fixed_width = false;
-    if (codepoint >= 0x410 && codepoint <= 0x44F) {
-        char_offset = codepoint - 0x410 + 0xC0; // 0x400 utf8 codepoint is 0x80 in cp1251 font
+    uint32_t varwidth_N = 256; // block size for variable-width files (header = N*3 bytes)
+                               // default 256 = CP1252/CP1251 files (header = 0x300)
+
+    if (codepoint >= 0x0410 && codepoint <= 0x044F) {
+        // Cyrillic: CP1251 variable-width file, N=256
+        char_offset = codepoint - 0x0410 + 0xC0;
+        varwidth_N = 256;
+    } else if (codepoint >= 0x0370 && codepoint <= 0x03FF) {
+        // Greek and Coptic: variable-width, N=144
+        char_offset = codepoint - 0x0370;
+        varwidth_N = 144;
+    } else if (codepoint >= 0x2200 && codepoint <= 0x22FF) {
+        // Mathematical Operators: variable-width, N=256
+        char_offset = codepoint - 0x2200;
+        varwidth_N = 256;
+    } else if (codepoint >= 0x25A0 && codepoint <= 0x25FF) {
+        // Geometric Shapes: variable-width, N=96
+        char_offset = codepoint - 0x25A0;
+        varwidth_N = 96;
+    } else if (codepoint >= 0x2600 && codepoint <= 0x26FF) {
+        // Miscellaneous Symbols: variable-width, N=256
+        char_offset = codepoint - 0x2600;
+        varwidth_N = 256;
+    } else if (codepoint >= 0x3000 && codepoint <= 0x303F) {
+        // CJK Symbols and Punctuation: fixed-width 12px, N=64
+        char_offset = codepoint - 0x3000;
+        entry->width = 12;
+        is_fixed_width = true;
+    } else if (codepoint >= 0x3040 && codepoint <= 0x309F) {
+        // Hiragana: fixed-width 12px, N=96
+        char_offset = codepoint - 0x3040;
+        entry->width = 12;
+        is_fixed_width = true;
     } else if (codepoint >= 0x30A0 && codepoint <= 0x30FF) {
+        // Katakana: fixed-width 12px, N=96
         char_offset = codepoint - 0x30A0;
-        entry->width = 12; // Katakana width is 12
+        entry->width = 12;
         is_fixed_width = true;
     } else if (codepoint >= 0x4E00 && codepoint <= 0x9FFF) {
+        // CJK Unified Ideographs: fixed-width 12px
         char_offset = codepoint - 0x4E00;
-        entry->width = 12; // Kanji width is 12
+        entry->width = 12;
         is_fixed_width = true;
+    } else if (codepoint >= 0xAC00 && codepoint <= 0xD7A3) {
+        // Hangul Syllables: fixed-width 12px
+        char_offset = codepoint - 0xAC00;
+        entry->width = 12;
+        is_fixed_width = true;
+    } else if (codepoint >= 0xFF00 && codepoint <= 0xFFEF) {
+        // Halfwidth and Fullwidth Forms: variable-width, N=240
+        char_offset = codepoint - 0xFF00;
+        varwidth_N = 240;
+    } else if (codepoint >= 0x100) {
+        // Codepoint not handled by any known block: return U+FFFD replacement character
+        fclose(file);
+        return &unknown_glyph_entry;
     }
+
+    // Read glyph width for variable-width files
     if (!is_fixed_width) {
         fseek(file, char_offset, SEEK_SET);
         fread(&(entry->width), 1, sizeof(uint8_t), file);
     }
+
     uint32_t char_data_offset;
     if (is_fixed_width) {
+        // Dense fixed-width array: offset = index * bytes_per_glyph
         char_data_offset = char_offset * ((entry->width + 7) / 8) * i18n_get_text_height();
     } else {
+        // Variable-width header: widths[N] + offsets[N*2] + pixdata
+        // data offset field is at: N + char_offset*2
         uint16_t char_data_offset_u16;
-        fseek(file, char_offset * 2 + 0x100, SEEK_SET);
+        fseek(file, varwidth_N + char_offset * 2, SEEK_SET);
         fread(&char_data_offset_u16, 1, sizeof(uint16_t), file);
         char_data_offset = char_data_offset_u16;
-        char_data_offset += 0x300; // 0x300 is the offset of the first character in the font file
+        char_data_offset += varwidth_N * 3; // skip widths[N] + offsets[N*2]
     }
 
     uint16_t data_length = i18n_get_text_height() * ((entry->width + 7) / 8);
@@ -495,7 +582,8 @@ int utf8_decode(const char *str, uint32_t *codepoint) {
 
 #if SD_CARD == 1
 int i18n_get_char_width(uint32_t codepoint) {
-    return get_font_data(codepoint)->width;
+    FontEntry *entry = get_font_data(codepoint);
+    return entry ? entry->width : 0;
 }
 #else
 int i18n_get_char_width(uint32_t codepoint)
@@ -763,7 +851,7 @@ int i18n_draw_text_line(uint16_t x_pos, uint16_t y_pos, uint16_t width, const ch
         int cw = entry->width;
         if ((x_offset + cw) > width)
             break;
-        if (cw != 0) {
+        if (cw != 0 && entry->char_data != NULL) {
             int line_bytes = (cw + 7) / 8;
             for (int y = 0; y < font_height; y++) {
                 uint32_t *pixels_data = (uint32_t *)&(entry->char_data[y * line_bytes]);
