@@ -15,6 +15,8 @@ RUN apt-get update -y && \
         make \
         patch \
         python3 \
+        python3-pip \
+        python3-venv \
         sudo \
         xxd && \
         apt-get clean && \
@@ -33,12 +35,21 @@ RUN ARCH=$(uname -m) && \
     tar xf toolchain.tar.xz && \
     rm -f toolchain.tar.xz toolchain.md5.asc
 
+RUN python3 -m venv /opt/venv && \
+    /opt/venv/bin/pip install --upgrade pip && \
+    /opt/venv/bin/pip install pillow
+
 RUN useradd -m docker && echo "docker:docker" | chpasswd && \
     chown docker:docker /opt && \
     echo "docker ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
+RUN echo 'export PATH="/opt/venv/bin:$PATH"' > /etc/profile.d/01-venv.sh && \
+    chmod +x /etc/profile.d/01-venv.sh
+
 RUN ARCH=$(uname -m) && \
-    echo "export GCC_PATH=/opt/arm-gnu-toolchain-${ARM_COMPILER_VERSION}-${ARCH}-arm-none-eabi/bin" >> /etc/profile
+    echo "export GCC_PATH=/opt/arm-gnu-toolchain-${ARM_COMPILER_VERSION}-${ARCH}-arm-none-eabi/bin" \
+    > /etc/profile.d/02-gcc.sh && \
+    chmod +x /etc/profile.d/02-gcc.sh
 
 USER docker
 
