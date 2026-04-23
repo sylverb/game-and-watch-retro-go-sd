@@ -1051,6 +1051,9 @@ endif
 SD_FOLDER := sd_content
 CORES_DIR := $(SD_FOLDER)/cores
 FONTS_DIR := $(SD_FOLDER)/fonts
+UNICODE_FONT_SOURCE ?= assets/fonts/NotoSansCJK-Regular.otf
+UNICODE_FONT_SCRIPTS := greek math_operators geometric misc_symbols cjk_punct hiragana katakana cjk hangul fullwidth
+UNICODE_FONT_BINS := $(addprefix $(FONTS_DIR)/unicode_, $(addsuffix .bin, $(UNICODE_FONT_SCRIPTS)))
 MAPPERS_DIR := $(CORES_DIR)/mappers
 HOMEBREWS_FOLDER := $(SD_FOLDER)/roms/homebrew
 RELEASE_FOLDER := release
@@ -1111,6 +1114,10 @@ prepare_msx_bios_files: create_sd_folders
 	@cp $(SD_FOLDER)/bios/msx/PANASONICDISK.rom $(SD_FOLDER)/bios/msx/PANASONICDISK_.rom
 	@printf '\x00' | dd of=$(SD_FOLDER)/bios/msx/PANASONICDISK_.rom bs=1 seek=6124 count=1 conv=notrunc status=none
 
+$(FONTS_DIR)/unicode_%.bin: $(UNICODE_FONT_SOURCE) tools/gen_unicode_bin.py | create_sd_folders
+	@echo "Generating $@ from $(UNICODE_FONT_SOURCE)"
+	@$(PYTHON3) tools/gen_unicode_bin.py "$(UNICODE_FONT_SOURCE)" --script "$*" -o "$@"
+
 create_sd_data: create_sd_folders prepare_msx_bios_files $(MAPPER_BINS) $(BUILD_DIR)/$(TARGET)_intflash.bin
 	@$(PYTHON3) external/fceumm-go/gen_mappers_table.py $(MAPPERS_DIR)/mappers_table.bin
 	@$(PYTHON3) external/fceumm-go/gen_ines_database.py $(MAPPERS_DIR)/ines_correct.bin
@@ -1156,6 +1163,7 @@ create_sd_data: create_sd_folders prepare_msx_bios_files $(MAPPER_BINS) $(BUILD_
 	@$(CP) -O binary --only-section=.sd_fonts_cp1252_unbalanced $(BUILD_DIR)/$(TARGET).elf $(FONTS_DIR)/cp1252_unbalanced.bin
 
 	@$(V)cp build/gw_retro_go_intflash.bin $(SD_FOLDER)/update_bank2.bin
+	@$(MAKE) --no-print-directory $(UNICODE_FONT_BINS)
 
 flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
 	$(eval MAPPERS_SDPUSH := $(foreach mapper,$(MAPPER_NAMES),-- sdpush --file $(MAPPERS_DIR)/mapper_$(mapper).bin --dest-path "/cores/mappers/"))
@@ -1252,7 +1260,7 @@ docker_build:
 .PHONY: docker_build
 
 docker:
-	$(V)docker run --rm -it --privileged --network host --user $(shell id -u):$(shell id -g) -v $(PWD):/opt/workdir -v /dev/bus/usb:/dev/bus/usb sylverb/retro-go-sd-builder \
+	$(V)docker run --rm -it --privileged --network host --user $(shell id -u):$(shell id -g) -v $(PWD):/opt/workdir -v /dev/bus/usb:/dev/bus/usb sylverb/retro-go-sd-builder:v1.3 \
 	bash -l -c "make -j\$$(nproc) CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 INTFLASH_BANK=2 CHEAT_CODES=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 release"
 .PHONY: docker
 

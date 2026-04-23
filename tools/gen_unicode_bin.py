@@ -230,8 +230,9 @@ def generate_fixed(font_path, font_size, font_index, codepoints,
     out  = bytearray(total * FIXED_BPG)
     covered = 0
 
-    print(f"Format : fixed-width ({FIXED_WIDTH}px, {FIXED_BPG} bytes/glyph)")
-    print(f"Range  : U+{base_cp:04X}..U+{end_cp:04X}  ({total} slots)")
+    if verbose:
+        print(f"Format : fixed-width ({FIXED_WIDTH}px, {FIXED_BPG} bytes/glyph)")
+        print(f"Range  : U+{base_cp:04X}..U+{end_cp:04X}  ({total} slots)")
 
     for i, cp in enumerate(codepoints):
         raw, w = render_glyph_fixed(img, draw, font, cp, xoffset, yoffset)
@@ -240,18 +241,18 @@ def generate_fixed(font_path, font_size, font_index, codepoints,
             covered += 1
             if verbose:
                 print(f"  U+{cp:04X} '{chr(cp)}' width={w}")
-        if (i + 1) % 1000 == 0 or i == total - 1:
+        if verbose and ((i + 1) % 1000 == 0 or i == total - 1):
             print(f"  {i+1}/{total} ({(i+1)*100//total}%)", flush=True)
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "wb") as f:
         f.write(out)
 
-    print(f"\nDone. {len(out)} bytes written to '{output_path}'")
-    print(f"  Covered : {covered}/{total} glyphs")
-    print(f"\nC-side (is_fixed_width = true):")
-    print(f"  char_offset      = codepoint - 0x{base_cp:04X};")
-    print(f"  char_data_offset = char_offset * {FIXED_BPG};")
+    print(f"Done: '{output_path}' ({len(out)} bytes, covered {covered}/{total})")
+    if verbose:
+        print(f"\nC-side (is_fixed_width = true):")
+        print(f"  char_offset      = codepoint - 0x{base_cp:04X};")
+        print(f"  char_data_offset = char_offset * {FIXED_BPG};")
 
 
 # ---------------------------------------------------------------------------
@@ -274,8 +275,9 @@ def generate_varwidth(font_path, font_size, font_index, codepoints,
     covered = 0
     cur_off = 0
 
-    print(f"Format : variable-width  (header={N*3}B: {N}B widths + {N*2}B offsets)")
-    print(f"Range  : U+{base_cp:04X}..U+{end_cp:04X}  ({N} slots)")
+    if verbose:
+        print(f"Format : variable-width  (header={N*3}B: {N}B widths + {N*2}B offsets)")
+        print(f"Range  : U+{base_cp:04X}..U+{end_cp:04X}  ({N} slots)")
 
     for i, cp in enumerate(codepoints):
         raw, w = render_glyph_varwidth(img, draw, font, cp, xoffset, yoffset)
@@ -287,7 +289,7 @@ def generate_varwidth(font_path, font_size, font_index, codepoints,
             covered += 1
             if verbose:
                 print(f"  U+{cp:04X} '{chr(cp)}' width={w} data_off={cur_off - len(raw)}")
-        if (i + 1) % 1000 == 0 or i == N - 1:
+        if verbose and ((i + 1) % 1000 == 0 or i == N - 1):
             print(f"  {i+1}/{N} ({(i+1)*100//N}%)", flush=True)
 
     total_size = N + N * 2 + len(pixdata)
@@ -298,18 +300,18 @@ def generate_varwidth(font_path, font_size, font_index, codepoints,
         f.write(offsets)
         f.write(pixdata)
 
-    print(f"\nDone. {total_size} bytes written to '{output_path}'")
-    print(f"  Header  : {N * 3} bytes")
-    print(f"  Pixdata : {len(pixdata)} bytes")
-    print(f"  Covered : {covered}/{N} glyphs")
-    print(f"\nC-side (is_fixed_width = false):")
-    print(f"  char_offset = codepoint - 0x{base_cp:04X};")
-    print(f"  fseek(file, char_offset, SEEK_SET);")
-    print(f"  fread(&width, 1, 1, file);")
-    print(f"  fseek(file, {N} + char_offset * 2, SEEK_SET);")
-    print(f"  fread(&data_offset, 2, 1, file);  // uint16 LE")
-    print(f"  fseek(file, {N * 3} + data_offset, SEEK_SET);")
-    print(f"  fread(buf, 1, FONT_HEIGHT * ((width + 7) / 8), file);")
+    print(f"Done: '{output_path}' ({total_size} bytes, covered {covered}/{N})")
+    if verbose:
+        print(f"  Header  : {N * 3} bytes")
+        print(f"  Pixdata : {len(pixdata)} bytes")
+        print(f"\nC-side (is_fixed_width = false):")
+        print(f"  char_offset = codepoint - 0x{base_cp:04X};")
+        print(f"  fseek(file, char_offset, SEEK_SET);")
+        print(f"  fread(&width, 1, 1, file);")
+        print(f"  fseek(file, {N} + char_offset * 2, SEEK_SET);")
+        print(f"  fread(&data_offset, 2, 1, file);  // uint16 LE")
+        print(f"  fseek(file, {N * 3} + data_offset, SEEK_SET);")
+        print(f"  fread(buf, 1, FONT_HEIGHT * ((width + 7) / 8), file);")
 
 
 # ---------------------------------------------------------------------------
@@ -332,7 +334,8 @@ def generate(font_path, font_size, font_index, ranges, fixed_width,
         print("ERROR: ranges must be contiguous.", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Font   : {font_path}  size={font_size}  index={font_index}")
+    if verbose:
+        print(f"Font   : {font_path}  size={font_size}  index={font_index}")
     try:
         ImageFont.truetype(font_path, font_size, index=font_index)
     except OSError as e:
@@ -414,7 +417,7 @@ def main():
     p.add_argument("--preview", type=lambda x: int(x, 0), metavar="CODEPOINT",
                    help="Preview one codepoint and exit (e.g. 0x03C9)")
     p.add_argument("--verbose", action="store_true",
-                   help="Print each rendered codepoint")
+                   help="Enable detailed logs (progress, ranges, per-glyph info)")
 
     args = p.parse_args()
 
@@ -428,13 +431,19 @@ def main():
             p.error("--all cannot be combined with --script, --range or -o")
         outdir = Path(args.outdir) if args.outdir else Path(args.fontfile).parent
         outdir.mkdir(parents=True, exist_ok=True)
-        print(f"Generating all {len(SCRIPTS)} scripts into '{outdir}'")
-        print(f"Font   : {args.fontfile}  size={args.size}  index={args.index}")
-        print()
+        if args.verbose:
+            print(f"Generating all {len(SCRIPTS)} scripts into '{outdir}'")
+            print(f"Font   : {args.fontfile}  size={args.size}  index={args.index}")
+            print()
+        else:
+            print(f"Generating {len(SCRIPTS)} scripts into '{outdir}'")
         errors = []
         for name, (base, end, desc, fixed_width) in SCRIPTS.items():
             output_path = str(outdir / f"unicode_{name}.bin")
-            print(f"=== {name} — {desc} ===")
+            if args.verbose:
+                print(f"=== {name} — {desc} ===")
+            else:
+                print(f"- {name}")
             try:
                 generate(args.fontfile, args.size, args.index,
                          [(base, end)], fixed_width,
@@ -442,7 +451,8 @@ def main():
             except Exception as e:
                 print(f"  ERROR: {e}")
                 errors.append(name)
-            print()
+            if args.verbose:
+                print()
         print(f"Done. {len(SCRIPTS) - len(errors)}/{len(SCRIPTS)} scripts generated in '{outdir}'")
         if errors:
             print(f"Failed: {', '.join(errors)}")
@@ -456,7 +466,8 @@ def main():
     if args.script:
         base, end, desc, fixed_width = SCRIPTS[args.script]
         ranges = [(base, end)]
-        print(f"Script : {args.script} — {desc}")
+        if args.verbose:
+            print(f"Script : {args.script} — {desc}")
         if args.output is None:
             args.output = str(Path(args.fontfile).parent /
                                f"unicode_{args.script}.bin")
