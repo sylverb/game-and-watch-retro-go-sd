@@ -1,45 +1,88 @@
 # Requires -RunAsAdministrator
+$ErrorActionPreference = "SilentlyContinue"  # Winget/WMI failures are non-fatal
+
+# -- Helpers --------------------------------------------------------------------
+
+function Confirm-Action {
+    param([string]$Prompt, [bool]$Default = $true)
+    $hint = if ($Default) { "[Y/n]" } else { "[y/N]" }
+    $answer = Read-Host "$Prompt $hint"
+    if ($answer -eq '') { return $Default }
+    return $answer -match '^[Yy]'
+}
 
 function Remove-FromPath {
     param([string]$PathToRemove)
-    $CurrentPath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-    if ($CurrentPath -like "*$PathToRemove*") {
-        Write-Host "Removing $PathToRemove from System PATH..."
-        $NewPath = ($CurrentPath -split ';' | Where-Object { $_ -ne $PathToRemove }) -join ';'
-        [Environment]::SetEnvironmentVariable("Path", $NewPath, "Machine")
+    $current = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($current -like "*$PathToRemove*") {
+        $updated = ($current -split ';' | Where-Object { $_ -ne $PathToRemove }) -join ';'
+        [Environment]::SetEnvironmentVariable("Path", $updated, "Machine")
+        Write-Host "  Removed: $PathToRemove"
     }
 }
 
-# 1. Uninstall Winget packages
-$apps = @(
-    "JernejSimoncic.Wget",
-    "Python.Python.3.12",
-    "Git.Git",
-    "MSYS2.MSYS2"
+# -- Winget packages ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "=== Winget Packages ===" -ForegroundColor Cyan
+
+$wingetApps = @(
+    @{ Id = "Python.Python.3.12"; Name = "Python 3.12" }
+    @{ Id = "Git.Git";            Name = "Git" }
+    @{ Id = "MSYS2.MSYS2";        Name = "MSYS2" }
 )
 
-foreach ($app in $apps) {
-    Write-Host "Uninstalling $app..."
-    winget uninstall --id $app -e --silent
+foreach ($app in $wingetApps) {
+    if (Confirm-Action "Uninstall $($app.Name)?") {
+        winget uninstall --id $app.Id -e --silent
+    }
 }
 
-# 2. Uninstall ARM Toolchain (via Product Code or Name search)
-Write-Host "Uninstalling ARM Toolchain..."
-$armApp = Get-WmiObject -Class Win32_Product | Where-Object { $_.Name -match "Arm GNU Toolchain" }
-if ($armApp) {
-    $armApp.Uninstall()
+# -- ARM GNU Toolchain ----------------------------------------------------------
+
+Write-Host ""
+Write-Host "=== ARM GNU Toolchain ===" -ForegroundColor Cyan
+
+if (Confirm-Action "Uninstall ARM GNU Toolchain?") {
+    $armApp = Get-WmiObject -Class Win32_Product | Where-Object { $_.Name -match "Arm GNU Toolchain" }
+    if ($armApp) {
+        $armApp.Uninstall() | Out-Null
+        Write-Host "  ARM Toolchain removed."
+    } else {
+        Write-Host "  Not found - skipping."
+    }
 }
 
-# 3. Clean up PATH
-Remove-FromPath "C:\Program Files\Git\bin"
-Remove-FromPath "C:\msys64\usr\bin"
-Remove-FromPath "C:\msys64\mingw64\bin"
-Remove-FromPath "C:\msys64\ucrt64\bin"
+# -- PATH entries ---------------------------------------------------------------
 
-# 4. Optional: Remove MSYS2 directory leftovers
+Write-Host ""
+Write-Host "=== System PATH Entries ===" -ForegroundColor Cyan
+
+$pathEntries = @(
+    "C:\Program Files\Git\bin"
+    "C:\msys64\usr\bin"
+    "C:\msys64\mingw64\bin"
+    "C:\msys64\ucrt64\bin"
+    "C:\Program Files (x86)\Arm\GNU Toolchain mingw-w64-i686-arm-none-eabi\bin"
+)
+
+if (Confirm-Action "Remove toolchain entries from System PATH?") {
+    foreach ($p in $pathEntries) { Remove-FromPath $p }
+}
+
+# -- MSYS2 directory ------------------------------------------------------------
+
+Write-Host ""
+Write-Host "=== MSYS2 Directory ===" -ForegroundColor Cyan
+
 if (Test-Path "C:\msys64") {
-    Write-Host "Removing residual MSYS2 files..."
-    Remove-Item "C:\msys64" -Recurse -Force
+    if (Confirm-Action "Delete residual MSYS2 files at C:\msys64? (This cannot be undone)") {
+        Remove-Item "C:\msys64" -Recurse -Force
+        Write-Host "  C:\msys64 removed."
+    }
+} else {
+    Write-Host "  C:\msys64 not found - skipping."
 }
 
-Write-Host "Uninstallation complete."
+Write-Host ""
+Write-Host "Uninstallation complete." -ForegroundColor Green
