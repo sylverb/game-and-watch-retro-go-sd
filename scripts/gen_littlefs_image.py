@@ -130,7 +130,7 @@ def main():
     parser.add_argument(
         "--pico8-cores-url",
         default=None,
-        help="Override URL for the PICO-8 GNW cores release ZIP (default: Macs75 v.1.1.3b bundle).",
+        help="Override URL for the PICO-8 GNW cores release ZIP (default: Macs75 v.1.1.4b bundle).",
     )
     parser.add_argument(
         "--omit-pico8-ro-from-gnw-zip",
