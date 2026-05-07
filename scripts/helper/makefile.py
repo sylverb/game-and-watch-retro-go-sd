@@ -38,18 +38,28 @@ def make_arguments(config: BuildConfig) -> list[str]:
             f"FILESYSTEM_OFFSET={config.fs_offset}",
         ]
 
-    if config.coverflow:      args += ["COVERFLOW=1", f"JPG_QUALITY={config.jpg_quality}"]
-    if config.single_font:    args += ["SINGLE_FONT=1"]
-    if config.cheat_codes:    args += ["CHEAT_CODES=1"]
-    if config.msx_use_bank_2: args += ["MSX_USE_BANK_2=1"]
-    if config.ko_kr:          args += ["KO_KR=1"]
-    if config.ja_jp:          args += ["JA_JP=1"]
-    if config.zh_cn:          args += ["ZH_CN=1"]
-    if config.zh_tw:          args += ["ZH_TW=1"]
-    if config.big_bank:       args += ["BIG_BANK=1"]
-    if config.compress:       args += [f"COMPRESS={config.compress}"]
+    _BOOL_FLAGS: list[tuple[bool, str]] = [
+        (config.coverflow,      "COVERFLOW"),
+        (config.single_font,    "SINGLE_FONT"),
+        (config.cheat_codes,    "CHEAT_CODES"),
+        (config.msx_use_bank_2, "MSX_USE_BANK_2"),
+        (config.ko_kr,          "KO_KR"),
+        (config.ja_jp,          "JA_JP"),
+        (config.zh_cn,          "ZH_CN"),
+        (config.zh_tw,          "ZH_TW"),
+        (config.big_bank,       "BIG_BANK"),
+    ]
+    args += [f"{var}=1" for active, var in _BOOL_FLAGS if active]
+
+    if config.coverflow: args += [f"JPG_QUALITY={config.jpg_quality}"]
+    if config.compress:  args += [f"COMPRESS={config.compress}"]
 
     if not config.sd_card:
+        if config.fs_size_mb:
+            args += [
+                f"FILESYSTEM_SIZE={config.fs_size_mb * MiB}",
+                f"FILESYSTEM_OFFSET={config.fs_offset}",
+            ]
         args += ["frogfs_image", "littlefs_image"]
 
     return args
@@ -108,7 +118,7 @@ def run_make_with_progress(cmd: list[str], description: str, dry_run: bool) -> N
 
 if __name__ == "__main__":
     import argparse
-    from scripts.config import load_config, register_args
+    from scripts.helper.config import load_config, register_args
 
     parser = argparse.ArgumentParser(description="Show Make arguments for a given configuration.")
     register_args(parser, "core")
@@ -117,5 +127,3 @@ if __name__ == "__main__":
 
     config = load_config({k: v for k, v in vars(args).items() if v is not None})
     print(" ".join(make_arguments(config)))
-
-

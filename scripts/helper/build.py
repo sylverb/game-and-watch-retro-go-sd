@@ -21,20 +21,30 @@ def build_firmware(config: BuildConfig, dry_run: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    import argparse
-    from scripts.helper.config import load_config, show_summary, register_args
-    from scripts.helper.makefile import make_arguments
-    from scripts.helper.utils import prompt_bool
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-    parser = argparse.ArgumentParser(description="Build Retro-Go firmware.")
-    parser.add_argument("-y", "--yes",    action="store_true", help="Skip confirmation prompts.")
-    parser.add_argument("--no-clean",      action="store_true", help="Do not trigger make clean.")
-    parser.add_argument("--dry-run",       action="store_true", help="Print commands without executing.")
-    register_args(parser, "core")
-    args = parser.parse_args()
+import argparse
+from scripts.helper.config import load_config, show_summary, register_args
+from scripts.helper.makefile import make_arguments
+from scripts.helper.utils import prompt_bool
 
-    skip_keys = {"yes", "dry_run"}
-    config = load_config({k: v for k, v in vars(args).items() if v is not None and k not in skip_keys})
+
+def build_parser(parent=None) -> argparse.ArgumentParser:
+    kwargs = dict(description="Build Retro-Go firmware.", help="Build the firmware.")
+    p = parent.add_parser("build", **kwargs) if parent else argparse.ArgumentParser(**kwargs)
+    p.add_argument("-y", "--yes",      action="store_true", help="Skip confirmation prompts.")
+    p.add_argument("--no-clean",       action="store_true", help="Do not trigger make clean.")
+    p.add_argument("--dry-run",        action="store_true", help="Print commands without executing.")
+    register_args(p, "core")
+    return p
+
+
+if __name__ == "__main__":
+    args      = build_parser().parse_args()
+    skip_keys = {"yes", "dry_run", "no_clean"}
+    config    = load_config({k: v for k, v in vars(args).items() if v is not None and k not in skip_keys})
 
     if not args.yes:
         show_summary(config, make_arguments(config))
@@ -44,5 +54,3 @@ if __name__ == "__main__":
     if not args.no_clean:
         cleanup(dry_run=args.dry_run)
     build_firmware(config, dry_run=args.dry_run)
-
-

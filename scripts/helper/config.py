@@ -171,37 +171,59 @@ class BuildConfig:
             console.print(f"[yellow]Could not load {CHOICES_FILE}: {e}[/yellow]")
             return None
 
-    def validate_flash_limit(self) -> int:
-        """Calculates total footprint and exits with RC 1 if it exceeds flash_mb."""
-        roms_bytes   = sum(f.stat().st_size for f in Path("roms").rglob("*") if f.is_file()) if Path("roms").exists() else 0
+    def validate_flash_limit(self, strict: bool = True) -> int:
+        """Calculates total footprint and warns or exits if it exceeds flash_mb.
+
+        ROM sizes are estimated post-compression using a conservative ratio for
+        8-bit systems (0.65). If strict=True (default), exits on overrun.
+        If strict=False, only warns — allowing the caller's confirm prompt to
+        serve as acknowledgment. Either way, exits immediately if the overrun
+        exceeds what maximum lzma compression could theoretically recover.
+        """
+        LZMA_ESTIMATE    = 0.65   # Conservative ratio for 8-bit ROMs
+        LZMA_THEORETICAL = 0.50   # Physical lower bound — tighter than this is impossible
+
+        rom_files    = [f for f in Path("roms").rglob("*") if f.is_file()] if Path("roms").exists() else []
+        roms_raw     = sum(f.stat().st_size for f in rom_files)
         covers_bytes = sum(f.stat().st_size for f in Path("covers").glob("*.img")) if Path("covers").exists() else 0
 
-        # Calculations[cite: 1]
+        ratio      = LZMA_ESTIMATE if self.compress == "lzma" else 1.0
+        roms_bytes = int(roms_raw * ratio)
+
         stock_offset = self.extflash_offset
-        retro_go_pkg = 2 * MiB               # Fixed overhead for frogfs/firmware
+        retro_go_pkg = 2 * MiB
         lfs_size     = self.fs_size_mb * MiB
-        if self.sd_card:
-            total_needed = stock_offset + retro_go_pkg
-        else:
-            total_needed = stock_offset + retro_go_pkg + roms_bytes + covers_bytes + lfs_size
+        overhead     = stock_offset + retro_go_pkg + covers_bytes + lfs_size
+        total_needed = overhead + (0 if self.sd_card else roms_bytes)
         flash_limit  = self.flash_mb * MiB
 
         if total_needed > flash_limit:
-            console.print("\n[bold red]ERROR: Configuration exceeds Flash capacity![/bold red]")
+            impossible = not self.sd_card and (overhead + int(roms_raw * LZMA_THEORETICAL)) > flash_limit
+
+            console.print(f"\n[bold red]{'ERROR' if impossible else 'WARNING'}: Configuration exceeds Flash capacity![/bold red]")
 
             error_table = Table(box=None, show_header=False)
             error_table.add_row("Stock Firmware Offset:", f"{stock_offset / MiB:>6.2f} MB")
-            error_table.add_row("Retro-Go System:",       f"{(retro_go_pkg / MiB):>6.2f} MB")
-            error_table.add_row("ROMs & Covers:",         f"{(roms_bytes + covers_bytes) / MiB:>6.2f} MB")
+            error_table.add_row("Retro-Go System:",       f"{retro_go_pkg / MiB:>6.2f} MB")
             if not self.sd_card:
-                error_table.add_row("LittleFS Partition:",    f"{self.fs_size_mb:>6.2f} MB")
+                error_table.add_row("ROMs (estimated):",  f"{roms_bytes / MiB:>6.2f} MB  [dim](raw: {roms_raw / MiB:.2f} MB)[/dim]")
+                error_table.add_row("Covers:",            f"{covers_bytes / MiB:>6.2f} MB")
+                error_table.add_row("LittleFS Partition:",f"{self.fs_size_mb:>6.2f} MB")
             error_table.add_row("-" * 30, "")
-            error_table.add_row("[bold]Total Required:[/bold]", f"[red]{total_needed / MiB:.2f} MB[/red]")
+            error_table.add_row("[bold]Total Estimated:[/bold]", f"[red]{total_needed / MiB:.2f} MB[/red]")
             error_table.add_row("[bold]Available Flash:[/bold]", f"{self.flash_mb:.2f} MB")
-
             console.print(error_table)
-            console.print(f"[yellow]Overage:[/yellow] [bold]{(total_needed - flash_limit) / MiB:.2f} MB[/bold]\n")
-            raise SystemExit(1)
+            console.print(f"[yellow]Overage:[/yellow] [bold]{(total_needed - flash_limit) / MiB:.2f} MB[/bold]")
+
+            if impossible:
+                console.print("[red]Overage cannot be recovered by compression — remove some ROMs.[/red]\n")
+                raise SystemExit(1)
+
+            if strict:
+                console.print("[yellow]ROM sizes are estimated post-compression and may differ.[/yellow]\n")
+                raise SystemExit(1)
+
+            console.print("[yellow]ROM sizes are estimated — actual result may fit. Proceed at your own risk.[/yellow]\n")
 
         return total_needed
 
@@ -291,7 +313,7 @@ def configure_interactively(config: BuildConfig) -> BuildConfig:
 
 def show_summary(config: BuildConfig, make_args: list[str] | None = None) -> None:
     """Print a human-readable table of the current build configuration."""
-    size_total = config.validate_flash_limit()
+    size_total = config.validate_flash_limit(strict=False)
     roms_bytes   = sum(f.stat().st_size for f in Path("roms").rglob("*")    if f.is_file()) if Path("roms").exists()   else 0
     covers_bytes = sum(f.stat().st_size for f in Path("covers").glob("*.img"))               if Path("covers").exists() else 0
 
@@ -305,7 +327,7 @@ def show_summary(config: BuildConfig, make_args: list[str] | None = None) -> Non
     table.add_row("Flash bank:",   config.bank)
     if not config.sd_card:
         table.add_row("LittleFS:", f"{config.fs_size_mb} MB")
-    table.add_row("ROMs:",         f"{roms_bytes // MiB} MB")
+    table.add_row("ROMs:",         f"{roms_bytes // MiB} MB  [dim](est. compressed: {int(roms_bytes * (0.65 if config.compress == 'lzma' else 1.0)) // MiB} MB)[/dim]")
     if covers_bytes:
         table.add_row("Covers:",   f"{covers_bytes // MiB} MB")
     table.add_row("Total size:", f"{size_total // MiB} MB")
@@ -331,5 +353,3 @@ def register_args(parser: argparse.ArgumentParser, group: str) -> None:
             parser.add_argument(arg_name, action=argparse.BooleanOptionalAction, help=f"Set {f.name}.")
         else:
             parser.add_argument(arg_name, type=actual_type, help=f"Set {f.name}.")
-
-

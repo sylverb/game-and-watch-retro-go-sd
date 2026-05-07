@@ -100,20 +100,30 @@ def flash_firmware(config: BuildConfig, dry_run: bool = False, pretty: bool = Fa
 
 
 if __name__ == "__main__":
-    import argparse
-    from scripts.helper.config import load_config, show_summary, register_args
-    from scripts.helper.makefile import make_arguments
-    from scripts.helper.utils import prompt_bool
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-    parser = argparse.ArgumentParser(description="Flash Retro-Go firmware.")
-    parser.add_argument("-y", "--yes",    action="store_true", help="Skip confirmation prompts.")
-    parser.add_argument("--dry-run",       action="store_true", help="Print commands without executing.")
-    parser.add_argument("--pretty",        action="store_true", help="Format printed commands for readability.")
-    register_args(parser, "core")
-    args = parser.parse_args()
+import argparse
+from scripts.helper.config import load_config, show_summary, register_args
+from scripts.helper.makefile import make_arguments
+from scripts.helper.utils import prompt_bool
 
+
+def build_parser(parent=None) -> argparse.ArgumentParser:
+    kwargs = dict(description="Flash Retro-Go firmware.", help="Flash the firmware.")
+    p = parent.add_parser("flash", **kwargs) if parent else argparse.ArgumentParser(**kwargs)
+    p.add_argument("-y", "--yes",  action="store_true", help="Skip confirmation prompts.")
+    p.add_argument("--dry-run",    action="store_true", help="Print commands without executing.")
+    p.add_argument("--pretty",     action="store_true", help="Format printed commands for readability.")
+    register_args(p, "core")
+    return p
+
+
+if __name__ == "__main__":
+    args      = build_parser().parse_args()
     skip_keys = {"yes", "dry_run", "pretty"}
-    config = load_config({k: v for k, v in vars(args).items() if v is not None and k not in skip_keys})
+    config    = load_config({k: v for k, v in vars(args).items() if v is not None and k not in skip_keys})
 
     if config.dual_boot and not firmware_backups_exist(Path(config.backup_dir), config.target, config.offset_bytes):
         console.print("[yellow]Stock firmware backup missing — disabling dual-boot.[/yellow]")

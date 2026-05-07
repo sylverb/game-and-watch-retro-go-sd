@@ -107,21 +107,29 @@ def _migrate_backups(repo_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    import argparse
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-    parser = argparse.ArgumentParser(description="Migrate assets from a legacy game-and-watch-retro-go repository.")
-    parser.add_argument("--roms",             action="store_true", help="Migrate ROMs.")
-    parser.add_argument("--covers",           action="store_true", help="Migrate covers.")
-    parser.add_argument("--firmware-backups", action="store_true", help="Migrate firmware backups.")
-    parser.add_argument("--path",             type=str,            help="Path to the old repository.")
-    args = parser.parse_args()
+import argparse
 
+
+def build_parser(parent=None) -> argparse.ArgumentParser:
+    kwargs = dict(description="Migrate assets from a legacy game-and-watch-retro-go repository.", help="Migrate assets from a legacy repository.")
+    p = parent.add_parser("migrate", **kwargs) if parent else argparse.ArgumentParser(**kwargs)
+    p.add_argument("--roms",             action="store_true", help="Migrate ROMs.")
+    p.add_argument("--covers",           action="store_true", help="Migrate covers.")
+    p.add_argument("--firmware-backups", action="store_true", help="Migrate firmware backups.")
+    p.add_argument("--path",             type=str,            help="Path to the old repository.")
+    return p
+
+
+if __name__ == "__main__":
+    args = build_parser().parse_args()
     migrate_assets(
-        do_roms=args,
+        do_roms=args.roms,
         do_covers=args.covers,
         do_backups=args.firmware_backups,
         repo_path=Path(args.path) if args.path else None,
         yes=False,
     )
-
-
