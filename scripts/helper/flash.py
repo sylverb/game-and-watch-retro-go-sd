@@ -75,15 +75,24 @@ def flash_firmware(config: BuildConfig, dry_run: bool = False, pretty: bool = Fa
     commands: list[list[str]] = []
 
     if config.dual_boot:
-        internal = find_backup_file(backup_dir, f"internal_flash_backup_{config.target}.bin", 131072)
-        external = find_backup_file(backup_dir, f"flash_backup_{config.target}.bin",          config.offset_bytes)
-        if not internal or not external:
-            abort("Cannot flash dual-boot: stock firmware backups are missing.")
-        if config.flash_bootloader:
-            commands.append([
-                "gnwmanager", "flash-patch", config.target,
-                str(internal), str(external), "--bootloader",
-            ])
+        if config.flash_locally:
+            internal = find_backup_file(backup_dir, f"internal_flash_backup_{config.target}.bin", 131072)
+            external = find_backup_file(backup_dir, f"flash_backup_{config.target}.bin", config.offset_bytes)
+            if not internal or not external:
+                abort("Cannot flash dual-boot: stock firmware backups are missing.")
+            if config.flash_bootloader:
+                commands.append([
+                    "gnwmanager", "flash-patch", config.target,
+                    str(internal), str(external), "--bootloader",
+                ])
+        else:
+            if config.flash_bootloader:
+                commands.append([
+                    "gnwmanager", "flash-patch", config.target,
+                    f"internal_flash_backup_{config.target}.bin",
+                    f"flash_backup_{config.target}.bin",
+                    "--bootloader",
+                ])
 
     commands += flash_commands(config)
 
