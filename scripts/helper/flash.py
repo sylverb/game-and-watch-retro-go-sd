@@ -116,13 +116,14 @@ def build_parser(parent=None) -> argparse.ArgumentParser:
     p.add_argument("-y", "--yes",  action="store_true", help="Skip confirmation prompts.")
     p.add_argument("--dry-run",    action="store_true", help="Print commands without executing.")
     p.add_argument("--pretty",     action="store_true", help="Format printed commands for readability.")
+    p.add_argument("--force",      action="store_true", help="Proceed even if ROM size estimate exceeds flash capacity.")
     register_args(p, "core")
     return p
 
 
 if __name__ == "__main__":
     args      = build_parser().parse_args()
-    skip_keys = {"yes", "dry_run", "pretty"}
+    skip_keys = {"yes", "dry_run", "pretty", "force"}
     config    = load_config({k: v for k, v in vars(args).items() if v is not None and k not in skip_keys})
 
     if config.dual_boot and not firmware_backups_exist(Path(config.backup_dir), config.target, config.offset_bytes):

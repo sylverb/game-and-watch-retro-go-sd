@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
-from scripts.helper.config import BuildConfig
+from pathlib import Path
+
+from scripts.helper.config import BuildConfig, MiB
 from scripts.helper.makefile import make_arguments, run_make_with_progress
 from scripts.helper.utils import run_command
 
@@ -18,6 +20,28 @@ def build_firmware(config: BuildConfig, dry_run: bool = False) -> None:
     make_cmd       = ["make"] + make_arguments(config)
     extra_targets  = [] if config.sd_card else ["frogfs_image", "littlefs_image"]
     run_make_with_progress(make_cmd + extra_targets, "Compiling firmware…", dry_run)
+
+
+def verify_build_sizes(config: BuildConfig) -> None:
+    """Verify actual frogfs output fits within the available extflash window."""
+    frogfs = Path("build/frogfs.bin")
+    if not frogfs.exists():
+        return  # SD card build or partial build
+
+    actual    = frogfs.stat().st_size
+    available = config.fs_offset  # bytes between extflash_offset and littlefs partition
+
+    if actual > available:
+        from scripts.helper.utils import abort
+        abort(
+            f"frogfs.bin ({actual / MiB:.2f} MB) exceeds available space "
+            f"({available / MiB:.2f} MB) — remove some ROMs and rebuild."
+        )
+
+    console.print(
+        f"[green]Build verified: frogfs.bin uses {actual / MiB:.2f} MB "
+        f"of {available / MiB:.2f} MB available.[/green]"
+    )
 
 
 if __name__ == "__main__":
@@ -36,6 +60,7 @@ def build_parser(parent=None) -> argparse.ArgumentParser:
     p = parent.add_parser("build", **kwargs) if parent else argparse.ArgumentParser(**kwargs)
     p.add_argument("-y", "--yes",      action="store_true", help="Skip confirmation prompts.")
     p.add_argument("--no-clean",       action="store_true", help="Do not trigger make clean.")
+    p.add_argument("--force",          action="store_true", help="Proceed even if ROM size estimate exceeds flash capacity.")
     p.add_argument("--dry-run",        action="store_true", help="Print commands without executing.")
     register_args(p, "core")
     return p
@@ -43,7 +68,7 @@ def build_parser(parent=None) -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     args      = build_parser().parse_args()
-    skip_keys = {"yes", "dry_run", "no_clean"}
+    skip_keys = {"yes", "dry_run", "no_clean", "force"}
     config    = load_config({k: v for k, v in vars(args).items() if v is not None and k not in skip_keys})
 
     if not args.yes:
@@ -54,3 +79,5 @@ if __name__ == "__main__":
     if not args.no_clean:
         cleanup(dry_run=args.dry_run)
     build_firmware(config, dry_run=args.dry_run)
+    if not args.dry_run and not config.sd_card:
+        verify_build_sizes(config)
