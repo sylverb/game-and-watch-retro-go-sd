@@ -106,7 +106,7 @@ class BuildConfig:
         metadata={"group": "makefile"}
     )
     compress: str  = field(
-        default="lzma",
+        default="", #
         metadata={"group": "makefile"}
     )
     big_bank: bool = field(
