@@ -1,0 +1,335 @@
+#!/usr/bin/env python3
+"""Build configuration: dataclass, persistence, interactive setup, and summary display."""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import os
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import Any, get_type_hints
+
+import yaml
+from rich.table import Table
+
+from scripts.helper.utils import console, abort, prompt_text, prompt_bool
+
+CHOICES_FILE = Path("choices.yaml")
+MiB          = 1024 * 1024
+OFFSET_MB    = {"mario": 1, "zelda": 4}
+OFFSET_BYTES = {k: v * MiB for k, v in OFFSET_MB.items()}
+
+
+@dataclass
+class BuildConfig:
+    # ── Core settings ──────────────────────────────────────────────────────────
+    target: str = field(
+        default="mario",
+        metadata={"group": "core", "prompt": "Target device (mario/zelda)"}
+    )
+    flash_mb: int = field(
+        default=0,
+        metadata={"group": "core", "prompt": "Flash chip size in MB (defaults to stock)"}
+    )
+    dual_boot: bool = field(
+        default=True,
+        metadata={"group": "core", "prompt": "Enable dual-boot (stock + retro-go)?"}
+    )
+    sd_card: bool = field(
+        default=False,
+        metadata={"group": "core", "prompt": "SD card installation?"}
+    )
+    flash_locally: bool = field(
+        default=False,
+        metadata={"group": "core", "prompt": "Flash the device on this machine?"}
+    )
+    backup_dir: str = field(
+        default="./",
+        metadata={"group": "core", "prompt": "Path to backup directory"}
+    )
+    fs_size_mb: int = field(
+        default=0,
+        metadata={"group": "core", "prompt": "LittleFS partition size in MB (automatic)"}
+    )
+
+    # ── Makefile options ───────────────────────────────────────────────────────
+    flash_bootloader: bool = field(
+        default=False,
+        metadata={"group": "makefile", "prompt": "Flash the bootloader?"}
+    )
+    single_font: bool = field(
+        default=True,
+        metadata={"group": "makefile", "prompt": "Add additional fonts?"}
+    )
+    ko_kr: bool = field(
+        default=False,
+        metadata={"group": "makefile", "prompt": "Add Korean fonts?"}
+    )
+    ja_jp: bool = field(
+        default=False,
+        metadata={"group": "makefile", "prompt": "Add Japanese fonts?"})
+    zh_cn: bool = field(
+        default=False,
+        metadata={"group": "makefile", "prompt": "Add Chinese (Simplified) fonts?"}
+    )
+    zh_tw: bool = field(
+        default=False,
+        metadata={"group": "makefile", "prompt": "Add Chinese (Traditional) fonts?"}
+    )
+    coverflow: bool = field(
+        default=False,
+        metadata={"group": "makefile"}
+    )
+    jpg_quality: int  = field(
+        default=85,
+        metadata={"group": "makefile"}
+    )
+    cheat_codes: bool = field(
+        default=False,
+        metadata={"group": "makefile", "prompt": "Enable cheat codes?"}
+    )
+    msx_use_bank_2: bool = field(
+        default=False,
+        metadata={"group": "makefile"}
+    )
+    enable_screenshot: bool = field(
+        default=True,
+        metadata={"group": "makefile", "prompt": "Enable screenshots?"}
+    )
+    shared_hibernate_savestate: bool = field(
+        default=True,
+        metadata={"group": "makefile"}
+    )
+    disable_splash_screen: bool = field(
+        default=True,
+        metadata={"group": "makefile"}
+    )
+    compress: str  = field(
+        default="lzma",
+        metadata={"group": "makefile"}
+    )
+    big_bank: bool = field(
+        default=True,
+        metadata={"group": "makefile"}
+    )
+    # ── Derived properties ─────────────────────────────────────────────────────
+
+    def __post_init__(self):
+        """Handle logic for non-interactive initialization (CLI/Env/YAML)."""
+        # If fs_size_mb is at its 'sentinel' default of 0, calculate it
+        if self.fs_size_mb == 0:
+            self.fs_size_mb = max(2, int(self.flash_mb * 0.1))
+
+    @property
+    def intflash_bank(self) -> int:
+        return 2 if self.dual_boot else 1
+
+    @property
+    def extflash_offset(self) -> int:
+        return OFFSET_BYTES[self.target] if self.dual_boot else 0
+
+    @property
+    def extflash_size_mb(self) -> int:
+        return (self.flash_mb - OFFSET_MB[self.target]) if self.dual_boot else self.flash_mb
+
+    @property
+    def bank(self) -> str:
+        return f"bank{self.intflash_bank}"
+
+    @property
+    def offset_bytes(self) -> int:
+        return OFFSET_BYTES[self.target]
+
+    @property
+    def fs_offset(self) -> int:
+        return self.extflash_size_mb * MiB - self.fs_size_mb * MiB
+
+    @property
+    def filesystem_flash_offset(self) -> int:
+        return self.extflash_offset + self.fs_offset
+
+    # ── Persistence ────────────────────────────────────────────────────────────
+
+    def save(self) -> None:
+        with open(CHOICES_FILE, "w") as f:
+            yaml.dump(asdict(self), f, default_flow_style=False, sort_keys=False)
+        console.print(f"[green]Configuration saved to {CHOICES_FILE}[/green]")
+
+    @classmethod
+    def from_yaml(cls) -> BuildConfig | None:
+        if not CHOICES_FILE.exists():
+            return None
+        try:
+            with open(CHOICES_FILE) as f:
+                data = yaml.safe_load(f)
+            if not data:
+                return None
+            known_fields = {f.name for f in dataclasses.fields(cls)}
+            return cls(**{k: v for k, v in data.items() if k in known_fields})
+        except (yaml.YAMLError, TypeError) as e:
+            console.print(f"[yellow]Could not load {CHOICES_FILE}: {e}[/yellow]")
+            return None
+
+    def validate_flash_limit(self) -> int:
+        """Calculates total footprint and exits with RC 1 if it exceeds flash_mb."""
+        roms_bytes   = sum(f.stat().st_size for f in Path("roms").rglob("*") if f.is_file()) if Path("roms").exists() else 0
+        covers_bytes = sum(f.stat().st_size for f in Path("covers").glob("*.img")) if Path("covers").exists() else 0
+
+        # Calculations[cite: 1]
+        stock_offset = self.extflash_offset
+        retro_go_pkg = 2 * MiB               # Fixed overhead for frogfs/firmware
+        lfs_size     = self.fs_size_mb * MiB
+        if self.sd_card:
+            total_needed = stock_offset + retro_go_pkg
+        else:
+            total_needed = stock_offset + retro_go_pkg + roms_bytes + covers_bytes + lfs_size
+        flash_limit  = self.flash_mb * MiB
+
+        if total_needed > flash_limit:
+            console.print("\n[bold red]ERROR: Configuration exceeds Flash capacity![/bold red]")
+
+            error_table = Table(box=None, show_header=False)
+            error_table.add_row("Stock Firmware Offset:", f"{stock_offset / MiB:>6.2f} MB")
+            error_table.add_row("Retro-Go System:",       f"{(retro_go_pkg / MiB):>6.2f} MB")
+            error_table.add_row("ROMs & Covers:",         f"{(roms_bytes + covers_bytes) / MiB:>6.2f} MB")
+            if not self.sd_card:
+                error_table.add_row("LittleFS Partition:",    f"{self.fs_size_mb:>6.2f} MB")
+            error_table.add_row("-" * 30, "")
+            error_table.add_row("[bold]Total Required:[/bold]", f"[red]{total_needed / MiB:.2f} MB[/red]")
+            error_table.add_row("[bold]Available Flash:[/bold]", f"{self.flash_mb:.2f} MB")
+
+            console.print(error_table)
+            console.print(f"[yellow]Overage:[/yellow] [bold]{(total_needed - flash_limit) / MiB:.2f} MB[/bold]\n")
+            raise SystemExit(1)
+
+        return total_needed
+
+
+def load_config(cli_args: dict[str, Any]) -> BuildConfig:
+    """
+    Merge configuration from three sources, in ascending order of precedence:
+      1. choices.yaml
+      2. Environment variables  (e.g. TARGET=zelda)
+      3. CLI arguments
+    """
+    merged: dict[str, Any] = {}
+
+    yaml_config = BuildConfig.from_yaml()
+    if yaml_config:
+        merged.update(asdict(yaml_config))
+
+    type_hints = get_type_hints(BuildConfig)
+    for f in dataclasses.fields(BuildConfig):
+        env_value = os.environ.get(f.name.upper())
+        if env_value is not None:
+            merged[f.name] = _cast_env_value(env_value, type_hints[f.name], f.name.upper())
+
+    known_fields = {f.name for f in dataclasses.fields(BuildConfig)}
+    for key, value in cli_args.items():
+        if value is not None and key in known_fields:
+            merged[key] = value
+
+    return BuildConfig(**merged) if merged else BuildConfig()
+
+
+def _cast_env_value(raw: str, target_type: type, var_name: str) -> Any:
+    if target_type is bool:
+        if raw.lower() in ("true", "1", "yes", "y"):  return True
+        if raw.lower() in ("false", "0", "no",  "n"): return False
+        abort(f"{var_name} must be boolean (true/false/1/0). Got: {raw!r}")
+    try:
+        return target_type(raw)
+    except ValueError:
+        abort(f"{var_name} must be {target_type.__name__}. Got: {raw!r}")
+
+
+def configure_interactively(config: BuildConfig) -> BuildConfig:
+    type_hints = get_type_hints(BuildConfig)
+
+    for f in dataclasses.fields(config):
+        prompt_str = f.metadata.get("prompt")
+        if not prompt_str:
+            continue
+
+        # Use the value already in the config object as the default[cite: 1]
+        current_val = getattr(config, f.name)
+
+        # Apply dynamic default for LittleFS only if current value is 0
+        if f.name == "fs_size_mb" and current_val == 0:
+            current_val = max(2, int(config.flash_mb * 0.1))
+
+        field_type = type_hints[f.name]
+        if field_type is bool:
+            val = prompt_bool(prompt_str, current_val)
+        else:
+            val = prompt_text(prompt_str, str(current_val))
+            if field_type is int:
+                try:
+                    val = int(val)
+                except ValueError:
+                    abort(f"Value for {f.name} must be an integer.")
+
+        if f.name == "target":
+            val = {"m": "mario", "mario": "mario", "z": "zelda", "zelda": "zelda"}.get(val.lower())
+            if not val:
+                abort("Target must be mario or zelda.")
+
+            # FIX: Only overwrite flash_mb with stock size if it is currently 0.
+            # This preserves saved values from choices.yaml.[cite: 1]
+            if config.flash_mb == 0:
+                config.flash_mb = OFFSET_MB[val]
+
+        setattr(config, f.name, val)
+
+    # Tally and validate before returning
+    print()
+    show_summary(config=config, make_args=None)
+    config.validate_flash_limit()
+    return config
+
+
+def show_summary(config: BuildConfig, make_args: list[str] | None = None) -> None:
+    """Print a human-readable table of the current build configuration."""
+    size_total = config.validate_flash_limit()
+    roms_bytes   = sum(f.stat().st_size for f in Path("roms").rglob("*")    if f.is_file()) if Path("roms").exists()   else 0
+    covers_bytes = sum(f.stat().st_size for f in Path("covers").glob("*.img"))               if Path("covers").exists() else 0
+
+    table = Table(title="Current Build Configuration", show_header=False, box=None)
+    table.add_column("", style="cyan",  justify="right")
+    table.add_column("", style="white")
+
+    table.add_row("Target:",       config.target.capitalize())
+    table.add_row("Flash:",        f"{config.flash_mb} MB ({'SD card' if config.sd_card else 'Flash only'})")
+    table.add_row("Dual-boot:",    "Yes" if config.dual_boot else "No")
+    table.add_row("Flash bank:",   config.bank)
+    if not config.sd_card:
+        table.add_row("LittleFS:", f"{config.fs_size_mb} MB")
+    table.add_row("ROMs:",         f"{roms_bytes // MiB} MB")
+    if covers_bytes:
+        table.add_row("Covers:",   f"{covers_bytes // MiB} MB")
+    table.add_row("Total size:", f"{size_total // MiB} MB")
+    table.add_row("Flash method:", "Local (gnwmanager)" if config.flash_locally else "Print commands")
+    if make_args:
+        table.add_row("Make args:", "")
+
+    console.print(table)
+    if make_args:
+        print("                "+" ".join(make_args))
+    console.print()
+
+
+def register_args(parser: argparse.ArgumentParser, group: str) -> None:
+    """Register BuildConfig fields for a given group as CLI arguments on a parser."""
+    type_hints = get_type_hints(BuildConfig)
+    for f in dataclasses.fields(BuildConfig):
+        if f.metadata.get("group") != group:
+            continue
+        arg_name    = f"--{f.name.replace('_', '-')}"
+        actual_type = type_hints[f.name]
+        if actual_type is bool:
+            parser.add_argument(arg_name, action=argparse.BooleanOptionalAction, help=f"Set {f.name}.")
+        else:
+            parser.add_argument(arg_name, type=actual_type, help=f"Set {f.name}.")
+
+

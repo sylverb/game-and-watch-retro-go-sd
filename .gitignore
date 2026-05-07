@@ -41,3 +41,4 @@ screenshot.png
 .idea/
 cmake-build-debug
 .gitignore.local
+choices.yaml
