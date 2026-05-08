@@ -17,7 +17,7 @@ from scripts.helper.utils import console, abort
 SUPPORT_DISCORD  = "https://discord.gg/vVcwrrHTNJ"
 BUILD_ERROR_LOG  = Path("build-error.log")
 # Lines shown in the terminal on build failure (tail of diagnostic output)
-ERROR_TAIL_LINES = 15
+ERROR_TAIL_LINES = 40
 
 _DRY_RUN_STEP_RE = re.compile(r"echo\s+\[\s*([^\]]+?)\s*\]\s+(.+)")
 _BUILD_OUTPUT_RE = re.compile(r"^\[\s*([^\]]+?)\s*\]\s+(.+)")
