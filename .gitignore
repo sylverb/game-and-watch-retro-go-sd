@@ -42,3 +42,4 @@ screenshot.png
 cmake-build-debug
 .gitignore.local
 choices.yaml
+build-error.log
