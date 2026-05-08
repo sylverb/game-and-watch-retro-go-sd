@@ -13,12 +13,13 @@ from typing import Any, get_type_hints
 import yaml
 from rich.table import Table
 
-from scripts.helper.utils import console, abort, prompt_text, prompt_bool
+from scripts.helper.utils import console, abort, prompt_text, prompt_bool, calculate_rom_size
 
 CHOICES_FILE = Path("choices.yaml")
 MiB          = 1024 * 1024
 OFFSET_MB    = {"mario": 1, "zelda": 4}
 OFFSET_BYTES = {k: v * MiB for k, v in OFFSET_MB.items()}
+FS_SIZE_MIN_MB = 4 # set to 4MB because 2MB or less fails to build currently
 
 
 @dataclass
@@ -28,6 +29,10 @@ class BuildConfig:
         default="mario",
         metadata={"group": "core", "prompt": "Target device (mario/zelda)"}
     )
+    sd_card: bool = field(
+        default=False,
+        metadata={"group": "core", "prompt": "SD card installation?"}
+    )
     flash_mb: int = field(
         default=0,
         metadata={"group": "core", "prompt": "Flash chip size in MB (defaults to stock)"}
@@ -35,10 +40,6 @@ class BuildConfig:
     dual_boot: bool = field(
         default=True,
         metadata={"group": "core", "prompt": "Enable dual-boot (stock + retro-go)?"}
-    )
-    sd_card: bool = field(
-        default=False,
-        metadata={"group": "core", "prompt": "SD card installation?"}
     )
     flash_locally: bool = field(
         default=False,
@@ -106,20 +107,20 @@ class BuildConfig:
         metadata={"group": "makefile"}
     )
     compress: str  = field(
-        default="", #
+        default="",
         metadata={"group": "makefile"}
     )
     big_bank: bool = field(
         default=True,
         metadata={"group": "makefile"}
     )
+
     # ── Derived properties ─────────────────────────────────────────────────────
 
     def __post_init__(self):
         """Handle logic for non-interactive initialization (CLI/Env/YAML)."""
-        # If fs_size_mb is at its 'sentinel' default of 0, calculate it
         if self.fs_size_mb == 0:
-            self.fs_size_mb = max(2, int(self.flash_mb * 0.1))
+            self.fs_size_mb = max(FS_SIZE_MIN_MB, int(self.flash_mb * 0.1))
 
     @property
     def intflash_bank(self) -> int:
@@ -180,11 +181,10 @@ class BuildConfig:
         serve as acknowledgment. Either way, exits immediately if the overrun
         exceeds what maximum lzma compression could theoretically recover.
         """
-        LZMA_ESTIMATE    = 0.65   # Conservative ratio for 8-bit ROMs
-        LZMA_THEORETICAL = 0.50   # Physical lower bound — tighter than this is impossible
+        LZMA_ESTIMATE    = 0.65
+        LZMA_THEORETICAL = 0.50
 
-        rom_files    = [f for f in Path("roms").rglob("*") if f.is_file()] if Path("roms").exists() else []
-        roms_raw     = sum(f.stat().st_size for f in rom_files)
+        roms_raw     = calculate_rom_size(Path("roms"))
         covers_bytes = sum(f.stat().st_size for f in Path("covers").glob("*.img")) if Path("covers").exists() else 0
 
         ratio      = LZMA_ESTIMATE if self.compress == "lzma" else 1.0
@@ -274,12 +274,14 @@ def configure_interactively(config: BuildConfig) -> BuildConfig:
         if not prompt_str:
             continue
 
-        # Use the value already in the config object as the default[cite: 1]
+        # SD card mod means no LittleFS partition is needed
+        if f.name == "fs_size_mb" and config.sd_card:
+            continue
+
         current_val = getattr(config, f.name)
 
-        # Apply dynamic default for LittleFS only if current value is 0
         if f.name == "fs_size_mb" and current_val == 0:
-            current_val = max(2, int(config.flash_mb * 0.1))
+            current_val = max(FS_SIZE_MIN_MB, int(config.flash_mb * 0.1))
 
         field_type = type_hints[f.name]
         if field_type is bool:
@@ -296,15 +298,11 @@ def configure_interactively(config: BuildConfig) -> BuildConfig:
             val = {"m": "mario", "mario": "mario", "z": "zelda", "zelda": "zelda"}.get(val.lower())
             if not val:
                 abort("Target must be mario or zelda.")
-
-            # FIX: Only overwrite flash_mb with stock size if it is currently 0.
-            # This preserves saved values from choices.yaml.[cite: 1]
             if config.flash_mb == 0:
                 config.flash_mb = OFFSET_MB[val]
 
         setattr(config, f.name, val)
 
-    # Tally and validate before returning
     print()
     show_summary(config=config, make_args=None)
     config.validate_flash_limit()
@@ -313,9 +311,9 @@ def configure_interactively(config: BuildConfig) -> BuildConfig:
 
 def show_summary(config: BuildConfig, make_args: list[str] | None = None) -> None:
     """Print a human-readable table of the current build configuration."""
-    size_total = config.validate_flash_limit(strict=False)
-    roms_bytes   = sum(f.stat().st_size for f in Path("roms").rglob("*")    if f.is_file()) if Path("roms").exists()   else 0
-    covers_bytes = sum(f.stat().st_size for f in Path("covers").glob("*.img"))               if Path("covers").exists() else 0
+    size_total   = config.validate_flash_limit(strict=False)
+    roms_bytes   = calculate_rom_size(Path("roms"))
+    covers_bytes = sum(f.stat().st_size for f in Path("covers").glob("*.img")) if Path("covers").exists() else 0
 
     table = Table(title="Current Build Configuration", show_header=False, box=None)
     table.add_column("", style="cyan",  justify="right")
