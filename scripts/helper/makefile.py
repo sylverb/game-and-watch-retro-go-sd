@@ -32,12 +32,6 @@ def make_arguments(config: BuildConfig) -> list[str]:
         f"ENABLE_SCREENSHOT={1 if config.enable_screenshot else 0}",
     ]
 
-    if not config.sd_card and config.fs_size_mb:
-        args += [
-            f"FILESYSTEM_SIZE={config.fs_size_mb * MiB}",
-            f"FILESYSTEM_OFFSET={config.fs_offset}",
-        ]
-
     _BOOL_FLAGS: list[tuple[bool, str]] = [
         (config.coverflow,      "COVERFLOW"),
         (config.single_font,    "SINGLE_FONT"),
