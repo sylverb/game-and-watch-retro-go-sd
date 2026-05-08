@@ -7,11 +7,17 @@ import os
 import re
 import shlex
 import subprocess
+from pathlib import Path
 
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 
 from scripts.helper.config import BuildConfig, MiB
 from scripts.helper.utils import console, abort
+
+SUPPORT_DISCORD  = "https://discord.gg/vVcwrrHTNJ"
+BUILD_ERROR_LOG  = Path("build-error.log")
+# Lines shown in the terminal on build failure (tail of diagnostic output)
+ERROR_TAIL_LINES = 15
 
 _DRY_RUN_STEP_RE = re.compile(r"echo\s+\[\s*([^\]]+?)\s*\]\s+(.+)")
 _BUILD_OUTPUT_RE = re.compile(r"^\[\s*([^\]]+?)\s*\]\s+(.+)")
@@ -76,7 +82,8 @@ def run_make_with_progress(cmd: list[str], description: str, dry_run: bool) -> N
         console.print(f"[yellow][DRY-RUN] {shlex.join(cmd)}[/yellow]")
         return
 
-    total = count_make_steps(cmd)
+    total        = count_make_steps(cmd)
+    output_lines: list[str] = []
 
     with Progress(
         SpinnerColumn(),
@@ -99,6 +106,7 @@ def run_make_with_progress(cmd: list[str], description: str, dry_run: bool) -> N
         )
 
         for line in process.stdout:
+            output_lines.append(line)
             match = _BUILD_OUTPUT_RE.match(line.strip())
             if match:
                 label = f"[{match.group(1).strip()}] {match.group(2).strip()}"
@@ -107,7 +115,30 @@ def run_make_with_progress(cmd: list[str], description: str, dry_run: bool) -> N
         process.wait()
 
     if process.returncode != 0:
-        abort(f"Build failed (exit code {process.returncode})")
+        _handle_build_failure(cmd, output_lines, process.returncode)
+
+
+def _handle_build_failure(cmd: list[str], output_lines: list[str], returncode: int) -> None:
+    """Write the full build log, surface the relevant diagnostics, and point to support."""
+    BUILD_ERROR_LOG.write_text("".join(output_lines))
+
+    # Strip the [TAG] step-marker lines — what remains is compiler/linker diagnostics
+    diag_lines = [
+        l.rstrip() for l in output_lines
+        if l.strip() and not _BUILD_OUTPUT_RE.match(l.strip())
+    ]
+
+    console.print("\n[bold red]Build failed![/bold red]")
+
+    if diag_lines:
+        tail = diag_lines[-ERROR_TAIL_LINES:]
+        console.print("[red]" + "\n".join(tail) + "[/red]")
+
+    console.print(
+        f"\n[yellow]Full build log → {BUILD_ERROR_LOG.resolve()}[/yellow]\n"
+        f"[cyan]Need help? Join us on Discord and upload the log in our #support channel: {SUPPORT_DISCORD}[/cyan]"
+    )
+    raise SystemExit(1)
 
 
 if __name__ == "__main__":
@@ -121,3 +152,4 @@ if __name__ == "__main__":
 
     config = load_config({k: v for k, v in vars(args).items() if v is not None})
     print(" ".join(make_arguments(config)))
+

@@ -13,6 +13,34 @@ from rich.console import Console
 
 console = Console()
 
+# ROM file extensions recognized by the build system
+ROM_EXTENSIONS: frozenset[str] = frozenset({
+    ".gb", ".gbc",
+    ".nes", ".fds", ".nsf",
+    ".ggcodes", ".gw",
+    ".sms", ".gg", ".sg",
+    ".md", ".gen",
+    ".bin",
+    ".col",
+    ".pce", ".pceplus",
+    ".rom",
+    ".dsk",
+    ".mx1", ".mx2", ".mcf",
+    ".a28", ".a78",
+    ".png", ".jpg", ".bmp",
+})
+
+
+def calculate_rom_size(roms_dir: Path) -> int:
+    """Return total bytes of all ROM files under *roms_dir* that the build system will pick up."""
+    if not roms_dir.exists():
+        return 0
+    return sum(
+        f.stat().st_size
+        for f in roms_dir.rglob("*")
+        if f.is_file() and f.suffix.lower() in ROM_EXTENSIONS
+    )
+
 
 def abort(message: str) -> None:
     console.print(f"[bold red]{message}[/bold red]")
@@ -63,4 +91,3 @@ def run_command(cmd: list[str], dry_run: bool) -> None:
         console.print(f"[yellow][DRY-RUN] {shlex.join(cmd)}[/yellow]")
         return
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
-
