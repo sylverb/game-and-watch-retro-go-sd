@@ -101,9 +101,9 @@ RUN apt-get update -y && \
         make \
         patch \
         sudo \
-        xxd && \
-        apt-get clean && \
-        rm -rf /var/lib/apt/lists/*
+        xxd \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY ./requirements.txt /requirements.txt
 COPY ./external/zelda3/requirements.txt /external/zelda3/requirements.txt

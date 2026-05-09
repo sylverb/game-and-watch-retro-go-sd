@@ -28,6 +28,7 @@ DOCKER_RUN := docker run --rm -it \
     --network host \
     --name $(CONTAINER_NAME) \
     --hostname $(CONTAINER_NAME) \
+    --add-host $(CONTAINER_NAME):127.0.0.1 \
     --user $(shell id -u):$(shell id -g) \
     -v $(CURDIR):/opt/workdir \
     --device=/dev/bus/usb \
