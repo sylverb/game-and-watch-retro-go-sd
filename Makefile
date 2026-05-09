@@ -890,6 +890,7 @@ FATFS_INCLUDES += \
 
 MSX_C_INCLUDES += \
 -ICore/Inc \
+-ICore/Inc/retro-go \
 -ICore/Src/porting/lib \
 -ICore/Src/porting/lib/lzma \
 -I$(CORE_MSX) \
