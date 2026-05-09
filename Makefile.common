@@ -21,12 +21,21 @@ LARGE_FLASH ?= 0
 SD_CARD ?= 1
 
 # Docker image for reproducible ARM builds (see targets docker, docker_build).
-DOCKER_IMAGE ?= sylverb/retro-go-sd-builder:v1.4
-DOCKER_RUN := docker run --rm -it --privileged --network host \
-	--user $(shell id -u):$(shell id -g) \
-	-v $(CURDIR):/opt/workdir \
-	-v /dev/bus/usb:/dev/bus/usb \
-	$(DOCKER_IMAGE)
+RELEASE_VERSION ?= v1.4
+CONTAINER_NAME ?= retro-go-sd
+DOCKER_IMAGE ?= sylverb/retro-go-sd-builder:$(RELEASE_VERSION)
+DOCKER_RUN := docker run --rm -it \
+    --network host \
+    --name $(CONTAINER_NAME) \
+    --hostname $(CONTAINER_NAME) \
+    --user $(shell id -u):$(shell id -g) \
+    -v $(CURDIR):/opt/workdir \
+    --device=/dev/bus/usb \
+    $(DOCKER_IMAGE)
+
+# Docker bulid args
+ARCH ?= $(shell uname -m)
+ARM_COMPILER_VERSION ?= 15.2.rel1
 
 # Configure where data is stored in the external flash by
 # setting EXTFLASH_OFFSET. Useful if the first 1MB/4MB are to be preserved.
@@ -1409,20 +1418,20 @@ dump_screenshot:
 .PHONY: dump_screenshot
 
 docker_build:
-	$(V)docker build --network=host -f Dockerfile --tag $(DOCKER_IMAGE) .
+	echo $(V)docker build --network=host --build-arg ARCH=$(ARCH) -f Dockerfile --tag $(DOCKER_IMAGE) .
 .PHONY: docker_build
 
 docker:
 ifeq ($(SD_CARD),0)
-	$(V)$(DOCKER_RUN) bash -l
+	$(V)$(DOCKER_RUN) bash
 else
-	$(V)$(DOCKER_RUN) bash -l -c "make -j\$$(nproc) CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 INTFLASH_BANK=2 CHEAT_CODES=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 release"
+	$(V)$(DOCKER_RUN) bash -c "make -j\$$(nproc) CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 INTFLASH_BANK=2 CHEAT_CODES=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 release"
 endif
 .PHONY: docker
 
 # Interactive shell without building release (handy when SD_CARD=1 but you only want the container).
 docker_shell:
-	$(V)$(DOCKER_RUN) bash -l
+	$(V)$(DOCKER_RUN) bash
 .PHONY: docker_shell
 
 help:
