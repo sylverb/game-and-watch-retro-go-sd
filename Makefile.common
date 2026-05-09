@@ -34,6 +34,12 @@ DOCKER_RUN := docker run --rm -it \
     --device=/dev/bus/usb \
     $(DOCKER_IMAGE)
 
+# Set DOCKER=1 to run build/flash/release targets inside the container rather than locally.
+# docker_build and docker_shell are always Docker-specific and unaffected by this flag.
+DOCKER ?= 0
+# Forward all user-specified variables to the inner make, minus DOCKER itself.
+_DOCKER_FWDVARS := $(filter-out DOCKER=%,$(MAKEOVERRIDES))
+
 # Docker bulid args
 ARCH ?= $(shell uname -m)
 ARM_COMPILER_VERSION ?= 15.2.rel1
@@ -680,12 +686,17 @@ LDFLAGS += $(MCU) -specs=nano.specs -T$(LDSCRIPT) $(LIBDIR) $(LIBS) $(CXXLIBS) -
 LDFLAGS += -Wl,--wrap=fflush
 
 # default action: build all (FrogFS has no gw_*_extflash.bin payload — flash frogfs.bin instead)
+ifeq ($(DOCKER),1)
+all: FORCE
+	$(V)$(DOCKER_RUN) $(MAKE) -j$$(nproc) all $(_DOCKER_FWDVARS) CHECK_DIRTY_SUBMODULE=0
+else
 all: CheckTools CheckDirtySubmodules $(BUILD_DIR) $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET)_intflash.bin $(BUILD_DIR)/$(TARGET)_intflash2.bin
 ifneq ($(SD_CARD),0)
 all: $(BUILD_DIR)/$(TARGET)_extflash.bin
 endif
 ifeq ($(SD_CARD),0)
 all: $(FROGFS_IMAGE)
+endif
 endif
 
 #######################################
@@ -1130,11 +1141,20 @@ start:  # Start code located at INTFLASH_ADDRESS
 .PHONY: start
 
 
+ifeq ($(DOCKER),1)
+flash_intflash: FORCE
+	$(V)$(DOCKER_RUN) $(MAKE) flash_intflash $(_DOCKER_FWDVARS) CHECK_DIRTY_SUBMODULE=0
+else
 flash_intflash: $(BUILD_DIR)/$(TARGET)_intflash.bin
 	$(GNWMANAGER) flash $(INTFLASH_ADDRESS) $< -- start $(INTFLASH_ADDRESS)
+endif
 .PHONY: flash_intflash
 
 
+ifeq ($(DOCKER),1)
+flash_extflash: FORCE
+	$(V)$(DOCKER_RUN) $(MAKE) flash_extflash $(_DOCKER_FWDVARS) CHECK_DIRTY_SUBMODULE=0
+else
 flash_extflash:
 ifeq ($(SD_CARD), 0)
 	@$(MAKE) --no-print-directory $(FROGFS_IMAGE) $(LITTLEFS_IMAGE)
@@ -1142,9 +1162,14 @@ ifeq ($(SD_CARD), 0)
 		-- flash ext $(LITTLEFS_IMAGE) --offset=$(FILESYSTEM_FLASH_OFFSET) \
 		-- start $(INTFLASH_ADDRESS)
 endif
+endif
 .PHONY: flash_extflash
 
 # Programs both the external and internal flash.
+ifeq ($(DOCKER),1)
+flash: FORCE
+	$(V)$(DOCKER_RUN) $(MAKE) flash $(_DOCKER_FWDVARS) CHECK_DIRTY_SUBMODULE=0
+else
 flash: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin $(if $(filter-out 0,$(SD_CARD)),$(BUILD_DIR)/$(TARGET)_extflash.bin,)
 ifeq ($(SD_CARD), 0)
 	@$(MAKE) --no-print-directory $(FROGFS_IMAGE) $(LITTLEFS_IMAGE)
@@ -1157,6 +1182,7 @@ else
 	@$(GNWMANAGER) flash $(INTFLASH_ADDRESS) $(BUILD_DIR)/$(TARGET)_intflash.bin \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
+endif
 endif
 .PHONY: flash
 
@@ -1329,6 +1355,10 @@ $(LITTLEFS_IMAGE): create_sd_data scripts/gen_littlefs_image.py scripts/sd_cores
 littlefs_image: $(LITTLEFS_IMAGE)
 .PHONY: littlefs_image
 
+ifeq ($(DOCKER),1)
+flash_sd: FORCE
+	$(V)$(DOCKER_RUN) $(MAKE) flash_sd $(_DOCKER_FWDVARS) CHECK_DIRTY_SUBMODULE=0
+else
 flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
 	$(eval MAPPERS_SDPUSH := $(foreach mapper,$(MAPPER_NAMES),-- sdpush --file $(MAPPERS_DIR)/mapper_$(mapper).bin --dest-path "/cores/mappers/"))
 	@$(GNWMANAGER) flash $(INTFLASH_ADDRESS) $(BUILD_DIR)/$(TARGET)_intflash.bin \
@@ -1360,20 +1390,40 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		$(MAPPERS_SDPUSH) \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
+endif
 
 firmware_update: create_sd_folders
 	@$(MAKE) -j$(nproc) -C external/firmware_update
 	@cp external/firmware_update/build/firmware_update.bin $(RELEASE_FOLDER)/
 
-# this is creating a release folder with update archive and update application
+# Release is SD_CARD=1 only; SD_CARD=0 builds require proprietary blobs and
+# cannot produce a distributable release package.
+ifeq ($(DOCKER),1)
+release: FORCE
+ifeq ($(SD_CARD),0)
+	$(error release target requires SD_CARD=1)
+endif
+	$(V)$(DOCKER_RUN) $(MAKE) -j$$(nproc) release $(_DOCKER_FWDVARS) CHECK_DIRTY_SUBMODULE=0
+else
 release: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data firmware_update
+ifeq ($(SD_CARD),0)
+	$(error release target requires SD_CARD=1; SD_CARD=0 builds require proprietary blobs and cannot produce a distributable release)
+endif
 	@tar --format=ustar -cf $(RELEASE_FOLDER)/gw_update.tar -C sd_content $$(find sd_content -mindepth 1 -maxdepth 1 -exec basename {} \;)
 	@./scripts/gen_release_package.sh
+endif
+.PHONY: release
 
+ifeq ($(DOCKER),1)
+release_sdpush: FORCE
+	$(V)$(DOCKER_RUN) $(MAKE) release_sdpush $(_DOCKER_FWDVARS) CHECK_DIRTY_SUBMODULE=0
+else
 release_sdpush: release
 	@$(GNWMANAGER) sdpush --file $(RELEASE_FOLDER)/retro-go_update.bin --dest-path "/" \
 		-- start bank1 \
 		$(RESET_DBGMCU_CMD)
+endif
+.PHONY: release_sdpush
 
 monitor:
 	@$(GNWMANAGER) monitor --utf8
@@ -1419,10 +1469,15 @@ dump_screenshot:
 .PHONY: dump_screenshot
 
 docker_build:
-	echo $(V)docker build --network=host --build-arg ARCH=$(ARCH) -f Dockerfile --tag $(DOCKER_IMAGE) .
+	$(V)docker build --network=host --build-arg ARCH=$(ARCH) -f Dockerfile --tag $(DOCKER_IMAGE) .
 .PHONY: docker_build
 
+# DEPRECATED: use 'make release DOCKER=1' (SD_CARD=1) or 'make docker_shell' instead.
+# This target will be removed in a future release.
 docker:
+	@echo "WARNING: 'make docker' is deprecated."
+	@echo "  Use 'make release DOCKER=1' for a containerized release build (SD_CARD=1)."
+	@echo "  Use 'make docker_shell' for an interactive shell in the container."
 ifeq ($(SD_CARD),0)
 	$(V)$(DOCKER_RUN) bash
 else
@@ -1520,9 +1575,13 @@ help:
 	@echo "  SINGLE_FONT=$(SINGLE_FONT)"
 	@echo ""
 	@echo "Targets:"
-	@echo "  docker            - SD_CARD=0: interactive shell in $(DOCKER_IMAGE); SD_CARD=1: run preset release build inside container"
-	@echo "  docker_shell      - Interactive shell in $(DOCKER_IMAGE) (no preset make; same mounts as docker)"
-	@echo "  docker_build      - Builds a docker image"
+	@echo "  make [target]         - Run target locally (default: build firmware)"
+	@echo "  make [target] DOCKER=1 - Run target inside the Docker container instead."
+	@echo "                        Applies to: (default), flash, flash_intflash, flash_extflash,"
+	@echo "                        flash_sd, release, release_sdpush."
+	@echo "  docker_build          - Build the Docker container image"
+	@echo "  docker_shell          - Interactive shell in $(DOCKER_IMAGE)"
+	@echo "  docker (deprecated)   - Use 'make release DOCKER=1' or 'make docker_shell' instead"
 	@echo "  dump_screenshot   - Downloads the stored screenshot."
 	@echo "  flash             - Programs the internal and external flash"
 	@echo "  flash_all         - Alias for 'flash' (deprecated)"
