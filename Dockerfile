@@ -3,15 +3,17 @@ FROM debian:bookworm-slim AS arm-toolchain-builder
 
 WORKDIR /opt
 
-# assume x86_64 but allow overwriting it: 
-# docker build --build-arg ARCH=$(uname -m) --tag sylverb/builder-go-sd-builder:v1.X .
-# docker build --build-arg ARCH=aarch64 --tag sylverb/builder-go-sd-builder:v1.X .
-
-ARG ARCH=x86_64
+ARG TARGETARCH
 ARG ARM_COMPILER_VERSION=15.2.rel1
-ENV ARM_COMPILER_ARCHIVE=arm-gnu-toolchain-${ARM_COMPILER_VERSION}-${ARCH}-arm-none-eabi.tar.xz
 ENV ARM_COMPILER_DIR=/opt/arm-gnu-toolchain
 ENV DEBIAN_FRONTEND=noninteractive
+
+RUN set -eux; \
+    case "$TARGETARCH" in \
+        amd64) echo "ARCH=x86_64" > /arch ;; \
+        arm64) echo "ARCH=aarch64" > /arch ;; \
+        *) echo "Unsupported TARGETARCH: $TARGETARCH"; exit 1 ;; \
+    esac;
 
 RUN apt-get update && apt-get install -y \
          curl \
@@ -22,7 +24,8 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /opt
 
-RUN curl -LO https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_COMPILER_VERSION}/binrel/${ARM_COMPILER_ARCHIVE} \
+RUN . /arch && export ARM_COMPILER_ARCHIVE="arm-gnu-toolchain-${ARM_COMPILER_VERSION}-${ARCH}-arm-none-eabi.tar.xz"; \
+    curl -LO https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_COMPILER_VERSION}/binrel/${ARM_COMPILER_ARCHIVE} \
     && mkdir -p /opt \
     && tar -xf ${ARM_COMPILER_ARCHIVE} -C /opt/ \
     && mv /opt/arm-gnu-toolchain-${ARM_COMPILER_VERSION}-${ARCH}-arm-none-eabi ${ARM_COMPILER_DIR} \
