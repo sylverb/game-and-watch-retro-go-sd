@@ -41,7 +41,6 @@ DOCKER ?= 0
 _DOCKER_FWDVARS := $(filter-out DOCKER=%,$(MAKEOVERRIDES))
 
 # Docker bulid args
-ARCH ?= $(shell uname -m)
 ARM_COMPILER_VERSION ?= 15.2.rel1
 
 # Configure where data is stored in the external flash by
@@ -1469,7 +1468,7 @@ dump_screenshot:
 .PHONY: dump_screenshot
 
 docker_build:
-	$(V)docker build --network=host --build-arg ARCH=$(ARCH) -f Dockerfile --tag $(DOCKER_IMAGE) .
+	$(V)docker build --network=host --build-arg ARM_COMPILER_VERSION=$(ARM_COMPILER_VERSION) -f Dockerfile --tag $(DOCKER_IMAGE) .
 .PHONY: docker_build
 
 # DEPRECATED: use 'make release DOCKER=1' (SD_CARD=1) or 'make docker_shell' instead.
