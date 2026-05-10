@@ -92,10 +92,14 @@ FROM python:3.12-slim-bookworm
 ENV ARM_COMPILER_DIR=/opt/arm-gnu-toolchain
 ENV GCC_PATH="${ARM_COMPILER_DIR}/bin"
 ENV PATH="${GCC_PATH}:${PATH}"
+ENV PYTHONDONTWRITEBYTECODE=1
 
 COPY --from=arm-toolchain-builder \
     ${ARM_COMPILER_DIR} \
     ${ARM_COMPILER_DIR}
+
+COPY ./requirements.txt /requirements.txt
+COPY ./external/zelda3/requirements.txt /external/zelda3/requirements.txt
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
@@ -104,15 +108,11 @@ RUN apt-get update -y && \
         make \
         patch \
         sudo \
+        wget \
         xxd \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY ./requirements.txt /requirements.txt
-COPY ./external/zelda3/requirements.txt /external/zelda3/requirements.txt
-
-RUN pip install --upgrade pip \
-    && pip install -r /requirements.txt \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-compile --no-cache-dir -r /requirements.txt \
     && rm -rf /requirements.txt /external
 
 RUN useradd -m \
