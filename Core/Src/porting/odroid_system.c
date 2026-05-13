@@ -433,28 +433,15 @@ void odroid_system_switch_app(int app)
         odroid_settings_StartupFile_set(0);
         odroid_settings_commit();
 
-        /**
-         * Setting these two places in memory tell tim's patched firmware
-         * bootloader running in bank 1 (0x08000000) to boot into retro-go
-         * immediately instead of the patched-stock-firmware..
-         *
-         * These are the last 8 bytes of the 128KB of DTCM RAM.
-         *
-         * This uses a technique described here:
-         *      https://stackoverflow.com/a/56439572
-         *
-         *
-         * For stuff not running a bootloader like this, these commands are
-         * harmless.
-         */
-
 #if SD_CARD == 1
         // Unmount Fs and Deinit SD Card if needed
         sdcard_deinit();
 #endif
 
-#if 1
-        // Jumping directly to bank2 entrypoint instead of rebooting is much faster
+#if INTFLASH_BANK == 2
+        // Retro-go is in bank2 with Tim's bootloader in bank1.
+        // Jump directly to the bank2 entrypoint rather than resetting,
+        // which avoids the bootloader and is significantly faster.
 
         void __attribute__((naked)) _start_app(void (*const pc)(void), uint32_t sp) {
             __asm("           \n\
@@ -492,8 +479,8 @@ void odroid_system_switch_app(int app)
             _boot_bank2();
         }
 #else
-        *((uint32_t *)0x2001FFF8) = 0x544F4F42;              // "BOOT"
-        *((uint32_t *)0x2001FFFC) = (uint32_t)&__INTFLASH__; // vector table
+        // Retro-go is in bank1 with no bootloader present.
+        // Reset directly back into retro-go.
 
         NVIC_SystemReset();
 #endif
@@ -574,7 +561,15 @@ static void odroid_system_sleep_internal(system_sleep_flags_t flags, sleep_pre_w
     {
         pre_sleep_hook();
     }
-    odroid_settings_StartupFile_set(ACTIVE_FILE);
+
+    // Only persist startup file when sleeping from inside an emulator.
+    // If sleeping from the launcher, clear it so wakeup returns to the
+    // launcher instead of jumping to bank2 via switch_app.
+    if (currentApp.id != APPID_LAUNCHER) {
+        odroid_settings_StartupFile_set(ACTIVE_FILE);
+    } else {
+        odroid_settings_StartupFile_set(NULL);
+    }
     odroid_settings_commit();
 
     if (flags & SLEEP_SHOW_ANIMATION) {
