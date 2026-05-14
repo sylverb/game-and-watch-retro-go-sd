@@ -18,20 +18,31 @@ CHECK_TOOLS ?= 1
 LARGE_FLASH ?= 0
 
 # Set to 0 to disable sd card support
-SD_CARD ?= 1
+SD_CARD ?= 0
 
-# Docker image for reproducible ARM builds (see targets docker, docker_build).
+# No Docker serial/usb device support for Windows/MacOS/Other
+PLATFORM := $(shell uname -s)
+USB_FLAG := 
+# Automatically detect SERIAL_PORT if none is defined
+ifeq ($(PLATFORM),Linux)
+    SERIAL_PORT ?= $(firstword $(wildcard /dev/ttyACM*) $(wildcard /dev/ttyUSB*))
+    USB_FLAG := --device=/dev/bus/usb $(if $(SERIAL_PORT),--device=$(SERIAL_PORT),)
+endif
+
+# Docker image for reproducible ARM builds (see targets docker_build, docker_shell or DOCKER=1 flag).
 RELEASE_VERSION ?= v1.4
 CONTAINER_NAME ?= retro-go-sd
 DOCKER_IMAGE ?= sylverb/retro-go-sd-builder:$(RELEASE_VERSION)
 DOCKER_RUN := docker run --rm -it \
+    --init \
     --network host \
     --name $(CONTAINER_NAME) \
     --hostname $(CONTAINER_NAME) \
     --add-host $(CONTAINER_NAME):127.0.0.1 \
-    --user $(shell id -u):$(shell id -g) \
     -v $(CURDIR):/opt/workdir \
-    --device=/dev/bus/usb \
+    -e HOST_UID=$(shell id -u) \
+    -e HOST_GID=$(shell id -g) \
+    $(USB_FLAG) \
     $(DOCKER_IMAGE)
 
 # Set DOCKER=1 to run build/flash/release targets inside the container rather than locally.
@@ -1444,19 +1455,17 @@ firmware_update: create_sd_folders
 	@$(MAKE) -j$(nproc) -C external/firmware_update
 	@cp external/firmware_update/build/firmware_update.bin $(RELEASE_FOLDER)/
 
-# Release is SD_CARD=1 only; SD_CARD=0 builds require proprietary blobs and
-# cannot produce a distributable release package.
+# Force SD_CARD to 1 for the release target and all its prerequisites
+release: SD_CARD := 1
+release: _DOCKER_FWDVARS += SD_CARD=1
 ifeq ($(DOCKER),1)
 release: FORCE
-ifeq ($(SD_CARD),0)
-	$(error release target requires SD_CARD=1)
-endif
 	$(V)$(DOCKER_RUN) $(MAKE) -j$$(nproc) release $(_DOCKER_FWDVARS) CHECK_DIRTY_SUBMODULE=0
+
 else
+# Actual release logic
 release: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data firmware_update
-ifeq ($(SD_CARD),0)
-	$(error release target requires SD_CARD=1; SD_CARD=0 builds require proprietary blobs and cannot produce a distributable release)
-endif
+	@echo "Notice: Building release with SD_CARD=1"
 	@tar --format=ustar -cf $(RELEASE_FOLDER)/gw_update.tar -C sd_content $$(find sd_content -mindepth 1 -maxdepth 1 -exec basename {} \;)
 	@./scripts/gen_release_package.sh
 endif
@@ -1526,11 +1535,7 @@ docker:
 	@echo "WARNING: 'make docker' is deprecated."
 	@echo "  Use 'make release DOCKER=1' for a containerized release build (SD_CARD=1)."
 	@echo "  Use 'make docker_shell' for an interactive shell in the container."
-ifeq ($(SD_CARD),0)
-	$(V)$(DOCKER_RUN) bash
-else
 	$(V)$(DOCKER_RUN) bash -c "make -j\$$(nproc) CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 INTFLASH_BANK=2 CHEAT_CODES=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 release"
-endif
 .PHONY: docker
 
 # Interactive shell without building release (handy when SD_CARD=1 but you only want the container).
