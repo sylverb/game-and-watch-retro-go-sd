@@ -41,6 +41,8 @@ screenshot.png
 .idea/
 cmake-build-debug
 .gitignore.local
+
+**/*.swp
 choices.yaml
 build-error.log
 .bash_history
