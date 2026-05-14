@@ -5,6 +5,9 @@ USER_ID=${HOST_UID:-1000}
 GROUP_ID=${HOST_GID:-1000}
 USER_NAME=builder
 
+# Change UID_MIN so Mac UIDs don't through an error
+sed -i 's/^UID_MIN.*/UID_MIN           500/' /etc/login.defs
+
 # Create group if it doesn't exist
 if ! getent group "$GROUP_ID" >/dev/null; then
     groupadd -g "$GROUP_ID" "$USER_NAME"
