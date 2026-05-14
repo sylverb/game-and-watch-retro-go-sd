@@ -107,6 +107,7 @@ RUN apt-get update -y && \
         git \
         make \
         patch \
+        gosu \
         sudo \
         wget \
         xxd \
@@ -116,12 +117,10 @@ RUN apt-get update -y && \
     && rm -rf /requirements.txt /external \
     && gnwmanager install openocd
 
-RUN useradd -m \
-        -d /opt/workdir \
-        -G sudo,plugdev \
-        builder \
-    && echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+COPY ./scripts/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
-USER builder
 WORKDIR /opt/workdir
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/bash"]
