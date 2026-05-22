@@ -125,6 +125,10 @@ INTFLASH_BANK = 1
 endif
 endif
 
+# Configure address where Retro-Go looks for Original Firmware metadata.
+# Defaults to Bank 1 (0x08000000).
+OFW_ADDRESS ?= 0x08000000
+
 GNWMANAGER ?= gnwmanager
 
 # Configure external flash size in MB (Megabytes)
@@ -589,6 +593,7 @@ C_DEFS +=  \
 -DINTERNAL_CORE_BIN_HEADER_VERSION=$(INTERNAL_CORE_BIN_HEADER_VERSION) \
 -DINTFLASH_BANK=$(INTFLASH_BANK) \
 -DINTFLASH_ADDRESS=$(INTFLASH_ADDRESS) \
+-DOFW_ADDRESS=$(OFW_ADDRESS) \
 -DBIG_BANK=$(BIG_BANK) \
 -DEXTFLASH_SIZE=$(EXTFLASH_SIZE) \
 -DMSX_USE_BANK_2=$(MSX_USE_BANK_2) \

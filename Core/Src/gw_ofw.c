@@ -24,8 +24,9 @@ static void load_bank1_firmware_metadata()
 {
     if (!is_loaded)
     {
-        // Load firmware data from bank1 firmware's HDMI-CEC field in vector table.
-        bank1_firmware_metadata = *(Bank1FirmwareMetadata*)(0x080001B8);
+        // Load firmware data from firmware's HDMI-CEC field in vector table.
+        // Defaults to Bank 1 (0x08000000 + 0x1B8).
+        bank1_firmware_metadata = *(Bank1FirmwareMetadata*)(OFW_ADDRESS + 0x1B8);
         if(bank1_firmware_metadata.must_be_4 != 4){
             // This data came from an uncontrolled source; 0 everything out.
             bank1_firmware_metadata = (Bank1FirmwareMetadata){0};
