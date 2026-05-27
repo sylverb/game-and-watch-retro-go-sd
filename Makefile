@@ -4,6 +4,13 @@ DEBUG = 0
 
 OPT = -O2 -ggdb3
 
+# Default to bank 2 because sylverb's bootloader is installed at 0x08000000
+# (bank 1) on this checkout. Override on the command line for non-bootloader
+# setups, e.g. `make INTFLASH_BANK=1`.
+INTFLASH_BANK ?= 2
+
+GNWMANAGER ?= gnwmanager
+
 # To enable verbose, append VERBOSE=1 to make, e.g.:
 # make VERBOSE=1
 ifneq ($(strip $(VERBOSE)),1)
