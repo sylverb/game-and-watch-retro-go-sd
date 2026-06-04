@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include "rg_rtc.h"
+#include "config.h"
 #if SD_CARD == 1
 #include "ff.h"
 #else
