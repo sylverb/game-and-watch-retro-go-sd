@@ -590,6 +590,50 @@ If you want to have the official carts covers use the specific python toolpico8c
 
 ## Developer info
 
+### Local build, flash, and SD-card workflow
+
+For development on macOS/Linux without Docker you need `arm-none-eabi-gcc` v10+ (tested against 15.2.rel1) and the Python `requirements.txt` (`python3 -m pip install -r requirements.txt`, which installs `gnwmanager`).
+
+#### One-time per-device setup
+
+The device needs SylverB's bootloader in bank 1, with Retro-Go-SD in bank 2. Without it, the firmware-update flow that creates the SD card directory tree (`/cores`, `/bios`, `/roms/homebrew`, …) cannot run.
+
+```bash
+# Install the bootloader to bank 1 (one-time):
+gnwmanager flash-bootloader bank1
+```
+
+The `Makefile` defaults `INTFLASH_BANK=2` to match that bootloader. Pass `make INTFLASH_BANK=1` only if you installed without it.
+
+#### First-time SD-card bootstrap
+
+A freshly formatted (exFAT or FAT32) SD card lacks the directories `sdpush` needs as parents; the bootloader creates them when it unpacks `retro-go_update.bin`:
+
+```bash
+make release_sdpush GNW_TARGET=mario
+```
+
+Wait for the launcher menu to appear on the device before running any other `gnwmanager` command, or the extraction is interrupted and aborted.
+
+#### Fast-iteration workflow
+
+Once the directory tree exists, flash the firmware and regenerate the SD content locally:
+
+```bash
+make flash create_sd_data GNW_TARGET=mario
+```
+
+`create_sd_data` writes the SD files under `sd_content/`. Push only the ones you changed instead of re-sending every core, e.g.:
+
+```bash
+gnwmanager sdpush --file sd_content/cores/nes.bin --dest-path /cores/
+```
+
+#### Common gotchas
+
+- **Debug-probe `BAD_DECOMPRESS`.** Some CMSIS-DAP probes drop LZMA chunks at gnwmanager's default speed. Lower it with `make GNWMANAGER="gnwmanager --frequency 1000000"`.
+- **Stale objects after toggling a `-D` flag.** Make doesn't track `-D` changes, so toggling `CHEAT_CODES`/`COVERFLOW`/etc. between builds mixes definitions and causes link errors. Run `make clean` when you change one.
+
 ### Build and flash using Docker
 
 <details>
