@@ -100,7 +100,7 @@ INTFLASH_BANK = 1
 endif
 endif
 
-GNWMANAGER = gnwmanager
+GNWMANAGER ?= gnwmanager
 
 # Configure external flash size in MB (Megabytes)
 EXTFLASH_SIZE_MB ?= 1
@@ -124,6 +124,9 @@ ifeq ($(CHEAT_CODES),1)
 	ifeq ($(SD_CARD),1)
 		MAX_CHEAT_CODES = 13
 	endif
+else
+	# blueMSX-go SlotManager.c (TARGET_GNW path) references MAX_CHEAT_CODES unconditionally.
+	MAX_CHEAT_CODES ?= 1
 endif
 
 # Compress supported ROMs by default. Set to 0 to disable.
@@ -1079,7 +1082,7 @@ define EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER
 	rm -f "$$tmp_file"
 endef
 
-$(MAPPERS_DIR)/mapper_%.bin: $(BUILD_DIR)/$(TARGET).elf
+$(MAPPERS_DIR)/mapper_%.bin: $(BUILD_DIR)/$(TARGET).elf | create_sd_folders
 	@$(CP) -O binary --only-section=.overlay_nes_fceu_$* $< $@
 
 MAPPER_BINS := $(addprefix $(MAPPERS_DIR)/mapper_, $(addsuffix .bin, $(MAPPER_NAMES)))
@@ -1194,7 +1197,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(MAPPERS_DIR)/mappers_table.bin --dest-path "/cores/mappers/" \
 		-- sdpush --file $(MAPPERS_DIR)/ines_correct.bin --dest-path "/cores/mappers/" \
 		-- sdpush --file $(SD_FOLDER)/bios/nes/palettes.bin --dest-path "/bios/nes/" \
-		-- sdpush --file $(SD_FOLDER)/bios/coleco/coleco.bin --dest-path "/bios/coleco" \
+		-- sdpush --file $(SD_FOLDER)/bios/coleco/coleco.bin --dest-path "/bios/coleco/" \
 		-- sdpush --file $(SD_FOLDER)/bios/msx/msxromdb.bin --dest-path "/bios/msx/" \
 		$(MAPPERS_SDPUSH) \
 		-- start $(INTFLASH_ADDRESS) \
