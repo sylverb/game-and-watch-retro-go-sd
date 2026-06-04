@@ -682,7 +682,13 @@ CheckDirtySubmodules:
 endif
 .PHONY: CheckDirtySubmodules
 
-PrepareFceummMappers:
+# The fceumm mappers .ld file is INCLUDEd from $(LDSCRIPT). Generating it
+# as a real file target (rather than a recipe-with-no-output) means make
+# only regenerates it when the script or board sources actually change —
+# which in turn stops the ELF from relinking on every invocation.
+$(BUILD_DIR)/fceumm_mappers.ld: external/fceumm-go/gen_mappers_ld.py \
+                                $(wildcard external/fceumm-go/src/boards/*.c) \
+                                | $(BUILD_DIR)
 	$(V)$(PYTHON3) external/fceumm-go/gen_mappers_ld.py
 
 ifeq (${CHECK_TOOLS},1)
@@ -729,7 +735,7 @@ $(BUILD_DIR)/%.o: %.s Makefile.common Makefile | $(BUILD_DIR)
 	$(V)$(ECHO) [ AS ] $(notdir $<)
 	$(V)$(AS) -c $(CFLAGS) $< -o $@
 
-$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile PrepareFceummMappers $(LDSCRIPT)
+$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
 	$(V)$(ECHO) [ LD ] $(notdir $@)
 	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
 ifeq ($(SD_CARD), 0)
@@ -1120,7 +1126,29 @@ $(FONTS_DIR)/unicode_%.bin: $(UNICODE_FONT_SOURCE) tools/gen_unicode_bin.py | cr
 	@echo "Generating $@ from $(UNICODE_FONT_SOURCE)"
 	@$(PYTHON3) tools/gen_unicode_bin.py "$(UNICODE_FONT_SOURCE)" --script "$*" -o "$@"
 
-create_sd_data: create_sd_folders prepare_msx_bios_files $(MAPPER_BINS) $(BUILD_DIR)/$(TARGET)_intflash.bin
+SD_CONTENT_STAMP := $(BUILD_DIR)/.sd_content.stamp
+
+# `create_sd_data` used to be a recipe with no output file, so every
+# `make flash_sd` / `make release` re-ran ~50 objcopy --only-section
+# extractions and a handful of Python helpers even when the ELF hadn't
+# changed. The stamp file gates all of that work on the actual inputs:
+# the ELF, the per-mapper bins, and the Python scripts that generate
+# fixed tables. create_sd_folders and prepare_msx_bios_files stay
+# order-only — they're phony, so listing them as normal prereqs would
+# defeat the stamp.
+create_sd_data: $(SD_CONTENT_STAMP)
+.PHONY: create_sd_data
+
+$(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
+                     $(BUILD_DIR)/$(TARGET)_intflash.bin \
+                     $(MAPPER_BINS) \
+                     external/fceumm-go/gen_mappers_table.py \
+                     external/fceumm-go/gen_ines_database.py \
+                     tools/gen_fceu_palettes_table.py \
+                     external/stella2014-go/convert_defprops.py \
+                     external/blueMSX-go/create_compact_database_file.py \
+                     Makefile.common Makefile \
+                     | create_sd_folders prepare_msx_bios_files
 	@$(PYTHON3) external/fceumm-go/gen_mappers_table.py $(MAPPERS_DIR)/mappers_table.bin
 	@$(PYTHON3) external/fceumm-go/gen_ines_database.py $(MAPPERS_DIR)/ines_correct.bin
 	@$(PYTHON3) tools/gen_fceu_palettes_table.py $(SD_FOLDER)/bios/nes/palettes.bin
@@ -1166,6 +1194,7 @@ create_sd_data: create_sd_folders prepare_msx_bios_files $(MAPPER_BINS) $(BUILD_
 
 	@$(V)cp build/gw_retro_go_intflash.bin $(SD_FOLDER)/update_bank2.bin
 	@$(MAKE) --no-print-directory $(UNICODE_FONT_BINS)
+	@touch $@
 
 flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
 	$(eval MAPPERS_SDPUSH := $(foreach mapper,$(MAPPER_NAMES),-- sdpush --file $(MAPPERS_DIR)/mapper_$(mapper).bin --dest-path "/cores/mappers/"))
