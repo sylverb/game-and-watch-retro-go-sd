@@ -1,18 +1,17 @@
 //#include "rg_i18n_lang.h"
 // Norwegian Bokmål
-// WIP
 
-int en_us_fmt_Title_Date_Format(char *outstr, const char *datefmt, uint16_t day, uint16_t month, const char *weekday, uint16_t hour, uint16_t minutes, uint16_t seconds)
+int no_nb_fmt_Title_Date_Format(char *outstr, const char *datefmt, const char *weekday, uint16_t day, uint16_t month, uint16_t hour, uint16_t minutes, uint16_t seconds)
 {
-    return sprintf(outstr, datefmt, day, month, weekday, hour, minutes, seconds);
+    return sprintf(outstr, datefmt, weekday, day, month, hour, minutes, seconds);
 };
 
-int en_us_fmt_Date(char *outstr, const char *datefmt, uint16_t day, uint16_t month, uint16_t year, const char *weekday)
+int no_nb_fmt_Date(char *outstr, const char *datefmt, const char *weekday, uint16_t day, uint16_t month, uint16_t year)
 {
-    return sprintf(outstr, datefmt, day, month, year, weekday);
+    return sprintf(outstr, datefmt, weekday, day, month, year);
 };
 
-int en_us_fmt_Time(char *outstr, const char *timefmt, uint16_t hour, uint16_t minutes, uint16_t seconds)
+int no_nb_fmt_Time(char *outstr, const char *timefmt, uint16_t hour, uint16_t minutes, uint16_t seconds)
 {
     return sprintf(outstr, timefmt, hour, minutes, seconds);
 };
@@ -273,12 +272,12 @@ const lang_t lang_en_us LANG_DATA = {
     .s_Turbo_A = "A",
     .s_Turbo_B = "B",
     .s_Turbo_AB = "A & B",
-    .s_Title_Date_Format = "%02d-%02d %s %02d:%02d:%02d",
-    .s_Date_Format = "%02d.%02d.20%02d %s",
+    .s_Title_Date_Format = "%s %02d/%02d %02d:%02d:%02d",
+    .s_Date_Format = "%s %02d/%02d 20%02d",
     .s_Time_Format = "%02d:%02d:%02d",
-    .fmt_Title_Date_Format = en_us_fmt_Title_Date_Format,
-    .fmtDate = en_us_fmt_Date,
-    .fmtTime = en_us_fmt_Time,
+    .fmt_Title_Date_Format = no_nb_fmt_Title_Date_Format,
+    .fmtDate = no_nb_fmt_Date,
+    .fmtTime = no_nb_fmt_Time,
     //=====================================================================
     //           ------------ end ---------------
 };
