@@ -18,5 +18,8 @@
 
 uint32_t buttons_get();
 
+#ifdef REMOTE_INPUT
+#define SRAM_REMOTE_INPUT_ADDR 0x2001FFF4UL
+#endif
 
 #endif

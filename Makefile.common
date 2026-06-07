@@ -638,6 +638,11 @@ ifdef MAX_CHEAT_CODES
 C_DEFS += -DMAX_CHEAT_CODES=$(MAX_CHEAT_CODES)
 endif
 
+REMOTE_INPUT ?= 0
+ifeq ($(REMOTE_INPUT), 1)
+C_DEFS += -DREMOTE_INPUT
+endif
+
 # AS includes
 AS_INCLUDES +=
 
@@ -715,6 +720,7 @@ else
 endif
 
 LDFLAGS += -Wl,--defsym=__FLASH_LENGTH__=$(FLASH_LENGTH)
+LDFLAGS += -Wl,--defsym=REMOTE_INPUT=$(REMOTE_INPUT)
 
 #######################################
 # LDFLAGS

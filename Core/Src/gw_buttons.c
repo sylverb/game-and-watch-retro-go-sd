@@ -20,10 +20,28 @@ uint32_t buttons_get() {
     bool start = HAL_GPIO_ReadPin(BTN_START_GPIO_Port, BTN_START_Pin) == GPIO_PIN_RESET;
     bool select = HAL_GPIO_ReadPin(BTN_SELECT_GPIO_Port, BTN_SELECT_Pin) == GPIO_PIN_RESET;
 
-    return (
+    uint32_t buttons = (
         left | (up << 1) | (right << 2) | (down << 3) | (a << 4) | (b << 5) |
         (time << 6) | (game << 7) | (pause << 8) | (power << 9) | (start << 10) | (select << 11)
     );
+
+#ifdef REMOTE_INPUT
+    uint32_t remote = *(volatile uint32_t *)SRAM_REMOTE_INPUT_ADDR;
+    if (remote & (1 << 0))  buttons |= B_Up;
+    if (remote & (1 << 1))  buttons |= B_Down;
+    if (remote & (1 << 2))  buttons |= B_Left;
+    if (remote & (1 << 3))  buttons |= B_Right;
+    if (remote & (1 << 4))  buttons |= B_A;
+    if (remote & (1 << 5))  buttons |= B_B;
+    if (remote & (1 << 6))  buttons |= B_START;
+    if (remote & (1 << 7))  buttons |= B_SELECT;
+    if (remote & (1 << 8))  buttons |= B_PAUSE;
+    if (remote & (1 << 9))  buttons |= B_GAME;
+    if (remote & (1 << 10)) buttons |= B_TIME;
+    if (remote & (1 << 11)) buttons |= B_POWER;
+#endif
+
+    return buttons;
 
 
 }

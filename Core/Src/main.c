@@ -262,6 +262,10 @@ int main(void)
   uint8_t trigger_wdt_bsod = 0;
   uint8_t boot_mode = BOOT_MODE_APP;
 
+#ifdef REMOTE_INPUT
+  *(volatile uint32_t *)SRAM_REMOTE_INPUT_ADDR = 0;
+#endif
+
 #if 0
   for(int i = 0; i < 1000000; i++) {
     __NOP();

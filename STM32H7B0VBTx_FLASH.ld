@@ -67,6 +67,7 @@ _Min_Stack_Size = 20 * 1024; /* required amount of stack */
 __NULLPTR_LENGTH__  = 0x0;
 __ITCMRAM_LENGTH__  = 64K;
 __DTCMRAM_LENGTH__  = 128K;
+__REMOTE_INPUT_RESERVE__ = DEFINED(REMOTE_INPUT) ? REMOTE_INPUT * 12 : 0;
 __RAM_UC_LENGTH__   = 300K;
 __RAM_CORE_LENGTH__ = 0K;
 __RAM_EMU_LENGTH__  = 1024K - __RAM_UC_LENGTH__ - __RAM_CORE_LENGTH__;
@@ -850,9 +851,10 @@ INCLUDE build/fceumm_mappers.ld
   /* User_heap_stack section, used to check that there is enough RAM left */
   ._user_stack :
   {
-    /* Pad the unused area between the last symbol and the start of the redzone */
+    /* Pad the unused area between the last symbol and the start of the redzone.
+       We reserve space at the top of DTCMRAM for boot magic and remote input if enabled. */
     __dtc_padding_start__ = .;
-    . = . + __DTCMRAM_LENGTH__ - (_Min_Stack_Size + _Stack_Redzone_Size) - (__dtc_padding_start__ - __dtcram_start__);
+    . = . + __DTCMRAM_LENGTH__ - __REMOTE_INPUT_RESERVE__ - (_Min_Stack_Size + _Stack_Redzone_Size) - (__dtc_padding_start__ - __dtcram_start__);
     __dtc_padding_end__ = .;
 
     _stack_redzone = .;
@@ -860,6 +862,7 @@ INCLUDE build/fceumm_mappers.ld
     _stack_bottom = .;
     . = . + _Min_Stack_Size;
     _stack_top = .;
+    . = . + __REMOTE_INPUT_RESERVE__;
     __dtcram_end__ = .;
   } >DTCMRAM
 
