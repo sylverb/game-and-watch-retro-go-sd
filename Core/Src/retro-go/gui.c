@@ -131,9 +131,11 @@ void gui_init_colors()
         gui_colors[9].bg_c = _2CC(0x100000);
         gui_colors[9].main_c = _2CC(0x900000);
         
-        // Mario/Zelda specific themes (positions 10-11)
-        gui_colors[10].main_c = _2CC(0x006000);  // Zelda green
-        gui_colors[11].main_c = _2CC(0x006000);  // Zelda green
+        // Mario/Zelda specific themes (positions 10-11).
+        // _2CC is a swizzle: feed it the red-looking literal (as entries 0-9 do)
+        // to get green out. Passing 0x006000 here yields 0x6000 (red), not green.
+        gui_colors[10].main_c = _2CC(0x600000);  // Zelda green
+        gui_colors[11].main_c = _2CC(0x600000);  // Zelda green
         
         gui_colors[23].main_c = _2CC(0x801008);  // Other theme that had _2CC
     }
