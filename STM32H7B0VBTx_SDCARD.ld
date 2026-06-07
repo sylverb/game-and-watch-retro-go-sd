@@ -75,8 +75,9 @@ __FLASH2_LENGTH__   = 256K; /* Bank 2 */
 __RAM_FCEUMM_MAPPER_LENGTH__ = 48K; /* Current FCEUMM mapper code */
 
 /* Usefull only for round robin flash allocator */
+__EXTFLASH_OFFSET__ = DEFINED(__EXTFLASH_OFFSET__) ? __EXTFLASH_OFFSET__ : 0;  /* bytes reserved at the bottom by the chainloader */
 __EXTFLASH_BASE__ = 0x90000000;  /* Beginning of addressable extflash addresses */
-__EXTFLASH_START__ = __EXTFLASH_BASE__;  /* Beginning of where we're going to store emulator and rom data */
+__EXTFLASH_START__ = __EXTFLASH_BASE__ + __EXTFLASH_OFFSET__;  /* Beginning of where we're going to store emulator and rom data (respect the reserved offset, matching STM32H7B0VBTx_FLASH.ld) */
 
 __RAM_START__       = 0x24000000;
 __RAM_UC_START__    = __RAM_START__;

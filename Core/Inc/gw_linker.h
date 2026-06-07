@@ -5,6 +5,7 @@
 extern uint8_t __EXTFLASH_START__;
 extern uint8_t __EXTFLASH_END__;
 extern uint8_t __EXTFLASH_BASE__;
+extern uint8_t __EXTFLASH_OFFSET__;  // Bytes reserved at the bottom of extflash by the chainloader (its --defsym value). Read as (uint32_t)&__EXTFLASH_OFFSET__.
 extern uint8_t __FILESYSTEM_START__;
 extern uint8_t __FILESYSTEM_END__;
 extern uint32_t __INTFLASH__;  // From linker, usually value 0x08000000 for bank 1, or 0x08100000 for bank 2
