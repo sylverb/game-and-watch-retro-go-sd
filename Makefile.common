@@ -381,6 +381,30 @@ endif
 JPG_QUALITY ?= 90
 JPG_QUALITY_PARAM := --jpg_quality=$(JPG_QUALITY)
 
+#######################################
+# covers
+#######################################
+DOWNLOAD_COVERS ?= 1
+
+.PHONY: download_covers
+download_covers:
+	$(V)if [ -d roms ]; then \
+		$(PYTHON3) tools/download_covers.py --roms roms; \
+	fi
+
+.PHONY: generate_covers
+generate_covers:
+	$(V)if [ -d roms ]; then \
+		$(PYTHON3) tools/gencovers.py --src roms --dst $(SD_FOLDER)/covers $(JPG_QUALITY_PARAM); \
+	fi
+
+.PHONY: covers
+covers:
+ifeq ($(DOWNLOAD_COVERS),1)
+	$(V)$(MAKE) download_covers
+endif
+	$(V)$(MAKE) generate_covers
+
 # Common C sources
 C_SOURCES +=  \
 retro-go-stm32/retro-go/main/gui.c \
@@ -1428,6 +1452,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      external/stella2014-go/convert_defprops.py \
                      external/blueMSX-go/create_compact_database_file.py \
                      Makefile.common Makefile \
+                     $(if $(filter 1,$(COVERFLOW)),covers,) \
                      | create_sd_folders prepare_msx_bios_files
 	@$(PYTHON3) external/fceumm-go/gen_mappers_table.py $(MAPPERS_DIR)/mappers_table.bin
 	@$(PYTHON3) external/fceumm-go/gen_ines_database.py $(MAPPERS_DIR)/ines_correct.bin
@@ -1490,9 +1515,11 @@ LITTLEFS_OMIT_PICO8_RO := $(if $(filter 0,$(SD_CARD)),--omit-pico8-ro-from-gnw-z
 # SD_CARD=0: optional FrogFS ROM LZMA pack (scripts/rom_frogfs_lzma.py); align with COMPRESS=lzma.
 FROGFS_ROM_LZMA_FLAGS := $(if $(filter 0,$(SD_CARD)),$(if $(filter-out 0,$(COMPRESS)),--rom-compression $(COMPRESS),),)
 # Omit /covers from FrogFS unless COVERFLOW=1 (matches firmware COVERFLOW define).
-FROGFS_COVERS_FLAGS := $(if $(filter 1,$(COVERFLOW)),,--no-covers)
+# When COVERFLOW=1, we handle cover generation explicitly via the `covers` target,
+# so we pass --no-gencovers to gen_frogfs_image.py.
+FROGFS_COVERS_FLAGS := $(if $(filter 1,$(COVERFLOW)),--no-gencovers,--no-covers)
 
-$(FROGFS_IMAGE): create_sd_data scripts/gen_frogfs_image.py scripts/rom_frogfs_lzma.py scripts/frogfs_pico8_ro.py scripts/pico8_ro_build_patch.py scripts/pico8_gnw_cores.py scripts/sd_cores_pack.py tools/gencovers.py external/zelda3/tables/restool.py external/smw/assets/restool.py $(FROGFS_DIR)/tools/mkfrogfs.py
+$(FROGFS_IMAGE): create_sd_data scripts/gen_frogfs_image.py scripts/rom_frogfs_lzma.py scripts/frogfs_pico8_ro.py scripts/pico8_ro_build_patch.py scripts/pico8_gnw_cores.py scripts/sd_cores_pack.py external/zelda3/tables/restool.py external/smw/assets/restool.py $(FROGFS_DIR)/tools/mkfrogfs.py
 	$(V)$(PYTHON3) scripts/gen_frogfs_image.py \
 		--sd-content $(SD_FOLDER) \
 		--output $@ \
