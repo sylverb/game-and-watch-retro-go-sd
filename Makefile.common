@@ -385,11 +385,12 @@ JPG_QUALITY_PARAM := --jpg_quality=$(JPG_QUALITY)
 # covers
 #######################################
 DOWNLOAD_COVERS ?= 1
+GITHUB_TOKEN ?=
 
 .PHONY: download_covers
 download_covers:
 	$(V)if [ -d roms ]; then \
-		$(PYTHON3) tools/download_covers.py --roms roms; \
+		$(PYTHON3) tools/download_covers.py --roms roms $(if $(GITHUB_TOKEN),--token $(GITHUB_TOKEN),); \
 	fi
 
 .PHONY: generate_covers
