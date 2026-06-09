@@ -192,9 +192,13 @@ To install the hardware mod, you need:
 
 ## Tools
 
-### Cover Art Generator (gencovers.py)
+### Cover Art Generator (gencovers.py + download_covers.py)
 
 Due to memory and power constrains of the Game & Watch hardware, it's not possible to use full size png/jpg/bmp images for cover art.
+**Automation:** When building with `COVERFLOW=1`, covers are automatically downloaded and processed.
+- **Scraping**: `tools/download_covers.py` fetches raw images into `roms/`. GitHub limits unauthenticated requests to **60/hr**. Large collections may require multiple runs or a token (`GITHUB_TOKEN=xxx` via make, or manually with `--token`). Use `DOWNLOAD_COVERS=0` to disable.
+- **Thumbnailing**: `tools/gencovers.py` converts images into optimized `.img` files in `sd_content/covers/`.
+
 Due to current implementation of the covers management, having covers with different sizes for a given system can cause incorrect alignement of images in "CoverLight H" view
 
 User dadagm wrote a macos/windows tool to convert covers in an easy way ! Check https://github.com/dadagm/GameWatchCoverMaker to get his application !
