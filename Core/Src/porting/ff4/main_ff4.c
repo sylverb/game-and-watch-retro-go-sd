@@ -23,6 +23,7 @@
 extern bool ff4_init(const uint8_t *rom_bytes, int rom_length);
 extern void ff4_step(void);
 extern void ff4_shutdown(void);
+extern void ff4_get_state(uint32_t *frames_out, uint64_t *cycles_out);
 
 /* Called from inside LakeSnes's snes_runFrame loop every ~4096 opcodes
  * to keep the WWDG (≈237 ms window on this build) happy. Without this
@@ -67,6 +68,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 
     odroid_gamepad_state_t joystick = {0};
     int frame = 0;
+    uint32_t t_start = HAL_GetTick();
     while (true) {
         wdog_refresh();
 
@@ -81,6 +83,21 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 
         ff4_step();
         frame++;
+
+        /* Liveness probe: every 5 host frames print Snes-side counters
+         * so we can tell whether the interpreter is actually progressing
+         * or just spinning. Remove once Phase 5.5/5.6 land real signal. */
+        if ((frame % 5) == 0) {
+            uint32_t snes_frames = 0;
+            uint64_t snes_cycles = 0;
+            ff4_get_state(&snes_frames, &snes_cycles);
+            uint32_t now = HAL_GetTick();
+            printf("FF4 live: host=%d snes_frame=%lu snes_cycles=%llu wall_ms=%lu\n",
+                   frame,
+                   (unsigned long)snes_frames,
+                   (unsigned long long)snes_cycles,
+                   (unsigned long)(now - t_start));
+        }
     }
 
     ff4_shutdown();
