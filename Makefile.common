@@ -1159,6 +1159,7 @@ $$(BUILD_DIR)/ff4/$(patsubst %.c,%.o,$(notdir $1)): $1 Makefile.common Makefile 
 	$$(V)$$(ECHO) [ CC ff4 ] $$(notdir $$<)
 	$$(V)$$(CC) -c $$(CFLAGS) $$(C_DEFS_FF4) -Iexternal/ff4 -Wa,-a,-ad,-alms=$$(BUILD_DIR)/ff4/$$(notdir $$(<:.c=.lst)) $$< -o $$@ \
 	-Wno-parentheses -Wno-unused-variable -Wno-unused-but-set-variable -Wno-unused-function -Wno-unused-const-variable -Wno-incompatible-pointer-types -Wno-strict-aliasing -Wno-implicit-function-declaration
+	$$(V)$$(CP) --redefine-syms=external/ff4/ff4_redefines $$@
 
 endef
 # note: the blank line above is intentional
