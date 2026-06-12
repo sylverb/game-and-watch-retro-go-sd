@@ -70,9 +70,11 @@ void cart_load(Cart* cart, int type, uint8_t* rom, int romSize, int ramSize) {
   cart->rom = malloc(romSize);
 #endif
 #ifdef FF4_PORT_STATIC_SNES
-  /* G&W port: SRAM (typically 8 KB for FF4) goes in overlay_ff4 BSS
-   * to avoid eating the MCU heap. 32 KB is the cap for SNES carts. */
-  static uint8_t _ff4_cart_ram_storage[32 * 1024];
+  /* G&W port: SRAM goes in overlay_ff4 BSS to avoid eating the MCU
+   * heap. 8 KB matches FF4's actual SRAM size; larger carts (e.g.
+   * 32 KB cap on some titles) would bail out via the size check
+   * below. Bump the cap if a future module needs it. */
+  static uint8_t _ff4_cart_ram_storage[8 * 1024];
   cart->romSize = romSize;
   if (ramSize > (int)sizeof(_ff4_cart_ram_storage)) {
     printf("FF4 port: SRAM %d > %zu cap\n", ramSize, sizeof(_ff4_cart_ram_storage));

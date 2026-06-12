@@ -179,7 +179,13 @@ void ppu_reset(Ppu* ppu) {
   ppu->brightness = 0;
   ppu->mode = 0;
   ppu->bg3priority = false;
+#ifdef FF4_PORT_STATIC_SNES
+  /* G&W port: halved pixelBuffer requires evenFrame=true always
+   * (see ppu_handleFrameStart). Start true; never toggled. */
+  ppu->evenFrame = true;
+#else
   ppu->evenFrame = false;
+#endif
   ppu->pseudoHires = false;
   ppu->overscan = false;
   ppu->frameOverscan = false;
@@ -266,6 +272,12 @@ void ppu_handleVblank(Ppu* ppu) {
     ppu->oamSecondWrite = false;
   }
   ppu->frameInterlace = ppu->interlace; // set if we have a interlaced frame
+#ifdef FF4_PORT_STATIC_SNES
+  /* G&W port: pixelBuffer is halved to single-frame (rows 0..238 only,
+   * no row 239..477 slot). Interlace mode would index past the end,
+   * so disable it unconditionally here. */
+  ppu->frameInterlace = false;
+#endif
 }
 
 void ppu_handleFrameStart(Ppu* ppu) {
@@ -273,7 +285,14 @@ void ppu_handleFrameStart(Ppu* ppu) {
   ppu->mosaicStartLine = 1;
   ppu->rangeOver = false;
   ppu->timeOver = false;
+#ifdef FF4_PORT_STATIC_SNES
+  /* G&W port: keep evenFrame=true forever so pixel writes land at
+   * row = y-1 (0..238) rather than y-1+239 (239..477) which would
+   * overrun the halved pixelBuffer. */
+  ppu->evenFrame = true;
+#else
   ppu->evenFrame = !ppu->evenFrame;
+#endif
 }
 
 void ppu_runLine(Ppu* ppu, int line) {

@@ -126,16 +126,35 @@ void snes_handleState(Snes* snes, StateHandler* sh) {
   cart_handleState(snes->cart, sh);
 }
 
+#ifdef FF4_PORT_STATIC_SNES
+/* G&W port: pet the watchdog every N opcodes so LakeSnes's interpreter
+ * (still single-stepping each 65816 instruction on a 280 MHz Cortex-M7)
+ * does not trip the ~237 ms WWDG before a frame completes. Defined as
+ * an empty weak symbol so the host can override with a real callback
+ * (main_ff4.c implements it as wdog_refresh()). */
+void __attribute__((weak)) ff4_port_wdog_refresh(void) {}
+#define WDOG_PET_EVERY 4096
+#endif
+
 void snes_runFrame(Snes* snes) {
   // TODO: improve handling of dma's that take up entire vblank / frame
+#ifdef FF4_PORT_STATIC_SNES
+  unsigned pet_counter = 0;
+#endif
   // run until we are starting a new frame (leaving vblank)
   while(snes->inVblank) {
     cpu_runOpcode(snes->cpu);
+#ifdef FF4_PORT_STATIC_SNES
+    if((++pet_counter & (WDOG_PET_EVERY - 1)) == 0) ff4_port_wdog_refresh();
+#endif
   }
   // then run until we are at vblank, or we end up at next frame (DMA caused vblank to be skipped)
   uint32_t frame = snes->frames;
   while(!snes->inVblank && frame == snes->frames) {
     cpu_runOpcode(snes->cpu);
+#ifdef FF4_PORT_STATIC_SNES
+    if((++pet_counter & (WDOG_PET_EVERY - 1)) == 0) ff4_port_wdog_refresh();
+#endif
   }
   snes_catchupApu(snes); // catch up the apu after running
 }
