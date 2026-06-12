@@ -71,6 +71,7 @@ __REMOTE_INPUT_RESERVE__ = DEFINED(REMOTE_INPUT) ? REMOTE_INPUT * 12 : 0;
 __RAM_UC_LENGTH__   = 300K; /* framebuffer : 2 x 320 x 240 x 16 bits */
 __RAM_EMU_LENGTH__  = 1024K - __RAM_UC_LENGTH__;
 __AHBRAM_LENGTH__   = 128K;
+__AHBRAM_AUDIO_RESERVE__ = 8K; /* MPU non-cacheable slot for .audio DMA buffer at end of AHB SRAM */
 __FLASH_LENGTH__    = 256K; /* Bank 1 */
 __FLASH2_LENGTH__   = 256K; /* Bank 2 */
 __RAM_FCEUMM_MAPPER_LENGTH__ = 48K; /* Current FCEUMM mapper code */
@@ -706,8 +707,12 @@ INCLUDE build/fceumm_mappers.ld
   {
     __ahbram_start__ = .;
     . = ALIGN(4);
-    *(.audio)
     *(.ahb)
+    . = ALIGN(4);
+    __ahbram_heap_start__ = .;
+    . = ORIGIN(AHBRAM) + LENGTH(AHBRAM) - __AHBRAM_AUDIO_RESERVE__;
+    __ahbram_audio_start__ = .;
+    *(.audio)
     . = ALIGN(4);
     __ahbram_end__ = .;
   } > AHBRAM

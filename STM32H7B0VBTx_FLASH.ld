@@ -73,6 +73,7 @@ __RAM_CORE_LENGTH__ = 0K;
 __RAM_EMU_LENGTH__  = 1024K - __RAM_UC_LENGTH__ - __RAM_CORE_LENGTH__;
 __RAM_FCEUMM_MAPPER_LENGTH__ = 48K; /* Current FCEUMM mapper code */
 __AHBRAM_LENGTH__   = 128K;
+__AHBRAM_AUDIO_RESERVE__ = 8K; /* MPU non-cacheable slot for .audio DMA buffer at end of AHB SRAM */
 __FLASH_LENGTH__    = DEFINED(__FLASH_LENGTH__) ? __FLASH_LENGTH__ : 128k;
 
 __EXTFLASH_OFFSET__ = DEFINED(__EXTFLASH_OFFSET__) ? __EXTFLASH_OFFSET__ : 0;
@@ -706,8 +707,12 @@ INCLUDE build/fceumm_mappers.ld
   {
     __ahbram_start__ = .;
     . = ALIGN(4);
-    *(.audio)
     *(.ahb)
+    . = ALIGN(4);
+    __ahbram_heap_start__ = .;
+    . = ORIGIN(AHBRAM) + LENGTH(AHBRAM) - __AHBRAM_AUDIO_RESERVE__;
+    __ahbram_audio_start__ = .;
+    *(.audio)
     . = ALIGN(4);
     __ahbram_end__ = .;
   } > AHBRAM

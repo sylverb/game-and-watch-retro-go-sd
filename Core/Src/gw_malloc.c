@@ -9,9 +9,8 @@ uint32_t ram_start;
 extern uint32_t __RAM_EMU_END__;
 
 static uint32_t current_ahb_pointer;
-extern uint32_t __ahbram_start__;
-extern uint32_t __ahbram_end__;
-extern uint16_t __AHBRAM_LENGTH__;
+extern uint32_t __ahbram_heap_start__;
+extern uint32_t __ahbram_audio_start__;
 
 static uint32_t current_itc_pointer;
 extern uint32_t __itcram_start__;
@@ -23,12 +22,11 @@ extern uint16_t __NULLPTR_LENGTH__;
 /* What is possible is to reinitialize all allocated buffers by calling the */
 /* AHB/ITC init function.                                                   */
 
-/* AHB RAM is 128kB, but it's not cached (as it's used for audio DMA it can't)
-   so access to data in AHB RAM is slower than in other RAMs, only use this RAM
-   for not time critical ressources */
+/* AHB SRAM: ~120 KB at the bottom is D-cacheable (MPU PRIVDEF). The last 8 KB
+   hold the .audio DMA buffer and stay non-cacheable. */
 void ahb_init() {
   current_ram_pointer = (uint32_t)0;
-  current_ahb_pointer = (uint32_t)(&__ahbram_end__);
+  current_ahb_pointer = (uint32_t)(&__ahbram_heap_start__);
 }
 
 size_t ram_get_free_size() {
@@ -72,7 +70,7 @@ void *ahb_malloc(size_t size) {
   pointer = (void *)current_ahb_pointer;
 //  printf("hab_malloc 0x%lx size %d\n",current_ahb_pointer,size);
   current_ahb_pointer = (current_ahb_pointer + size + 3) & ~0x03; // Make sure pointers are always 32 bits aligned
-  assert((current_ahb_pointer) <= ((((uint32_t)&__ahbram_start__) + ((uint32_t)(&__AHBRAM_LENGTH__)))));
+  assert(current_ahb_pointer <= (uint32_t)&__ahbram_audio_start__);
   return pointer;
 }
 
