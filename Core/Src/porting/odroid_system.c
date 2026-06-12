@@ -295,19 +295,13 @@ bool odroid_system_emu_screenshot(const char *filename)
 #define EMU_MAX_SAVE_SLOTS 4
 /* Static storage for save state info — avoids calloc heap fragmentation.
  * Only one emu_get_states result is active at a time.
- *
- * Placed in AHB SRAM (.ahb section) instead of default DTCM. Touched
- * only when opening the save-state menu, never on the per-frame hot
- * path, so the AHB latency is irrelevant — but the 2KB it would
- * otherwise occupy in tightly-budgeted DTCM is significant. */
-static uint8_t _emu_states_buf[sizeof(rg_emu_states_t) + sizeof(rg_emu_slot_t) * EMU_MAX_SAVE_SLOTS]
-    __attribute__((section(".ahb")));
+ */
 
+#define EMU_STATES_BUF_SIZE (sizeof(rg_emu_states_t) + sizeof(rg_emu_slot_t) * EMU_MAX_SAVE_SLOTS)
 rg_emu_states_t *odroid_system_emu_get_states(const char *romPath, size_t slots)
 {
     if (slots > EMU_MAX_SAVE_SLOTS) slots = EMU_MAX_SAVE_SLOTS;
-    rg_emu_states_t *result = (rg_emu_states_t *)_emu_states_buf;
-    memset(result, 0, sizeof(_emu_states_buf));
+    rg_emu_states_t *result = (rg_emu_states_t *)calloc(1, EMU_STATES_BUF_SIZE);;
     uint8_t last_used_slot = 0xFF;
 
     char pathbuf[RG_PATH_MAX];

@@ -703,11 +703,11 @@ INCLUDE build/fceumm_mappers.ld
     . = . + SIZEOF(.overlay_md_bss);
   } >RAM_EMU
 
+  /* only use ahb_malloc/ahb_calloc to use ahb memory ! */
+  /* only audio buffer is statically allocated */
   ._ahbram (NOLOAD) :
   {
     __ahbram_start__ = .;
-    . = ALIGN(4);
-    *(.ahb)
     . = ALIGN(4);
     __ahbram_heap_start__ = .;
     . = ORIGIN(AHBRAM) + LENGTH(AHBRAM) - __AHBRAM_AUDIO_RESERVE__;
