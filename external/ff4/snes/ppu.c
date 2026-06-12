@@ -72,15 +72,30 @@ static bool ppu_getWindowState(Ppu* ppu, int layer, int x);
 static void ppu_evaluateSprites(Ppu* ppu, int line);
 static uint16_t ppu_getVramRemap(Ppu* ppu);
 
+#ifdef FF4_PORT_STATIC_SNES
+/* G&W port: sizeof(Ppu) ≈ 1 MB on this build (pixel layer buffers
+ * dominate). The 85 KB MCU heap cannot hold it; place the struct in
+ * overlay_ff4 BSS (RAM_EMU, 740 KB) instead. */
+static Ppu _ff4_ppu_storage;
+#endif
+
 Ppu* ppu_init(Snes* snes) {
+#ifdef FF4_PORT_STATIC_SNES
+  Ppu* ppu = &_ff4_ppu_storage;
+#else
   Ppu* ppu = malloc(sizeof(Ppu));
+#endif
   ppu->snes = snes;
   ppu_setPixelOutputFormat(ppu, ppu_pixelOutputFormatBGRX);
   return ppu;
 }
 
 void ppu_free(Ppu* ppu) {
+#ifndef FF4_PORT_STATIC_SNES
   free(ppu);
+#else
+  (void)ppu;
+#endif
 }
 
 void ppu_reset(Ppu* ppu) {

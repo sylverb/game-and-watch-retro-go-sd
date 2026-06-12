@@ -92,6 +92,20 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length) {
     }
     newLength *= 2;
   }
+#ifdef FF4_PORT_STATIC_SNES
+  /* G&W port: 85 KB heap can't duplicate a 1 MB ROM. If the ROM is
+   * already a power of two (FF4 is 1 MB pile), borrow the XIP pointer
+   * directly. Non-power-of-2 ROMs would still need padding; not
+   * supported yet — bail out so the user knows to provide a clean ROM. */
+  uint8_t* newData;
+  if (length == newLength) {
+    newData = data;
+  } else {
+    printf("FF4 port: non-power-of-2 ROM padding not implemented "
+           "(length=%d, newLength=%d)\n", length, newLength);
+    return false;
+  }
+#else
   uint8_t* newData = malloc(newLength);
   memcpy(newData, data, length);
   int test = 1;
@@ -102,6 +116,7 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length) {
     }
     test *= 2;
   }
+#endif
   // load it
   const char* typeNames[4] = {"(none)", "LoROM", "HiROM", "ExHiROM"};
   printf("Loaded %s rom (%s)\n", typeNames[headers[used].cartType], headers[used].pal ? "PAL" : "NTSC");
@@ -117,7 +132,9 @@ bool snes_loadRom(Snes* snes, const uint8_t* data, int length) {
   );
   snes_reset(snes, true); // reset after loading
   snes->palTiming = headers[used].pal; // set region
+#ifndef FF4_PORT_STATIC_SNES
   free(newData);
+#endif
   return true;
 }
 

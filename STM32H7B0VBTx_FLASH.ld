@@ -545,29 +545,6 @@ INCLUDE build/fceumm_mappers.ld
     __rodata_zelda3_end__ = .;
   } > RODATA
 
-  .overlay_ff4 __RAM_EMU_START__ : {
-    . = ALIGN(4);
-    __ram_emu_ff4_start__ = .;
-    build/ff4/main_ff4.o (.data .data* .text .text* .rodata .rodata*)
-    build/ff4/*.o (.data .data* .text .text* .noreloc)
-    . = ALIGN(4);
-    _OVERLAY_FF4_LOAD_END = .;
-  } AT > CORES
-  _OVERLAY_FF4_LOAD_START = LOADADDR(.overlay_ff4);
-  _OVERLAY_FF4_SIZE = SIZEOF(.overlay_ff4);
-
-  .overlay_ff4_bss _OVERLAY_FF4_LOAD_END : {
-    . = ALIGN(4);
-    _OVERLAY_FF4_BSS_START = .;
-    build/ff4/*.o (.bss .bss*)
-    . = ALIGN(4);
-    build/ff4/*.o (COMMON)
-    __ram_emu_ff4_end__ = .;
-    _OVERLAY_FF4_BSS_END = .;
-    ASSERT(ABSOLUTE(_OVERLAY_FF4_BSS_END) < __RAM_EMU_END__, "Error: FF4 BSS overflow");
-  }
-  _OVERLAY_FF4_BSS_SIZE = SIZEOF(.overlay_ff4_bss);
-
   .overlay_smw __RAM_EMU_START__ : {
     . = ALIGN(4);
     __ram_emu_smw_start__ = .;
@@ -712,6 +689,29 @@ INCLUDE build/fceumm_mappers.ld
     ASSERT(ABSOLUTE(_OVERLAY_PKMINI_BSS_END) < __RAM_EMU_END__, "Error: PKMINI BSS overflow");
   }
   _OVERLAY_PKMINI_BSS_SIZE = SIZEOF(.overlay_pkmini_bss);
+
+  .overlay_ff4 __RAM_EMU_START__ : {
+    . = ALIGN(4);
+    __ram_emu_ff4_start__ = .;
+    build/ff4/main_ff4.o (.data .data* .text .text* .rodata .rodata*)
+    build/ff4/*.o (.data .data* .text .text* .noreloc)
+    . = ALIGN(4);
+    _OVERLAY_FF4_LOAD_END = .;
+  } AT > CORES
+  _OVERLAY_FF4_LOAD_START = LOADADDR(.overlay_ff4);
+  _OVERLAY_FF4_SIZE = SIZEOF(.overlay_ff4);
+
+  .overlay_ff4_bss _OVERLAY_FF4_LOAD_END : {
+    . = ALIGN(4);
+    _OVERLAY_FF4_BSS_START = .;
+    build/ff4/*.o (.bss .bss*)
+    . = ALIGN(4);
+    build/ff4/*.o (COMMON)
+    __ram_emu_ff4_end__ = .;
+    _OVERLAY_FF4_BSS_END = .;
+    ASSERT(ABSOLUTE(_OVERLAY_FF4_BSS_END) < __RAM_EMU_END__, "Error: FF4 BSS overflow");
+  }
+  _OVERLAY_FF4_BSS_SIZE = SIZEOF(.overlay_ff4_bss);
 
   ._ram_space_check_md : {
     . = . + SIZEOF(.overlay_md);

@@ -27,8 +27,10 @@ Cart* cart_init(Snes* snes) {
 }
 
 void cart_free(Cart* cart) {
+#ifndef FF4_PORT_STATIC_SNES
   if(cart->rom != NULL) free(cart->rom);
   if(cart->ram != NULL) free(cart->ram);
+#endif
   free(cart);
 }
 
@@ -58,9 +60,34 @@ void cart_handleState(Cart* cart, StateHandler* sh) {
 
 void cart_load(Cart* cart, int type, uint8_t* rom, int romSize, int ramSize) {
   cart->type = type;
+#ifdef FF4_PORT_STATIC_SNES
+  /* G&W port: the ROM is already XIP-mapped at `rom` (extflash 0x90xxxxxx).
+   * malloc+memcpy of romSize (1 MB for FF4) would OOM the 85 KB MCU heap.
+   * Borrow the pointer instead; cart_free must NOT release it. */
+  cart->rom = rom;
+#else
   if(cart->rom != NULL) free(cart->rom);
-  if(cart->ram != NULL) free(cart->ram);
   cart->rom = malloc(romSize);
+#endif
+#ifdef FF4_PORT_STATIC_SNES
+  /* G&W port: SRAM (typically 8 KB for FF4) goes in overlay_ff4 BSS
+   * to avoid eating the MCU heap. 32 KB is the cap for SNES carts. */
+  static uint8_t _ff4_cart_ram_storage[32 * 1024];
+  cart->romSize = romSize;
+  if (ramSize > (int)sizeof(_ff4_cart_ram_storage)) {
+    printf("FF4 port: SRAM %d > %zu cap\n", ramSize, sizeof(_ff4_cart_ram_storage));
+    cart->ram = NULL;
+    cart->ramSize = 0;
+  } else if (ramSize > 0) {
+    cart->ram = _ff4_cart_ram_storage;
+    memset(cart->ram, 0, ramSize);
+    cart->ramSize = ramSize;
+  } else {
+    cart->ram = NULL;
+    cart->ramSize = 0;
+  }
+#else
+  if(cart->ram != NULL) free(cart->ram);
   cart->romSize = romSize;
   if(ramSize > 0) {
     cart->ram = malloc(ramSize);
@@ -69,7 +96,10 @@ void cart_load(Cart* cart, int type, uint8_t* rom, int romSize, int ramSize) {
     cart->ram = NULL;
   }
   cart->ramSize = ramSize;
+#endif
+#ifndef FF4_PORT_STATIC_SNES
   memcpy(cart->rom, rom, romSize);
+#endif
 }
 
 bool cart_handleBattery(Cart* cart, bool save, uint8_t* data, int* size) {

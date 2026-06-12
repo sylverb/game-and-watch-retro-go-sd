@@ -37,13 +37,17 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 
     /* Cache the ROM into the round-robin flash region. The pointer
      * returned is XIP-addressable for the lifetime of this app.
-     * Homebrew selector only accepts `.bin`, so the file on the SD
-     * must be the FF4 ROM renamed: /roms/homebrew/Final Fantasy IV.bin */
+     *
+     * NOTE: "Final Fantasy IV.bin" is the FF4 overlay code (extracted
+     * via objcopy --only-section=.overlay_ff4 in SD_CONTENT_STAMP).
+     * The actual SNES ROM lives at a separate path so the menu entry
+     * and the data are decoupled — mirrors the zelda3 / zelda3.ro
+     * convention. User drops the ROM at /roms/homebrew/ff4.sfc. */
     uint32_t rom_length = 0;
     uint8_t *rom_bytes = odroid_overlay_cache_file_in_flash(
-        "/roms/homebrew/Final Fantasy IV.bin", &rom_length, false);
+        "/roms/homebrew/ff4.sfc", &rom_length, false);
     if (rom_bytes == NULL || rom_length == 0) {
-        printf("FF4: missing /roms/homebrew/Final Fantasy IV.bin\n");
+        printf("FF4: missing /roms/homebrew/ff4.sfc\n");
         return -1;
     }
     printf("FF4: rom cached at %p, %lu bytes\n",

@@ -125,8 +125,15 @@ struct Ppu {
   uint8_t ppu1openBus;
   uint8_t ppu2openBus;
   // pixel buffer (xbgr)
+#ifdef FF4_PORT_STATIC_SNES
+  /* G&W port: native res, single buffer. FF4 doesn't use hi-res
+   * 512-wide mode and the LCD is consumed live so a single frame
+   * is enough. This shrinks Ppu from ~1 MB to ~245 KB. */
+  uint8_t pixelBuffer[256 * 4 * 239];
+#else
   // times 2 for even and odd frame
   uint8_t pixelBuffer[512 * 4 * 239 * 2];
+#endif
   uint8_t pixelOutputFormat;
 };
 

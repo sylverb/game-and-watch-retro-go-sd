@@ -26,8 +26,20 @@ static void snes_writeReg(Snes* snes, uint16_t adr, uint8_t val);
 static uint8_t snes_rread(Snes* snes, uint32_t adr); // wrapped by read, to set open bus
 static int snes_getAccessTime(Snes* snes, uint32_t adr);
 
+#ifdef FF4_PORT_STATIC_SNES
+/* G&W port: place the 128 KB Snes (mostly its ram[0x20000]) in
+ * the .overlay_ff4 BSS section. The MCU heap is only 85 KB; malloc
+ * of sizeof(Snes) would OOM via _sbrk. The static lives in RAM_EMU
+ * (740 KB) which is reset on every overlay switch. */
+static Snes _ff4_snes_storage;
+#endif
+
 Snes* snes_init(void) {
+#ifdef FF4_PORT_STATIC_SNES
+  Snes* snes = &_ff4_snes_storage;
+#else
   Snes* snes = malloc(sizeof(Snes));
+#endif
   snes->cpu = cpu_init(snes, snes_cpuRead, snes_cpuWrite, snes_cpuIdle);
   snes->apu = apu_init(snes);
   snes->dma = dma_init(snes);
@@ -47,7 +59,9 @@ void snes_free(Snes* snes) {
   cart_free(snes->cart);
   input_free(snes->input1);
   input_free(snes->input2);
+#ifndef FF4_PORT_STATIC_SNES
   free(snes);
+#endif
 }
 
 void snes_reset(Snes* snes, bool hard) {
