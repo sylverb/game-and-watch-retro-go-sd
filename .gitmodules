@@ -66,3 +66,6 @@
 [submodule "Core/Src/porting/lib/tamp"]
 	path = Core/Src/porting/lib/tamp
 	url = https://github.com/BrianPugh/tamp.git
+[submodule "external/ff4"]
+	path = external/ff4
+	url = git@github.com:hcross/ff4-gnw.git
