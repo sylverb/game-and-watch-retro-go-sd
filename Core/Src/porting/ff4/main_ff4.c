@@ -24,6 +24,9 @@ extern bool ff4_init(const uint8_t *rom_bytes, int rom_length);
 extern void ff4_step(void);
 extern void ff4_shutdown(void);
 extern void ff4_get_state(uint32_t *frames_out, uint64_t *cycles_out);
+extern void ff4_blit_to_lcd(uint16_t *lcd_fb);
+
+#include "gw_lcd.h"
 
 /* Called from inside LakeSnes's snes_runFrame loop every ~4096 opcodes
  * to keep the WWDG (≈237 ms window on this build) happy. Without this
@@ -83,6 +86,10 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 
         ff4_step();
         frame++;
+
+        /* Blit the PPU frame to the active LCD buffer, then swap. */
+        ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
+        lcd_swap();
 
         /* Liveness probe: every 5 host frames print Snes-side counters
          * so we can tell whether the interpreter is actually progressing
