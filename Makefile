@@ -774,6 +774,13 @@ $(CORE_ZELDA3)/tile_detect.c \
 $(CORE_ZELDA3)/overlord.c \
 Core/Src/porting/zelda3/main_zelda3.c
 
+CORE_FF4 = external/ff4
+FF4_C_SOURCES = \
+$(wildcard $(CORE_FF4)/snes/*.c) \
+$(wildcard $(CORE_FF4)/battle/*.c) \
+$(CORE_FF4)/main.c \
+Core/Src/porting/ff4/main_ff4.c
+
 CORE_SMW = external/smw
 SMW_C_SOURCES = \
 $(CORE_SMW)/src/smw_rtl.c \
