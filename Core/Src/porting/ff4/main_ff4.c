@@ -36,12 +36,14 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     odroid_system_init(APPID_FF4, FF4_AUDIO_SAMPLE_RATE);
 
     /* Cache the ROM into the round-robin flash region. The pointer
-     * returned is XIP-addressable for the lifetime of this app. */
+     * returned is XIP-addressable for the lifetime of this app.
+     * Homebrew selector only accepts `.bin`, so the file on the SD
+     * must be the FF4 ROM renamed: /roms/homebrew/Final Fantasy IV.bin */
     uint32_t rom_length = 0;
     uint8_t *rom_bytes = odroid_overlay_cache_file_in_flash(
-        "/roms/homebrew/ff4.sfc", &rom_length, false);
+        "/roms/homebrew/Final Fantasy IV.bin", &rom_length, false);
     if (rom_bytes == NULL || rom_length == 0) {
-        printf("FF4: missing /roms/homebrew/ff4.sfc\n");
+        printf("FF4: missing /roms/homebrew/Final Fantasy IV.bin\n");
         return -1;
     }
     printf("FF4: rom cached at %p, %lu bytes\n",
