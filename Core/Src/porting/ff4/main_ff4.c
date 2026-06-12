@@ -98,11 +98,14 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             uint32_t snes_frames = 0;
             uint64_t snes_cycles = 0;
             ff4_get_state(&snes_frames, &snes_cycles);
+            extern uint32_t ff4_dispatch_hits;
+            extern uint32_t ff4_dispatch_misses;
             uint32_t now = HAL_GetTick();
-            printf("FF4 live: host=%d snes_frame=%lu snes_cycles=%llu wall_ms=%lu\n",
+            printf("FF4 live: host=%d snes_frame=%lu dispatch=%lu/%lu wall_ms=%lu\n",
                    frame,
                    (unsigned long)snes_frames,
-                   (unsigned long long)snes_cycles,
+                   (unsigned long)ff4_dispatch_hits,
+                   (unsigned long)(ff4_dispatch_hits + ff4_dispatch_misses),
                    (unsigned long)(now - t_start));
         }
     }

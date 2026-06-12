@@ -779,6 +779,8 @@ FF4_C_SOURCES = \
 $(wildcard $(CORE_FF4)/snes/*.c) \
 $(wildcard $(CORE_FF4)/battle/*.c) \
 $(CORE_FF4)/main.c \
+$(CORE_FF4)/dispatch_battle.c \
+$(CORE_FF4)/ff4_helpers.c \
 Core/Src/porting/ff4/main_ff4.c
 
 CORE_SMW = external/smw
