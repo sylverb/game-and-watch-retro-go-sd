@@ -100,6 +100,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             ff4_get_state(&snes_frames, &snes_cycles);
             extern uint32_t ff4_dispatch_hits;
             extern uint32_t ff4_dispatch_misses;
+            extern uint32_t ff4_miss_per_bank[256];
             uint32_t now = HAL_GetTick();
             printf("FF4 live: host=%d snes_frame=%lu dispatch=%lu/%lu wall_ms=%lu\n",
                    frame,
@@ -107,6 +108,24 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
                    (unsigned long)ff4_dispatch_hits,
                    (unsigned long)(ff4_dispatch_hits + ff4_dispatch_misses),
                    (unsigned long)(now - t_start));
+            /* Every 50 host frames, print the top-3 banks by miss count
+             * so we know which module the boot/title sequence lives in. */
+            if ((frame % 50) == 0) {
+                int top[3] = {-1, -1, -1};
+                uint32_t topv[3] = {0, 0, 0};
+                for (int b = 0; b < 256; b++) {
+                    uint32_t v = ff4_miss_per_bank[b];
+                    if (v > topv[0]) { topv[2]=topv[1]; top[2]=top[1]; topv[1]=topv[0]; top[1]=top[0]; topv[0]=v; top[0]=b; }
+                    else if (v > topv[1]) { topv[2]=topv[1]; top[2]=top[1]; topv[1]=v; top[1]=b; }
+                    else if (v > topv[2]) { topv[2]=v; top[2]=b; }
+                }
+                printf("FF4 banks: ");
+                for (int i = 0; i < 3; i++) {
+                    if (top[i] < 0) break;
+                    printf("$%02X=%lu ", top[i], (unsigned long)topv[i]);
+                }
+                printf("\n");
+            }
         }
     }
 
