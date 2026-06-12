@@ -25,6 +25,7 @@
 #include "main_a7800.h"
 #include "main_amstrad.h"
 #include "main_zelda3.h"
+#include "main_ff4.h"
 #include "main_smw.h"
 #include "main_videopac.h"
 #include "main_celeste.h"
@@ -1232,6 +1233,10 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
             memset(&_OVERLAY_SMW_BSS_START, 0x0, (size_t)&_OVERLAY_SMW_BSS_SIZE);
             SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_SMW_SIZE);
             app_main_smw(load_state, start_paused, save_slot);
+        } else if (strcmp(newfile->name,"Final Fantasy IV") == 0) {
+            memset(&_OVERLAY_FF4_BSS_START, 0x0, (size_t)&_OVERLAY_FF4_BSS_SIZE);
+            SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_FF4_SIZE);
+            app_main_ff4(load_state, start_paused, save_slot);
         }
       }
     } else if(strcmp(system_name, "Tamagotchi") == 0) {
