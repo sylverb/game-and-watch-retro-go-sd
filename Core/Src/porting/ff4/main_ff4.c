@@ -27,6 +27,24 @@ extern void ff4_get_state(uint32_t *frames_out, uint64_t *cycles_out);
 extern void ff4_blit_to_lcd(uint16_t *lcd_fb);
 extern void ff4_set_button(int player, int button, bool pressed);
 
+#ifdef FF4_AUTOBOOT
+#include <string.h>
+#include "snes/snes.h"
+#include "snes/cpu.h"
+#include "snes/ppu.h"
+#include "snes/apu.h"
+extern Snes *ff4_snes;
+/* D3 + D4 + D5 shared state. D1/D2 are stateless. */
+static uint32_t g_diag_host_frame = 0;
+static uint32_t g_diag_pc_bank_hist[256];
+static uint32_t g_diag_pc_sample_count = 0;
+/* miss ring written by ff4_dispatch_try (see dispatch_all.c patch);
+ * we only read it here. */
+extern uint32_t g_diag_miss_ring[8];
+extern uint32_t ff4_dispatch_hits;
+extern uint32_t ff4_dispatch_misses;
+#endif
+
 /* SNES joypad bit order (matches LakeSnes input_read serial shift). */
 #define SNES_BTN_B      0
 #define SNES_BTN_Y      1
@@ -114,6 +132,83 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         }
 
         ff4_pump_buttons(&joystick);
+
+#ifdef FF4_AUTOBOOT
+        /* D3: sample PC bank once per host frame (cheap: 1 load + 1 incr) */
+        if (ff4_snes != NULL && ff4_snes->cpu != NULL) {
+            uint8_t bank = ff4_snes->cpu->k;
+            g_diag_pc_bank_hist[bank]++;
+            if (++g_diag_pc_sample_count >= 250) {
+                uint32_t other = g_diag_pc_sample_count
+                    - g_diag_pc_bank_hist[0x00] - g_diag_pc_bank_hist[0x01]
+                    - g_diag_pc_bank_hist[0x04] - g_diag_pc_bank_hist[0x7E];
+                printf("=== FF4_DIAG_PCHIST_2026_06_13 === host=%lu "
+                       "$00=%lu $01=%lu $04=%lu $7E=%lu other=%lu last_pc=%02X:%04X\n",
+                       (unsigned long)g_diag_host_frame,
+                       (unsigned long)g_diag_pc_bank_hist[0x00],
+                       (unsigned long)g_diag_pc_bank_hist[0x01],
+                       (unsigned long)g_diag_pc_bank_hist[0x04],
+                       (unsigned long)g_diag_pc_bank_hist[0x7E],
+                       (unsigned long)other,
+                       bank, ff4_snes->cpu->pc);
+                memset(g_diag_pc_bank_hist, 0, sizeof g_diag_pc_bank_hist);
+                g_diag_pc_sample_count = 0;
+            }
+        }
+
+        /* D1: PPU/NMI state every 50 frames */
+        if (ff4_snes != NULL && ff4_snes->ppu != NULL
+            && (g_diag_host_frame % 50) == 0) {
+            printf("=== FF4_DIAG_PPU_2026_06_13 === host=%lu snes_frames=%lu nmiEn=%d "
+                   "inVbl=%d forceBlank=%d bright=%u vPos=%u\n",
+                   (unsigned long)g_diag_host_frame,
+                   (unsigned long)ff4_snes->frames,
+                   ff4_snes->nmiEnabled, ff4_snes->inVblank,
+                   ff4_snes->ppu->forcedBlank, ff4_snes->ppu->brightness,
+                   ff4_snes->vPos);
+        }
+
+        /* D2: APU mailbox every 50 frames (offset 25 to interleave with D1) */
+        if (ff4_snes != NULL && ff4_snes->apu != NULL
+            && (g_diag_host_frame % 50) == 25) {
+            printf("=== FF4_DIAG_APU_2026_06_13 === host=%lu "
+                   "in=%02X %02X %02X %02X out=%02X %02X %02X %02X\n",
+                   (unsigned long)g_diag_host_frame,
+                   ff4_snes->apu->inPorts[0],  ff4_snes->apu->inPorts[1],
+                   ff4_snes->apu->inPorts[2],  ff4_snes->apu->inPorts[3],
+                   ff4_snes->apu->outPorts[0], ff4_snes->apu->outPorts[1],
+                   ff4_snes->apu->outPorts[2], ff4_snes->apu->outPorts[3]);
+        }
+
+        /* D5: heartbeat every 60 frames (~1 Hz). Split 64-bit cycle counter
+         * into two %lx halves since nano-printf lacks %llu. */
+        if (ff4_snes != NULL && ff4_snes->cpu != NULL
+            && (g_diag_host_frame % 60) == 0) {
+            uint64_t cyc = ff4_snes->cycles;
+            printf("=== FF4_DIAG_ALIVE_2026_06_13 === host=%lu "
+                   "snes_cyc_hi=%08lx snes_cyc_lo=%08lx snes_frm=%lu pc=%02X:%04X\n",
+                   (unsigned long)g_diag_host_frame,
+                   (unsigned long)(cyc >> 32),
+                   (unsigned long)(cyc & 0xFFFFFFFFu),
+                   (unsigned long)ff4_snes->frames,
+                   ff4_snes->cpu->k, ff4_snes->cpu->pc);
+        }
+
+        /* D4: dispatch miss ring dump every 100 frames */
+        if ((g_diag_host_frame % 100) == 0 && g_diag_host_frame > 0) {
+            printf("=== FF4_DIAG_MISS_2026_06_13 === host=%lu hits=%lu misses=%lu uniq=",
+                   (unsigned long)g_diag_host_frame,
+                   (unsigned long)ff4_dispatch_hits,
+                   (unsigned long)ff4_dispatch_misses);
+            for (int i = 0; i < 8; i++) {
+                printf("%06lX ", (unsigned long)g_diag_miss_ring[i]);
+            }
+            printf("\n");
+        }
+
+        g_diag_host_frame++;
+#endif
+
         ff4_step();
         frame++;
 
