@@ -1073,6 +1073,17 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
     uint8_t oc = odroid_settings_cpu_oc_level_get();
     SystemClock_Config(oc);
 
+#ifdef FF4_AUTOBOOT
+    if (!force_launcher && file == NULL) {
+        printf("=== FF4_AUTOBOOT_ATTEMPT_2026_06_13 ===\n");
+        static char ff4_autoboot_path[] = "/roms/homebrew/Final Fantasy IV.bin";
+        file = emulator_get_file(ff4_autoboot_path);
+        if (file == NULL) {
+            printf("=== FF4_AUTOBOOT_FILE_NOT_FOUND ===\n");
+        }
+    }
+#endif
+
     bool resume_emulator = (file != NULL);
     if (resume_emulator) {
         emulator_start(file, true, true, -1);

@@ -71,6 +71,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     (void)save_slot;
 
     printf("FF4 start (Phase 5.4 proof-of-life)\n");
+    printf("=== FF4_BOOT_MARKER_2026_06_13_AUTOTEST ===\n");
 
     odroid_system_init(APPID_FF4, FF4_AUDIO_SAMPLE_RATE);
 
@@ -112,7 +113,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             break;
         }
 
-        /* ff4_pump_buttons(&joystick); */ /* disabled: investigating black screen */
+        ff4_pump_buttons(&joystick);
         ff4_step();
         frame++;
 

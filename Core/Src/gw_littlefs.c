@@ -284,10 +284,20 @@ void fs_init(void){
     // reformat if we can't mount the fs
     // this should only happen on the first boot
     if (lfs_mount(&lfs, &lfs_cfg)) {
+#ifdef FF4_AUTOBOOT
+        printf("=== LFS_MOUNT_FAIL_AUTOFORMAT ===\n");
+        lfs_cfg.block_count = (&__FILESYSTEM_END__ - &__FILESYSTEM_START__) / lfs_cfg.block_size;
+        int rc_fmt = lfs_format(&lfs, &lfs_cfg);
+        printf("=== LFS_FORMAT rc=%d ===\n", rc_fmt);
+        int rc_mnt = lfs_mount(&lfs, &lfs_cfg);
+        printf("=== LFS_REMOUNT rc=%d ===\n", rc_mnt);
+        assert(rc_mnt == 0);
+#else
         corrupt_filesystem_screen();
         lfs_cfg.block_count = (&__FILESYSTEM_END__ - &__FILESYSTEM_START__) / lfs_cfg.block_size;
         // If we get here, it means that the user chose to reformat the filesystem.
         assert(lfs_mount(&lfs, &lfs_cfg) == 0);
+#endif
     }
     fs_mounted = true;
     printf("filesytem mounted.\n");
