@@ -25,6 +25,34 @@ extern void ff4_step(void);
 extern void ff4_shutdown(void);
 extern void ff4_get_state(uint32_t *frames_out, uint64_t *cycles_out);
 extern void ff4_blit_to_lcd(uint16_t *lcd_fb);
+extern void ff4_set_button(int player, int button, bool pressed);
+
+/* SNES joypad bit order (matches LakeSnes input_read serial shift). */
+#define SNES_BTN_B      0
+#define SNES_BTN_Y      1
+#define SNES_BTN_SELECT 2
+#define SNES_BTN_START  3
+#define SNES_BTN_UP     4
+#define SNES_BTN_DOWN   5
+#define SNES_BTN_LEFT   6
+#define SNES_BTN_RIGHT  7
+#define SNES_BTN_A      8
+#define SNES_BTN_X      9
+#define SNES_BTN_L      10
+#define SNES_BTN_R      11
+
+static void ff4_pump_buttons(const odroid_gamepad_state_t *js) {
+    ff4_set_button(1, SNES_BTN_UP,     js->values[ODROID_INPUT_UP]);
+    ff4_set_button(1, SNES_BTN_DOWN,   js->values[ODROID_INPUT_DOWN]);
+    ff4_set_button(1, SNES_BTN_LEFT,   js->values[ODROID_INPUT_LEFT]);
+    ff4_set_button(1, SNES_BTN_RIGHT,  js->values[ODROID_INPUT_RIGHT]);
+    ff4_set_button(1, SNES_BTN_A,      js->values[ODROID_INPUT_A]);
+    ff4_set_button(1, SNES_BTN_B,      js->values[ODROID_INPUT_B]);
+    ff4_set_button(1, SNES_BTN_X,      js->values[ODROID_INPUT_X]);
+    ff4_set_button(1, SNES_BTN_Y,      js->values[ODROID_INPUT_Y]);
+    ff4_set_button(1, SNES_BTN_SELECT, js->values[ODROID_INPUT_SELECT]);
+    ff4_set_button(1, SNES_BTN_START,  js->values[ODROID_INPUT_START]);
+}
 
 #include "gw_lcd.h"
 
@@ -84,6 +112,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             break;
         }
 
+        /* ff4_pump_buttons(&joystick); */ /* disabled: investigating black screen */
         ff4_step();
         frame++;
 

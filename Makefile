@@ -780,6 +780,8 @@ $(wildcard $(CORE_FF4)/snes/*.c) \
 $(wildcard $(CORE_FF4)/battle/*.c) \
 $(wildcard $(CORE_FF4)/cutscene/*.c) \
 $(wildcard $(CORE_FF4)/sound/*.c) \
+$(wildcard $(CORE_FF4)/field/*.c) \
+$(wildcard $(CORE_FF4)/menu/*.c) \
 $(CORE_FF4)/main.c \
 $(CORE_FF4)/dispatch_all.c \
 $(CORE_FF4)/ff4_helpers.c \

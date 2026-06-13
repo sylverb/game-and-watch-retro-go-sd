@@ -45,3 +45,5 @@ choices.yaml
 build-error.log
 .bash_history
 *.sfc
+
+sd_content_backup/
