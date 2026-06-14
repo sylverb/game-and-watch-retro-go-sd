@@ -27,13 +27,16 @@ extern void ff4_get_state(uint32_t *frames_out, uint64_t *cycles_out);
 extern void ff4_blit_to_lcd(uint16_t *lcd_fb);
 extern void ff4_set_button(int player, int button, bool pressed);
 
-#ifdef FF4_AUTOBOOT
+#if defined(FF4_AUTOBOOT) || defined(FF4_LOAD_SAVESTATE)
 #include <string.h>
 #include "snes/snes.h"
 #include "snes/cpu.h"
 #include "snes/ppu.h"
 #include "snes/apu.h"
 extern Snes *ff4_snes;
+#endif
+
+#ifdef FF4_AUTOBOOT
 /* D3 + D4 + D5 shared state. D1/D2 are stateless. */
 static uint32_t g_diag_host_frame = 0;
 static uint32_t g_diag_pc_bank_hist[256];
@@ -115,6 +118,25 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         printf("FF4: LakeSnes init failed\n");
         return -1;
     }
+
+#ifdef FF4_LOAD_SAVESTATE
+    {
+        uint32_t st_size = 0;
+        uint8_t *st_bytes = odroid_overlay_cache_file_in_flash(
+            "/roms/homebrew/Final Fantasy IV.lss", &st_size, false);
+        printf("=== FF4_SAVESTATE_TRY === size=%lu\n",
+               (unsigned long)st_size);
+        if (st_bytes == NULL || st_size == 0) {
+            printf("=== FF4_SAVESTATE_MISSING ===\n");
+        } else {
+            bool ok = snes_loadState(ff4_snes, st_bytes, (int)st_size);
+            printf("=== FF4_SAVESTATE_%s === pc=%02X:%04X frames=%lu\n",
+                   ok ? "OK" : "FAIL",
+                   ff4_snes->cpu->k, ff4_snes->cpu->pc,
+                   (unsigned long)ff4_snes->frames);
+        }
+    }
+#endif
 
     odroid_gamepad_state_t joystick = {0};
     int frame = 0;
