@@ -135,6 +135,30 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
                    ff4_snes->cpu->k, ff4_snes->cpu->pc,
                    (unsigned long)ff4_snes->frames);
 
+            printf("=== FF4_WRAM_AT_LOAD === nmi$0200:");
+            for (int i = 0; i < 16; i++) printf(" %02X", ff4_snes->ram[0x0200 + i]);
+            printf("\n");
+
+#ifdef FF4_PC_FIXUP
+            /* Force PC to a known-good entry point. The savestate captures
+             * pc=$00:3302 which falls in the PPU/APU register zone ($2000-
+             * $3FFF) and is not valid executable code on G&W. Jump to
+             * FieldMain @ $00:80A0 (which enables NMI, waits a frame, and
+             * enters the main game loop). WRAM/VRAM from the savestate are
+             * preserved, but field state ($79/$7A/$7B counters) gets reset
+             * by FieldMain's prologue. */
+            ff4_snes->cpu->k = 0x00;
+            ff4_snes->cpu->pc = 0x80A0;
+            ff4_snes->cpu->e = false;  /* native mode */
+            ff4_snes->cpu->i = true;   /* IRQs masked at entry (cli later) */
+            ff4_snes->cpu->mf = true;  /* A 8-bit */
+            ff4_snes->cpu->xf = true;  /* X/Y 8-bit */
+            ff4_snes->cpu->dp = 0x0000;
+            ff4_snes->cpu->db = 0x00;
+            ff4_snes->cpu->sp = 0x01FF;
+            printf("=== FF4_PC_FIXUP === pc forced to 00:80A0 (FieldMain)\n");
+#endif
+
 #ifdef FF4_APU_ECHO
             /* Post-load APU mailbox unstuck: the saved state captures the
              * SPC handshake mid-conversation (FF4 audio engine polling).
@@ -232,6 +256,11 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
                    (unsigned long)(cyc & 0xFFFFFFFFu),
                    (unsigned long)ff4_snes->frames,
                    ff4_snes->cpu->k, ff4_snes->cpu->pc);
+            printf("=== FF4_WRAM_NMI_2026_06_13 === host=%lu wram$0200:",
+                   (unsigned long)g_diag_host_frame);
+            for (int i = 0; i < 16; i++)
+                printf(" %02X", ff4_snes->ram[0x0200 + i]);
+            printf("\n");
         }
 
         /* D4: dispatch miss ring dump every 100 frames */
@@ -258,6 +287,18 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             for (int i = 0; i < 4; i++) {
                 ff4_snes->apu->outPorts[i] = ff4_snes->apu->inPorts[i];
             }
+        }
+#endif
+
+#ifdef FF4_FORCE_NMI
+        /* Hypothesis test: the post-savestate spin loop may wait on a
+         * WRAM counter that only the NMI handler updates. The FF4 code
+         * disabled nmiEnabled after a few frames because the SPC didn't
+         * respond as expected. Re-enable NMI each frame so the handler
+         * fires at VBlank and updates whatever counter the spin loop is
+         * waiting on. */
+        if (ff4_snes != NULL) {
+            ff4_snes->nmiEnabled = true;
         }
 #endif
 
