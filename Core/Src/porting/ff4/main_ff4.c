@@ -76,6 +76,8 @@ static void ff4_pump_buttons(const odroid_gamepad_state_t *js) {
 }
 
 #include "gw_lcd.h"
+#include "gw_audio.h"
+#include "porting/common.h"
 
 /* Called from inside LakeSnes's snes_runFrame loop every ~4096 opcodes
  * to keep the WWDG (≈237 ms window on this build) happy. Without this
@@ -84,7 +86,38 @@ void ff4_port_wdog_refresh(void) {
     wdog_refresh();
 }
 
-#define FF4_AUDIO_SAMPLE_RATE 32000
+/* 48 kHz / 60 fps = 800 mono samples per frame. LakeSnes' dsp_getSamples
+ * resamples from the SPC700's native 534 (NTSC) samples/frame to any
+ * requested count, so we ask directly for 800. Stereo is generated in
+ * the scratch buffer below, then downmixed to mono into the SAI DMA
+ * half-buffer before submission. */
+#define FF4_AUDIO_SAMPLE_RATE   48000
+#define FF4_AUDIO_FRAME_SAMPLES 800
+
+static int16_t ff4_audio_stereo_scratch[FF4_AUDIO_FRAME_SAMPLES * 2];
+
+extern Snes *ff4_snes;
+extern void snes_setSamples(Snes *snes, int16_t *sampleData, int samplesPerFrame);
+
+static void ff4_sound_submit(void) {
+    if (common_emu_sound_loop_is_muted()) return;
+
+    int16_t *dma_buf  = audio_get_active_buffer();
+    uint16_t dma_len  = audio_get_buffer_length();
+    int16_t  vol      = common_emu_sound_get_volume();
+
+    /* Downmix stereo → mono with volume scaling. The LakeSnes DSP stores
+     * L, R interleaved at samplesPerFrame * 2 int16. */
+    uint16_t n = dma_len < FF4_AUDIO_FRAME_SAMPLES ? dma_len : FF4_AUDIO_FRAME_SAMPLES;
+    for (uint16_t i = 0; i < n; i++) {
+        int32_t mono = (int32_t)ff4_audio_stereo_scratch[i * 2]
+                     + (int32_t)ff4_audio_stereo_scratch[i * 2 + 1];
+        mono >>= 1;
+        dma_buf[i] = (int16_t)((mono * vol) >> 8);
+    }
+    /* Pad any remainder with silence so the SAI doesn't repeat stale data. */
+    for (uint16_t i = n; i < dma_len; i++) dma_buf[i] = 0;
+}
 
 int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     (void)load_state;
@@ -183,6 +216,13 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     odroid_gamepad_state_t joystick = {0};
     int frame = 0;
     uint32_t t_start = HAL_GetTick();
+
+    /* Start the SAI DMA loop with a length matching one frame worth of
+     * mono samples. The DMA half-buffer callbacks toggle dma_state and
+     * audio_get_active_buffer() returns the half we may safely write. */
+    memset(ff4_audio_stereo_scratch, 0, sizeof(ff4_audio_stereo_scratch));
+    audio_start_playing(FF4_AUDIO_FRAME_SAMPLES);
+
     while (true) {
         wdog_refresh();
 
@@ -315,6 +355,16 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 
         ff4_step();
         frame++;
+
+        /* Pull one frame worth of SPC/DSP samples (resampled to 48 kHz
+         * by dsp_getSamples) and copy into the active SAI half-buffer
+         * with mono downmix + volume scaling. */
+        if (ff4_snes != NULL && ff4_snes->apu != NULL) {
+            snes_setSamples(ff4_snes,
+                            ff4_audio_stereo_scratch,
+                            FF4_AUDIO_FRAME_SAMPLES);
+            ff4_sound_submit();
+        }
 
         /* Blit the PPU frame to the active LCD buffer, then swap. */
         ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
