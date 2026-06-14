@@ -137,10 +137,19 @@ static uint8_t  ff4_savestate_line[FF4_SAVESTATE_LINE_BYTES];
 static int      ff4_savestate_line_off = 0;
 static uint32_t ff4_savestate_total_off = 0;
 static int      ff4_savestate_dump_done = 0;
-/* Trigger frame measured in *emulated* SNES frames. The interpreter
- * runs at ~3 fps real-time on G&W. 200 SNES frames ≈ 65 s wall-clock
- * and the title screen + music are fully running well before that. */
-static const uint32_t FF4_SAVESTATE_DUMP_FRAME = 200;
+/* Trigger frame measured in *emulated* SNES frames. We synthesize a brief
+ * A press at frame 80..100 to dismiss the title screen, then capture a
+ * snapshot at frame 700 — well into the post-title sequence so the loaded
+ * state is visually distinct from a cold boot.
+ *
+ * At ~3 fps interpreter speed on G&W: ~30s to title, ~4 min wall-clock to
+ * snapshot. The full dump finishes in another ~25 s. */
+/* Hold A pressed for 200 emulated frames from frame 50 — enough that any
+ * "press A to advance" prompt should fire. Then capture at frame 600 so
+ * the resulting savestate is well into the post-A sequence. */
+static const uint32_t FF4_SAVESTATE_DUMP_FRAME = 600;
+static const uint32_t FF4_AUTO_A_PRESS_START   = 50;
+static const uint32_t FF4_AUTO_A_PRESS_END     = 250;
 
 static void ff4_savestate_flush_line(void) {
     if (ff4_savestate_line_off == 0) return;
@@ -328,6 +337,28 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             }
         }
 
+        /* DX: input diagnostic every 50 frames — localize the "buttons
+         * never work" issue. Shows whether autoJoyRead is on (CPU asked
+         * for auto-joypad), the raw button state ff4_pump_buttons wrote,
+         * the resulting word in portAutoRead[0] that the CPU reads at
+         * $4218/$4219, and the raw G&W joystick value for A. */
+        if (ff4_snes != NULL && (g_diag_host_frame % 25) == 0) {
+            extern uint32_t buttons_get(void);
+            uint32_t raw = buttons_get();
+            printf("=== FF4_DIAG_INPUT_2026_06_14 === host=%lu raw=%08lX "
+                   "gw_A=%d gw_B=%d gw_UP=%d gw_DOWN=%d state=%04X "
+                   "portA[0]=%04X autoJoy=%d\n",
+                   (unsigned long)g_diag_host_frame,
+                   (unsigned long)raw,
+                   (int)joystick.values[ODROID_INPUT_A],
+                   (int)joystick.values[ODROID_INPUT_B],
+                   (int)joystick.values[ODROID_INPUT_UP],
+                   (int)joystick.values[ODROID_INPUT_DOWN],
+                   (unsigned)(ff4_snes->input1 ? ff4_snes->input1->currentState : 0),
+                   (unsigned)ff4_snes->portAutoRead[0],
+                   (int)ff4_snes->autoJoyRead);
+        }
+
         /* D1: PPU/NMI state every 50 frames */
         if (ff4_snes != NULL && ff4_snes->ppu != NULL
             && (g_diag_host_frame % 50) == 0) {
@@ -418,6 +449,23 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         if (ff4_snes != NULL && ff4_snes->ppu != NULL) {
             ff4_snes->ppu->forcedBlank = false;
             ff4_snes->ppu->brightness = 15;
+        }
+#endif
+
+#ifdef FF4_AUTO_SAVESTATE_DUMP
+        /* Hold A synthetically across [START, END). Must come AFTER
+         * ff4_pump_buttons (which sets A=0 from the unpressed joystick)
+         * and BEFORE ff4_step (which is where the SNES auto-joypad reads
+         * input->currentState during its emulated VBlank). */
+        if ((uint32_t)frame >= FF4_AUTO_A_PRESS_START
+            && (uint32_t)frame < FF4_AUTO_A_PRESS_END) {
+            ff4_set_button(1, SNES_BTN_A, true);
+            if ((uint32_t)frame == FF4_AUTO_A_PRESS_START) {
+                printf("=== FF4_AUTO_A_PRESS_DOWN === frame=%d\n", frame);
+            }
+        } else if ((uint32_t)frame == FF4_AUTO_A_PRESS_END) {
+            ff4_set_button(1, SNES_BTN_A, false);
+            printf("=== FF4_AUTO_A_PRESS_UP === frame=%d\n", frame);
         }
 #endif
 
