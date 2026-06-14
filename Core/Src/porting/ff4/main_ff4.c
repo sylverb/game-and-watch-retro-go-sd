@@ -134,6 +134,24 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
                    ok ? "OK" : "FAIL",
                    ff4_snes->cpu->k, ff4_snes->cpu->pc,
                    (unsigned long)ff4_snes->frames);
+
+#ifdef FF4_APU_ECHO
+            /* Post-load APU mailbox unstuck: the saved state captures the
+             * SPC handshake mid-conversation (FF4 audio engine polling).
+             * On G&W the SPC700 is stubbed (InitSound_ext/ExecSound_ext
+             * no-ops), so outPorts stay at zero forever and the CPU spins
+             * waiting for an echo. Mirror inPorts → outPorts at load time
+             * so any "wait until $2140 == 0xXX" loop sees its echo. */
+            printf("=== FF4_APU_FIXUP === in=%02X %02X %02X %02X "
+                   "out_before=%02X %02X %02X %02X\n",
+                   ff4_snes->apu->inPorts[0], ff4_snes->apu->inPorts[1],
+                   ff4_snes->apu->inPorts[2], ff4_snes->apu->inPorts[3],
+                   ff4_snes->apu->outPorts[0], ff4_snes->apu->outPorts[1],
+                   ff4_snes->apu->outPorts[2], ff4_snes->apu->outPorts[3]);
+            for (int i = 0; i < 4; i++) {
+                ff4_snes->apu->outPorts[i] = ff4_snes->apu->inPorts[i];
+            }
+#endif
         }
     }
 #endif
@@ -229,6 +247,18 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         }
 
         g_diag_host_frame++;
+#endif
+
+#ifdef FF4_APU_ECHO
+        /* Continuous APU mailbox echo: SPC700 is stubbed on G&W so it
+         * never acknowledges. Mirror inPorts → outPorts each host frame
+         * so the FF4 audio engine's "wait until $2140==X" loops see X
+         * the next time they poll. */
+        if (ff4_snes != NULL && ff4_snes->apu != NULL) {
+            for (int i = 0; i < 4; i++) {
+                ff4_snes->apu->outPorts[i] = ff4_snes->apu->inPorts[i];
+            }
+        }
 #endif
 
         ff4_step();
