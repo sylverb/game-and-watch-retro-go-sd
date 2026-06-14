@@ -302,6 +302,17 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         }
 #endif
 
+#ifdef FF4_FORCE_DISPLAY_ON
+        /* Diagnostic: force PPU display ON. If the savestate's VRAM/OAM/
+         * CGRAM are still valid and the game code just hasn't gotten to
+         * its fade-in yet, this will reveal whatever was supposed to be
+         * on screen at savestate time. */
+        if (ff4_snes != NULL && ff4_snes->ppu != NULL) {
+            ff4_snes->ppu->forcedBlank = false;
+            ff4_snes->ppu->brightness = 15;
+        }
+#endif
+
         ff4_step();
         frame++;
 
