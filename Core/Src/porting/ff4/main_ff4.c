@@ -119,6 +119,74 @@ static void ff4_sound_submit(void) {
     for (uint16_t i = n; i < dma_len; i++) dma_buf[i] = 0;
 }
 
+#ifdef FF4_AUTO_SAVESTATE_DUMP
+/* Streaming savestate dump: instead of holding the full ~280 KB in RAM
+ * (which doesn't fit alongside the existing .overlay_ff4_bss), install a
+ * per-byte hook on the LakeSnes StateHandler and forward each emitted byte
+ * to a small line buffer that flushes to serial every 64 bytes. The
+ * scratch buffer for snes_saveStateInto stays minimal — sh_writeByte
+ * silently drops bytes past sh->allocSize since the hook has already done
+ * its job. */
+#include "snes/statehandler.h"
+
+extern int snes_saveStateInto(Snes *snes, uint8_t *buf, int buf_size);
+
+#define FF4_SAVESTATE_LINE_BYTES 64
+
+static uint8_t  ff4_savestate_line[FF4_SAVESTATE_LINE_BYTES];
+static int      ff4_savestate_line_off = 0;
+static uint32_t ff4_savestate_total_off = 0;
+static int      ff4_savestate_dump_done = 0;
+/* Trigger frame measured in *emulated* SNES frames. The interpreter
+ * runs at ~3 fps real-time on G&W. 200 SNES frames ≈ 65 s wall-clock
+ * and the title screen + music are fully running well before that. */
+static const uint32_t FF4_SAVESTATE_DUMP_FRAME = 200;
+
+static void ff4_savestate_flush_line(void) {
+    if (ff4_savestate_line_off == 0) return;
+    uint32_t line_start = ff4_savestate_total_off - ff4_savestate_line_off;
+    printf("FF4_DUMP: %06x ", (unsigned)line_start);
+    for (int i = 0; i < ff4_savestate_line_off; i++) {
+        printf("%02x", ff4_savestate_line[i]);
+    }
+    printf("\n");
+    ff4_savestate_line_off = 0;
+    /* Watchdog every line and yield ~1 ms so the RTT/UART backbuffer can
+     * drain before the next line gets emitted. Without the delay the
+     * monitor receives only every Nth line and the savestate reconstructs
+     * with holes (observed: 75/4300 lines captured in a 220 s window). */
+    wdog_refresh();
+    HAL_Delay(5);
+}
+
+static void ff4_savestate_streaming_hook(uint8_t b) {
+    ff4_savestate_line[ff4_savestate_line_off++] = b;
+    ff4_savestate_total_off++;
+    if (ff4_savestate_line_off == FF4_SAVESTATE_LINE_BYTES) {
+        ff4_savestate_flush_line();
+    }
+}
+
+static void ff4_dump_savestate_serial(void) {
+    if (ff4_snes == NULL) return;
+
+    /* Tiny scratch — sh_writeByte will overflow it silently but the hook
+     * has already captured every byte. */
+    static uint8_t scratch[256];
+
+    ff4_savestate_line_off = 0;
+    ff4_savestate_total_off = 0;
+    printf("=== FF4_SAVESTATE_DUMP_BEGIN ===\n");
+
+    sh_set_writeByte_hook(ff4_savestate_streaming_hook);
+    int size = snes_saveStateInto(ff4_snes, scratch, (int)sizeof(scratch));
+    sh_set_writeByte_hook(NULL);
+
+    ff4_savestate_flush_line();
+    printf("=== FF4_SAVESTATE_DUMP_END size=%d ===\n", size);
+}
+#endif
+
 int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     (void)load_state;
     (void)start_paused;
@@ -365,6 +433,14 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
                             FF4_AUDIO_FRAME_SAMPLES);
             ff4_sound_submit();
         }
+
+#ifdef FF4_AUTO_SAVESTATE_DUMP
+        if (!ff4_savestate_dump_done
+            && (uint32_t)frame >= FF4_SAVESTATE_DUMP_FRAME) {
+            ff4_savestate_dump_done = 1;
+            ff4_dump_savestate_serial();
+        }
+#endif
 
         /* Blit the PPU frame to the active LCD buffer, then swap. */
         ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
