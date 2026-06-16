@@ -106,6 +106,21 @@ static void ff4_sound_submit(void) {
     uint16_t dma_len  = audio_get_buffer_length();
     int16_t  vol      = common_emu_sound_get_volume();
 
+    /* Optional volume ceiling for noise-sensitive environments (e.g. a shared
+     * office). Build with -DFF4_AUDIO_VOL_CAP_PCT=5 to hard-cap output at ~5%
+     * of full scale. `vol` is a 0..255 gain applied via >>8 (255 = unity), so
+     * the cap is 255 * pct / 100. It is a ceiling, not an override: a lower
+     * device volume setting stays lower. Default 0 = disabled (normal volume). */
+#ifndef FF4_AUDIO_VOL_CAP_PCT
+#define FF4_AUDIO_VOL_CAP_PCT 0
+#endif
+#if FF4_AUDIO_VOL_CAP_PCT > 0
+    {
+        const int16_t vol_cap = (int16_t)((255 * (FF4_AUDIO_VOL_CAP_PCT) + 50) / 100);
+        if (vol > vol_cap) vol = vol_cap;
+    }
+#endif
+
     /* Downmix stereo → mono with volume scaling. The LakeSnes DSP stores
      * L, R interleaved at samplesPerFrame * 2 int16. */
     uint16_t n = dma_len < FF4_AUDIO_FRAME_SAMPLES ? dma_len : FF4_AUDIO_FRAME_SAMPLES;
