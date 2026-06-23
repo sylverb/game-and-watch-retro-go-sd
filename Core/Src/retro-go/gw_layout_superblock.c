@@ -7,6 +7,7 @@
 #include "gw_layout_superblock.h"
 #include "gw_linker.h"
 #include "gw_ofw.h"
+#include "gw_flash.h"   /* OSPI_GetFlashSize() */
 #include "crc32.h"
 
 /* Lands in .rodata (included in gw_retro_go_intflash.bin) so a host can locate
@@ -23,6 +24,7 @@ const GnwLayoutSuperblock g_layout_superblock = {
     .frogfs_length   = 0u,
     .extflash_size   = 0u,
     .reserved_offset = 0u,
+    .littlefs_length = 0u,
     .flags           = GNW_LAYOUT_FLAG_FROGFS_OFFSET,
     .crc32           = 0u,
 };
@@ -34,8 +36,8 @@ bool gw_layout_valid(void)
         const GnwLayoutSuperblock *sb = &g_layout_superblock;
         bool ok = (sb->magic == GNW_LAYOUT_MAGIC)
                && (sb->version <= GNW_LAYOUT_VERSION)
-               && (sb->struct_size >= 32u)
-               && (crc32_le(0u, (const unsigned char *)sb, 0x1Cu) == sb->crc32);
+               && (sb->struct_size >= 36u)
+               && (crc32_le(0u, (const unsigned char *)sb, 0x20u) == sb->crc32);
         cached = ok ? 1 : 0;
     }
     return cached != 0;
@@ -55,6 +57,32 @@ uint32_t gw_layout_reserved_size(void)
     if (gw_layout_valid() && (sb->flags & GNW_LAYOUT_FLAG_RESERVED_OFFSET))
         return sb->reserved_offset;
     return get_ofw_extflash_size();
+}
+
+/* Total extflash size: superblock override (host-detected via the SWD probe) when
+ * set, otherwise the runtime SFDP read. */
+static uint32_t resolved_extflash_size(void)
+{
+    const GnwLayoutSuperblock *sb = &g_layout_superblock;
+    if (gw_layout_valid() && (sb->flags & GNW_LAYOUT_FLAG_EXTFLASH_SIZE) && sb->extflash_size)
+        return sb->extflash_size;
+    return OSPI_GetFlashSize();
+}
+
+uint32_t gw_layout_littlefs_top(void)
+{
+    const GnwLayoutSuperblock *sb = &g_layout_superblock;
+    if (gw_layout_valid() && (sb->flags & GNW_LAYOUT_FLAG_LITTLEFS_LENGTH))
+        return 0x90000000u + resolved_extflash_size();
+    return (uint32_t)&__FILESYSTEM_END__;
+}
+
+uint32_t gw_layout_littlefs_size(void)
+{
+    const GnwLayoutSuperblock *sb = &g_layout_superblock;
+    if (gw_layout_valid() && (sb->flags & GNW_LAYOUT_FLAG_LITTLEFS_LENGTH))
+        return sb->littlefs_length;
+    return (uint32_t)(&__FILESYSTEM_END__ - &__FILESYSTEM_START__);
 }
 
 #else
