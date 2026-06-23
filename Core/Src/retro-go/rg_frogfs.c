@@ -11,6 +11,7 @@
 #include "config.h"
 #include "ff.h"
 #include "gw_linker.h"
+#include "gw_layout_superblock.h"
 #include "rg_frogfs.h"
 
 static frogfs_fs_t *s_frogfs;
@@ -21,8 +22,10 @@ frogfs_fs_t *rg_frogfs_get(void)
         return s_frogfs;
 
     frogfs_config_t config = {
-        /* Image is flashed at physical EXTFLASH_OFFSET → XiP address __EXTFLASH_START__ */
-        .addr = &__EXTFLASH_START__,
+        /* FrogFS XiP base. Default == &__EXTFLASH_START__ (0x90000000 +
+         * __EXTFLASH_OFFSET__); a patched layout superblock can override it so
+         * one prebuilt binary serves any extflash offset. See gw_layout_superblock.h. */
+        .addr = (const void *)(uintptr_t)gw_layout_frogfs_addr(),
     };
 
     s_frogfs = frogfs_init(&config);
