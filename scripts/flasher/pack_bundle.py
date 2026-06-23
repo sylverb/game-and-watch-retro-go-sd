@@ -24,6 +24,11 @@ import sys
 import zipfile
 
 EXCLUDE_TOP = {"covers", "cheats"}  # subordinate features, packed later
+# Firmware-update trigger files: the firmware_update bootloader flashes these
+# (firmware_update.c). They are SD-update plumbing — irrelevant to the web flasher
+# (we flash over USB) and the ONLY files in sd_content that could cause a flash if
+# someone merged the archive onto an SD card. Excluded so NOTHING here can flash.
+EXCLUDE_FILES = {"update_bank1.bin", "update_bank2.bin", "retro-go_update.bin"}
 ZIP_NAME = "web-artifacts.zip"
 # Neutral name on purpose — nothing here invites an end user. Safe even if someone
 # overwrites their SD with these: the firmware reads /cores, /bios, /roms from the
@@ -70,6 +75,8 @@ def main():
             continue
         dirs.sort()
         for fn in sorted(files):
+            if fn in EXCLUDE_FILES:
+                continue
             full = os.path.join(root, fn)
             arc = os.path.join("sd_content", os.path.relpath(full, args.sd_content))
             members.append((full, arc.replace(os.sep, "/")))
