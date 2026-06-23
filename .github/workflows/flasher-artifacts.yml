@@ -26,6 +26,7 @@ on:
       - 'Core/Src/retro-go/gw_layout_superblock.*'
       - 'Core/Inc/retro-go/gw_layout_superblock.h'
       - 'Core/Src/retro-go/rg_frogfs.c'
+      - 'Core/Src/gw_littlefs.c'
       - 'Makefile'
       - 'Makefile.common'
       - 'STM32H7B0VBTx_FLASH.ld'

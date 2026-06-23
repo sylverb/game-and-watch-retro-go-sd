@@ -244,6 +244,10 @@ static void release_file_handle(fs_file_t *file){
     assert(0);  // Should never reach here.
 }
 
+/* gnw-web-builder DIAGNOSTIC: mount-failure detail, rendered on the corrupt screen. */
+static char g_fs_diag1[48] = "";
+static char g_fs_diag2[48] = "";
+
 static void corrupt_filesystem_screen(void){
     char buf[64];
     int idle_s = uptime_get();
@@ -257,6 +261,10 @@ static void corrupt_filesystem_screen(void){
         int steps = uptime_get() - idle_s;
         sprintf(buf, "%ds to sleep", 600 - steps);
         odroid_overlay_draw_text_line(4, 29 * 8 - 4, strlen(buf) * 8, buf, C_RED, curr_colors->bg_c);
+        if (g_fs_diag1[0])
+            odroid_overlay_draw_text_line(4, 26 * 8 - 4, strlen(g_fs_diag1) * 8, g_fs_diag1, C_RED, curr_colors->bg_c);
+        if (g_fs_diag2[0])
+            odroid_overlay_draw_text_line(4, 27 * 8 - 4, strlen(g_fs_diag2) * 8, g_fs_diag2, C_RED, curr_colors->bg_c);
 
         lcd_sync();
         lcd_swap();
@@ -294,7 +302,18 @@ void fs_init(void){
 
     // reformat if we can't mount the fs
     // this should only happen on the first boot
-    if (lfs_mount(&lfs, &lfs_cfg)) {
+    int mount_err = lfs_mount(&lfs, &lfs_cfg);
+    if (mount_err) {
+#if SD_CARD == 0
+        /* gnw-web-builder DIAGNOSTIC: show the mount code + the geometry actually used.
+         * err -22 = LFS_ERR_INVAL (config/block_size); -84 = LFS_ERR_CORRUPT (location/data).
+         * valid=1 means the layout superblock took effect (else baked linker fallback). */
+        snprintf(g_fs_diag1, sizeof(g_fs_diag1), "err=%d valid=%d bs=%lu",
+                 mount_err, (int)gw_layout_valid(), (unsigned long)lfs_cfg.block_size);
+        snprintf(g_fs_diag2, sizeof(g_fs_diag2), "top=%08lX sz=%lu",
+                 (unsigned long)gw_layout_littlefs_top(),
+                 (unsigned long)gw_layout_littlefs_size());
+#endif
         corrupt_filesystem_screen();
 #if SD_CARD == 0
         lfs_cfg.block_count = gw_layout_littlefs_size() / lfs_cfg.block_size;
