@@ -60,21 +60,24 @@ jobs:
           # ALL capabilities baked ON — COVERFLOW, CHEAT_CODES, SHARED_HIBERNATE_SAVESTATE
           # (screenshots default on; splash off) — so one blob set serves every feature
           # (~246 KB, fits the single 256 KB bank); the browser adds covers/cheats CONTENT
-          # later. All 12 languages baked. sd_content (incl. cores) is bank-independent →
-          # built once in the bank-2 pass and shared (make clean keeps sd_content/).
-          # MAX_CHEAT_CODES=13 is passed on the command line (NOT a Makefile edit): the
-          # stock Makefile only defines it for SD_CARD=1, so CHEAT_CODES=1 SD_CARD=0 needs
-          # it supplied here to compile — matches the SD build's value.
+          # later. All 12 languages baked. NOTE: `make clean` wipes BUILD_DIR (build/)
+          # AND SD_FOLDER (sd_content/) — so (a) stash each blob in _blobs/ (outside the
+          # cleaned dirs) right after its build, and (b) run create_sd_data in the LAST
+          # pass so sd_content survives to packing. Cores are bank-independent, so taking
+          # them from the bank-2 ELF is fine. MAX_CHEAT_CODES=13 is passed on the command
+          # line (NOT a Makefile edit): the stock Makefile only defines it for SD_CARD=1,
+          # so CHEAT_CODES=1 SD_CARD=0 needs it supplied here — matches the SD value.
           FLAGS="SD_CARD=0 COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
             "$BUILDER_IMAGE" \
             bash -l -c "set -e
-              make clean
-              make -j\$(nproc) INTFLASH_BANK=2 $FLAGS create_sd_data build/gw_retro_go_intflash.bin
-              cp build/gw_retro_go_intflash.bin build/gw_retro_go_intflash_bank2.bin
+              mkdir -p _blobs
               make clean
               make -j\$(nproc) INTFLASH_BANK=1 $FLAGS build/gw_retro_go_intflash.bin
-              cp build/gw_retro_go_intflash.bin build/gw_retro_go_intflash_bank1.bin"
+              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_bank1.bin
+              make clean
+              make -j\$(nproc) INTFLASH_BANK=2 $FLAGS create_sd_data build/gw_retro_go_intflash.bin
+              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_bank2.bin"
 
       - name: Pack web-artifacts.zip + manifest.json
         id: pack
@@ -89,8 +92,8 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           python3 scripts/flasher/pack_bundle.py \
             --sd-content sd_content \
-            --blob-bank1 build/gw_retro_go_intflash_bank1.bin \
-            --blob-bank2 build/gw_retro_go_intflash_bank2.bin \
+            --blob-bank1 _blobs/gw_retro_go_intflash_bank1.bin \
+            --blob-bank2 _blobs/gw_retro_go_intflash_bank2.bin \
             --out _bundle --id "$ID" --ref web-builder-flash \
             --sha "$GITHUB_SHA" \
             --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
