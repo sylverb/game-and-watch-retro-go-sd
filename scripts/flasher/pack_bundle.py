@@ -3,9 +3,10 @@
 Release asset (NOT for end users — end users want retro-go_update.bin).
 
 Outputs into <out>/:
-  web-artifacts.zip  - gw_retro_go_intflash.bin (superblock blob) + sd_content/
-                       (default content: cores, bios, fonts, lang, logo, homebrew;
-                       covers/ and cheats/ EXCLUDED for now) + manifest.json.
+  web-artifacts.zip  - gw_retro_go_intflash_bank{1,2}.bin (two superblock blobs, one
+                       per intflash bank — bank is the link address, not a runtime
+                       patch) + sd_content/ (default content: cores, bios, fonts, lang,
+                       logo, homebrew; covers/ and cheats/ EXCLUDED for now) + manifest.json.
   manifest.json      - standalone copy, uploaded as its own release asset so the
                        web-flasher's version picker can read metadata without
                        downloading the whole zip.
@@ -47,7 +48,8 @@ def sha256(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sd-content", required=True)
-    ap.add_argument("--blob", required=True)
+    ap.add_argument("--blob-bank1", required=True)  # INTFLASH_BANK=1 link (0x08000000)
+    ap.add_argument("--blob-bank2", required=True)  # INTFLASH_BANK=2 link (0x08100000)
     ap.add_argument("--out", required=True)
     ap.add_argument("--id", required=True)
     ap.add_argument("--ref", required=True)
@@ -80,6 +82,11 @@ def main():
             arc = os.path.join("sd_content", os.path.relpath(full, args.sd_content))
             members.append((full, arc.replace(os.sep, "/")))
 
+    # Two linked blobs — bank is the intflash address, not a runtime patch.
+    banks = [
+        ("bank1", "gw_retro_go_intflash_bank1.bin", args.blob_bank1, "0x08000000"),
+        ("bank2", "gw_retro_go_intflash_bank2.bin", args.blob_bank2, "0x08100000"),
+    ]
     manifest = {
         "id": args.id,
         "ref": args.ref,
@@ -88,10 +95,15 @@ def main():
         "superblock": True,
         "builtAt": args.built_at,
         "asset": ZIP_NAME,
-        "blob": "gw_retro_go_intflash.bin",
+        "blobs": {
+            bank: {"file": fname, "intflashAddr": addr, "bytes": os.path.getsize(path)}
+            for bank, fname, path, addr in banks
+        },
+        # Capabilities baked into the blobs (content like covers/cheats is added later
+        # by the browser into the FrogFS; these flags just enable the firmware paths).
+        "capabilities": ["coverflow", "cheatCodes", "screenshot", "sharedHibernateSavestate"],
         "cores": cores,
         "fileCount": len(members),
-        "blobBytes": os.path.getsize(args.blob),
     }
 
     # fixed timestamp → reproducible-ish zips
@@ -109,7 +121,8 @@ def main():
             zf.writestr(zi, f.read())
 
     with zipfile.ZipFile(zip_path, "w") as zf:
-        add_file(zf, args.blob, "gw_retro_go_intflash.bin")
+        for _bank, fname, path, _addr in banks:
+            add_file(zf, path, fname)
         for full, arc in members:
             add_file(zf, full, arc)
         add_bytes(zf, "manifest.json", json.dumps(manifest, indent=2).encode())

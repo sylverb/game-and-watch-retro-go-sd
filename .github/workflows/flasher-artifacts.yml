@@ -50,17 +50,31 @@ jobs:
           submodules: recursive   # MUST be recursive — cores/MSX/etc. live in submodules
           fetch-depth: 1
 
-      - name: Build SD_CARD=0 sd_content + superblock blob (in builder image)
+      - name: Build SD_CARD=0 sd_content + bank1/bank2 blobs (in builder image)
         run: |
           set -euo pipefail
-          # ONE universal blob: GNW_TARGET is irrelevant (LittleFS geometry is now
-          # superblock-driven, not baked), so we don't pass it (defaults to mario,
-          # immaterial). All 12 languages baked (Latin+ru default ON; CJK enabled
-          # here); the browser packs the selected lang blob + font. CJK fonts land in
-          # sd_content (not the intflash blob).
+          # Two linked blobs: bank 1 (overwrite stock) and bank 2 (keep stock in bank 1
+          # for dual-boot/recovery). The bank IS the intflash link address (0x08000000 /
+          # 0x08100000), so it can't be a runtime patch — hence two blobs. GNW_TARGET is
+          # omitted (LittleFS geometry is superblock-driven; docs/BINARY_PATCHING.md).
+          # ALL capabilities baked ON — COVERFLOW, CHEAT_CODES, SHARED_HIBERNATE_SAVESTATE
+          # (screenshots default on; splash off) — so one blob set serves every feature
+          # (~246 KB, fits the single 256 KB bank); the browser adds covers/cheats CONTENT
+          # later. All 12 languages baked. sd_content (incl. cores) is bank-independent →
+          # built once in the bank-2 pass and shared (make clean keeps sd_content/).
+          # MAX_CHEAT_CODES=13 is passed on the command line (NOT a Makefile edit): the
+          # stock Makefile only defines it for SD_CARD=1, so CHEAT_CODES=1 SD_CARD=0 needs
+          # it supplied here to compile — matches the SD build's value.
+          FLAGS="SD_CARD=0 COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
             "$BUILDER_IMAGE" \
-            bash -l -c "make clean; make -j\$(nproc) SD_CARD=0 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 create_sd_data build/gw_retro_go_intflash.bin"
+            bash -l -c "set -e
+              make clean
+              make -j\$(nproc) INTFLASH_BANK=2 $FLAGS create_sd_data build/gw_retro_go_intflash.bin
+              cp build/gw_retro_go_intflash.bin build/gw_retro_go_intflash_bank2.bin
+              make clean
+              make -j\$(nproc) INTFLASH_BANK=1 $FLAGS build/gw_retro_go_intflash.bin
+              cp build/gw_retro_go_intflash.bin build/gw_retro_go_intflash_bank1.bin"
 
       - name: Pack web-artifacts.zip + manifest.json
         id: pack
@@ -74,7 +88,9 @@ jobs:
             echo "tag=web-artifacts-${SHORT}"
           } >> "$GITHUB_OUTPUT"
           python3 scripts/flasher/pack_bundle.py \
-            --sd-content sd_content --blob build/gw_retro_go_intflash.bin \
+            --sd-content sd_content \
+            --blob-bank1 build/gw_retro_go_intflash_bank1.bin \
+            --blob-bank2 build/gw_retro_go_intflash_bank2.bin \
             --out _bundle --id "$ID" --ref web-builder-flash \
             --sha "$GITHUB_SHA" \
             --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
