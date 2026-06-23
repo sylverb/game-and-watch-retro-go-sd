@@ -52,7 +52,6 @@ def main():
     ap.add_argument("--id", required=True)
     ap.add_argument("--ref", required=True)
     ap.add_argument("--sha", required=True)
-    ap.add_argument("--model", required=True)
     ap.add_argument("--built-at", required=True)  # ISO8601; CI provides
     args = ap.parse_args()
 
@@ -85,7 +84,6 @@ def main():
         "id": args.id,
         "ref": args.ref,
         "sha": args.sha,
-        "model": args.model,
         "sdCard": 0,
         "superblock": True,
         "builtAt": args.built_at,

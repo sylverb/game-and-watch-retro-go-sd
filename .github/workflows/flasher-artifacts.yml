@@ -14,11 +14,6 @@ name: web-artifacts (POC)
 on:
   workflow_dispatch:
     inputs:
-      model:
-        description: "GNW_TARGET (intflash blob is model-agnostic; affects default extflash size only)"
-        default: mario
-        type: choice
-        options: [mario, zelda]
       builder_image:
         description: "retro-go-sd builder image"
         default: sylverb/retro-go-sd-builder:v1.5
@@ -46,7 +41,6 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     env:
-      MODEL: ${{ inputs.model || 'mario' }}
       BUILDER_IMAGE: ${{ inputs.builder_image || 'sylverb/retro-go-sd-builder:v1.5' }}
     steps:
       - name: Checkout web-builder-flash (recursive submodules)
@@ -59,41 +53,43 @@ jobs:
       - name: Build SD_CARD=0 sd_content + superblock blob (in builder image)
         run: |
           set -euo pipefail
-          # All 12 languages baked (Latin + ru default ON; CJK enabled here) so one
-          # blob serves every language — the browser packs the selected lang blob +
-          # font. CJK fonts land in sd_content (not the intflash blob).
+          # ONE universal blob: GNW_TARGET is irrelevant (LittleFS geometry is now
+          # superblock-driven, not baked), so we don't pass it (defaults to mario,
+          # immaterial). All 12 languages baked (Latin+ru default ON; CJK enabled
+          # here); the browser packs the selected lang blob + font. CJK fonts land in
+          # sd_content (not the intflash blob).
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
             "$BUILDER_IMAGE" \
-            bash -l -c "make clean; make -j\$(nproc) SD_CARD=0 GNW_TARGET=$MODEL ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 create_sd_data build/gw_retro_go_intflash.bin"
+            bash -l -c "make clean; make -j\$(nproc) SD_CARD=0 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 create_sd_data build/gw_retro_go_intflash.bin"
 
       - name: Pack web-artifacts.zip + manifest.json
         id: pack
         run: |
           set -euo pipefail
           SHORT="${GITHUB_SHA::7}"
-          ID="web-builder-flash-${SHORT}-${MODEL}"
+          ID="web-builder-flash-${SHORT}"
           {
             echo "short=$SHORT"
             echo "id=$ID"
-            echo "tag=web-artifacts-${SHORT}-${MODEL}"
+            echo "tag=web-artifacts-${SHORT}"
           } >> "$GITHUB_OUTPUT"
           python3 scripts/flasher/pack_bundle.py \
             --sd-content sd_content --blob build/gw_retro_go_intflash.bin \
             --out _bundle --id "$ID" --ref web-builder-flash \
-            --sha "$GITHUB_SHA" --model "$MODEL" \
+            --sha "$GITHUB_SHA" \
             --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
       - name: Publish as a prerelease asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.pack.outputs.tag }}
-          name: "web-artifacts — ${{ env.MODEL }} @ ${{ steps.pack.outputs.short }}"
+          name: "web-artifacts @ ${{ steps.pack.outputs.short }}"
           prerelease: true
           body: |
             Build inputs for the gnw-web-builder browser flasher (FrogFS `SD_CARD=0`
-            firmware blob + default content). Not an end-user release.
+            firmware blob + default content). One universal blob — the host sets
+            extflash geometry via the superblock. Not an end-user release.
 
-            - model: `${{ env.MODEL }}`
             - commit: `${{ github.sha }}`
           files: |
             _bundle/web-artifacts.zip
