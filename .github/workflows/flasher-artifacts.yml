@@ -59,9 +59,12 @@ jobs:
       - name: Build SD_CARD=0 sd_content + superblock blob (in builder image)
         run: |
           set -euo pipefail
+          # All 12 languages baked (Latin + ru default ON; CJK enabled here) so one
+          # blob serves every language — the browser packs the selected lang blob +
+          # font. CJK fonts land in sd_content (not the intflash blob).
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
             "$BUILDER_IMAGE" \
-            bash -l -c "make clean; make -j\$(nproc) SD_CARD=0 GNW_TARGET=$MODEL create_sd_data build/gw_retro_go_intflash.bin"
+            bash -l -c "make clean; make -j\$(nproc) SD_CARD=0 GNW_TARGET=$MODEL ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 create_sd_data build/gw_retro_go_intflash.bin"
 
       - name: Pack web-artifacts.zip + manifest.json
         id: pack
