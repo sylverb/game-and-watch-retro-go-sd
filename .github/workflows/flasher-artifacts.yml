@@ -49,7 +49,13 @@ jobs:
         with:
           ref: web-builder-flash
           submodules: recursive   # MUST be recursive — cores/MSX/etc. live in submodules
-          fetch-depth: 1
+          # Full history + tags so scripts/update_gittag.sh's `git describe --tags`
+          # resolves a real version instead of falling back to "NOTAG". The GIT_TAG is
+          # baked into BOTH the firmware and every core header; retro-go refuses to load
+          # a core whose tag doesn't byte-match the firmware (rg_emulators.c) — so a
+          # bogus/inconsistent tag silently breaks all internal emulators.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Build SD_CARD=0 sd_content + bank1/bank2 blobs (in builder image)
         run: |
