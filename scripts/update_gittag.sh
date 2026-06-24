@@ -13,7 +13,9 @@ if [[ ! -e $TMPFILE ]]; then
     exit 1
 fi
 
-GITTAG=$(git describe --tags --dirty=+ 2> /dev/null || echo "NOTAG")
+# --match 'v*' so the version comes from a real release tag, not the CI's own
+# web-artifacts-* prerelease tags (which describe would otherwise pick as nearest).
+GITTAG=$(git describe --tags --match 'v*' --dirty=+ 2> /dev/null || echo "NOTAG")
 
 echo -e "#ifndef GIT_TAG\n#define GIT_TAG \"Retro-Go SD "${GITTAG}"\"\n#endif" > "${TMPFILE}"
 

@@ -23,6 +23,7 @@ on:
     paths:
       - '.github/workflows/flasher-artifacts.yml'
       - 'scripts/flasher/**'
+      - 'scripts/update_gittag.sh'
       - 'Core/Src/retro-go/gw_layout_superblock.*'
       - 'Core/Inc/retro-go/gw_layout_superblock.h'
       - 'Core/Src/retro-go/rg_frogfs.c'
