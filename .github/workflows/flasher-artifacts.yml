@@ -1,0 +1,116 @@
+# Web-flasher artifact producer (POC for gnw-web-builder).
+#
+# Builds the FrogFS (SD_CARD=0) firmware blob (with the layout superblock) + the
+# default sd_content, packs them into web-artifacts.zip, and publishes it as a
+# PRERELEASE asset (neutral name; the gnw-web-builder app consumes it via the
+# Releases API + the asset's browser_download_url, CORS-friendly).
+#
+# Scope: lives only on web-builder-flash; do NOT merge to main. Triggered by pushes
+# to web-builder-flash that touch the firmware/workflow (a full retro-go build is
+# heavy), plus manual dispatch. (workflow_dispatch won't appear in the Actions UI
+# while this is off the default branch — the push trigger is how you test it.)
+name: web-artifacts (POC)
+
+on:
+  workflow_dispatch:
+    inputs:
+      builder_image:
+        description: "retro-go-sd builder image"
+        default: sylverb/retro-go-sd-builder:v1.5
+        type: string
+  push:
+    branches: [web-builder-flash]
+    paths:
+      - '.github/workflows/flasher-artifacts.yml'
+      - 'scripts/flasher/**'
+      - 'Core/Src/retro-go/gw_layout_superblock.*'
+      - 'Core/Inc/retro-go/gw_layout_superblock.h'
+      - 'Core/Src/retro-go/rg_frogfs.c'
+      - 'Core/Src/gw_littlefs.c'
+      - 'Makefile'
+      - 'Makefile.common'
+      - 'STM32H7B0VBTx_FLASH.ld'
+
+permissions:
+  contents: write   # to create the prerelease + upload assets
+
+concurrency:
+  group: web-artifacts
+  cancel-in-progress: false
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    env:
+      BUILDER_IMAGE: ${{ inputs.builder_image || 'sylverb/retro-go-sd-builder:v1.5' }}
+    steps:
+      - name: Checkout web-builder-flash (recursive submodules)
+        uses: actions/checkout@v4
+        with:
+          ref: web-builder-flash
+          submodules: recursive   # MUST be recursive — cores/MSX/etc. live in submodules
+          fetch-depth: 1
+
+      - name: Build SD_CARD=0 sd_content + bank1/bank2 blobs (in builder image)
+        run: |
+          set -euo pipefail
+          # Two linked blobs: bank 1 (overwrite stock) and bank 2 (keep stock in bank 1
+          # for dual-boot/recovery). The bank IS the intflash link address (0x08000000 /
+          # 0x08100000), so it can't be a runtime patch — hence two blobs. GNW_TARGET is
+          # omitted (LittleFS geometry is superblock-driven; docs/BINARY_PATCHING.md).
+          # ALL capabilities baked ON — COVERFLOW, CHEAT_CODES, SHARED_HIBERNATE_SAVESTATE
+          # (screenshots default on; splash off) — so one blob set serves every feature
+          # (~246 KB, fits the single 256 KB bank); the browser adds covers/cheats CONTENT
+          # later. All 12 languages baked. NOTE: `make clean` wipes BUILD_DIR (build/)
+          # AND SD_FOLDER (sd_content/) — so (a) stash each blob in _blobs/ (outside the
+          # cleaned dirs) right after its build, and (b) run create_sd_data in the LAST
+          # pass so sd_content survives to packing. Cores are bank-independent, so taking
+          # them from the bank-2 ELF is fine. MAX_CHEAT_CODES=13 is passed on the command
+          # line (NOT a Makefile edit): the stock Makefile only defines it for SD_CARD=1,
+          # so CHEAT_CODES=1 SD_CARD=0 needs it supplied here — matches the SD value.
+          FLAGS="SD_CARD=0 COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
+            "$BUILDER_IMAGE" \
+            bash -l -c "set -e
+              mkdir -p _blobs
+              make clean
+              make -j\$(nproc) INTFLASH_BANK=1 $FLAGS build/gw_retro_go_intflash.bin
+              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_bank1.bin
+              make clean
+              make -j\$(nproc) INTFLASH_BANK=2 $FLAGS create_sd_data build/gw_retro_go_intflash.bin
+              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_bank2.bin"
+
+      - name: Pack web-artifacts.zip + manifest.json
+        id: pack
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA::7}"
+          ID="web-builder-flash-${SHORT}"
+          {
+            echo "short=$SHORT"
+            echo "id=$ID"
+            echo "tag=web-artifacts-${SHORT}"
+          } >> "$GITHUB_OUTPUT"
+          python3 scripts/flasher/pack_bundle.py \
+            --sd-content sd_content \
+            --blob-bank1 _blobs/gw_retro_go_intflash_bank1.bin \
+            --blob-bank2 _blobs/gw_retro_go_intflash_bank2.bin \
+            --out _bundle --id "$ID" --ref web-builder-flash \
+            --sha "$GITHUB_SHA" \
+            --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Publish as a prerelease asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.pack.outputs.tag }}
+          name: "web-artifacts @ ${{ steps.pack.outputs.short }}"
+          prerelease: true
+          body: |
+            Build inputs for the gnw-web-builder browser flasher (FrogFS `SD_CARD=0`
+            firmware blob + default content). One universal blob — the host sets
+            extflash geometry via the superblock. Not an end-user release.
+
+            - commit: `${{ github.sha }}`
+          files: |
+            _bundle/web-artifacts.zip
+            _bundle/manifest.json
