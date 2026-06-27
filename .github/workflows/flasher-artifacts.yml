@@ -75,7 +75,7 @@ jobs:
           # them from the bank-2 ELF is fine. MAX_CHEAT_CODES=13 is passed on the command
           # line (NOT a Makefile edit): the stock Makefile only defines it for SD_CARD=1,
           # so CHEAT_CODES=1 SD_CARD=0 needs it supplied here — matches the SD value.
-          FLAGS="SD_CARD=0 COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
+          FLAGS="SD_CARD=0 COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SCREENSHOTS=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
             "$BUILDER_IMAGE" \
             bash -l -c "set -e
