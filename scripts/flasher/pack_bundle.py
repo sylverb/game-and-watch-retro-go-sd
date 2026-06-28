@@ -120,10 +120,28 @@ def main():
         with open(full, "rb") as f:
             zf.writestr(zi, f.read())
 
+    # collect restool scripts (Python extraction scripts for the web builder Pyodide worker)
+    restool_members = []
+    restool_dirs = [
+        ("external/smw/assets", "restools/smw"),
+        ("external/zelda3/tables", "restools/zelda3"),
+    ]
+    for src_dir, dest_dir in restool_dirs:
+        if os.path.exists(src_dir):
+            for root, _, files in os.walk(src_dir):
+                for fn in sorted(files):
+                    if fn.endswith(".py"):
+                        full = os.path.join(root, fn)
+                        rel = os.path.relpath(full, src_dir)
+                        arc = os.path.join(dest_dir, rel).replace(os.sep, "/")
+                        restool_members.append((full, arc))
+
     with zipfile.ZipFile(zip_path, "w") as zf:
         for _bank, fname, path, _addr in banks:
             add_file(zf, path, fname)
         for full, arc in members:
+            add_file(zf, full, arc)
+        for full, arc in restool_members:
             add_file(zf, full, arc)
         add_bytes(zf, "manifest.json", json.dumps(manifest, indent=2).encode())
 
