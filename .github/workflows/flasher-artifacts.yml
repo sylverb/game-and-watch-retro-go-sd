@@ -92,11 +92,12 @@ jobs:
         run: |
           set -euo pipefail
           SHORT="${GITHUB_SHA::7}"
+          GIT_DESCRIBE="$(git describe --tags --always)"
           ID="web-builder-flash-${SHORT}"
           {
             echo "short=$SHORT"
             echo "id=$ID"
-            echo "tag=web-artifacts-${SHORT}"
+            echo "tag=$GIT_DESCRIBE"
           } >> "$GITHUB_OUTPUT"
           python3 scripts/flasher/pack_bundle.py \
             --sd-content sd_content \
@@ -110,7 +111,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.pack.outputs.tag }}
-          name: "web-artifacts @ ${{ steps.pack.outputs.short }}"
+          name: ${{ steps.pack.outputs.tag }}
           prerelease: true
           body: |
             Build inputs for the gnw-web-builder browser flasher (FrogFS `SD_CARD=0`
