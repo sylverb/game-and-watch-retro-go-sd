@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           SHORT="${GITHUB_SHA::7}"
-          GIT_DESCRIBE="$(git describe --tags --always)"
+          GIT_DESCRIBE="$(git describe --tags --always --match 'v*')"
           ID="web-builder-flash-${SHORT}"
           {
             echo "short=$SHORT"
