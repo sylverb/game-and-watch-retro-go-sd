@@ -25,6 +25,7 @@ ROMS_VIDEOPAC :=
 ######################################
 # C sources
 C_SOURCES =  \
+Core/Src/retro-go/gw_layout_superblock.c \
 Core/Src/porting/lib/lz4_depack.c \
 Core/Src/porting/lib/lzma/LzmaDec.c \
 Core/Src/porting/lib/lzma/lzma.c \
@@ -68,7 +69,6 @@ $(FATFS_DIR)/user_diskio_softspi.c
 FROGFS_DIR = Core/Src/porting/lib/frogfs
 FROGFS_C_SOURCES = \
 Core/Src/retro-go/rg_frogfs.c \
-Core/Src/retro-go/gw_layout_superblock.c \
 $(FROGFS_DIR)/src/frogfs.c \
 $(FROGFS_DIR)/src/decomp_raw.c
 

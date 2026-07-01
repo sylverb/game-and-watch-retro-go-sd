@@ -1,9 +1,8 @@
 #include "main.h"
 
-/* The superblock is only meaningful for the FrogFS (flash) build; SD builds
- * read assets from FatFs and never mount FrogFS. */
-#if SD_CARD == 0
-
+/* The superblock was historically only meaningful for the FrogFS (flash) build,
+ * but it is now used by SD builds to define the dynamic boundaries of the
+ * extflash ROM cache. */
 #include "gw_layout_superblock.h"
 #include "gw_linker.h"
 #include "gw_ofw.h"
@@ -69,7 +68,7 @@ uint32_t gw_layout_reserved_size(void)
 
 /* Total extflash size: superblock override (host-detected via the SWD probe) when
  * set, otherwise the runtime SFDP read. */
-static uint32_t resolved_extflash_size(void)
+uint32_t gw_layout_extflash_size(void)
 {
     const volatile GnwLayoutSuperblock *sb = &g_layout_superblock;
     if (gw_layout_valid() && (sb->flags & GNW_LAYOUT_FLAG_EXTFLASH_SIZE) && sb->extflash_size)
@@ -81,8 +80,12 @@ uint32_t gw_layout_littlefs_top(void)
 {
     const volatile GnwLayoutSuperblock *sb = &g_layout_superblock;
     if (gw_layout_valid() && (sb->flags & GNW_LAYOUT_FLAG_LITTLEFS_LENGTH))
-        return 0x90000000u + resolved_extflash_size();
+        return 0x90000000u + gw_layout_extflash_size();
+#if SD_CARD == 0
     return (uint32_t)&__FILESYSTEM_END__;
+#else
+    return 0;
+#endif
 }
 
 uint32_t gw_layout_littlefs_size(void)
@@ -90,9 +93,11 @@ uint32_t gw_layout_littlefs_size(void)
     const volatile GnwLayoutSuperblock *sb = &g_layout_superblock;
     if (gw_layout_valid() && (sb->flags & GNW_LAYOUT_FLAG_LITTLEFS_LENGTH))
         return sb->littlefs_length;
+#if SD_CARD == 0
     return (uint32_t)(&__FILESYSTEM_END__ - &__FILESYSTEM_START__);
+#else
+    return 0;
+#endif
 }
 
-#else
-typedef int gw_layout_superblock_sd_stub; /* avoid empty translation unit */
-#endif /* SD_CARD == 0 */
+

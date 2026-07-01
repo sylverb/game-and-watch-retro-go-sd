@@ -59,6 +59,9 @@ uint32_t gw_layout_frogfs_addr(void);
  * set, otherwise get_ofw_extflash_size() (bank-1 OFW metadata). */
 uint32_t gw_layout_reserved_size(void);
 
+/* Total extflash size: superblock override when valid + set, otherwise OSPI_GetFlashSize(). */
+uint32_t gw_layout_extflash_size(void);
+
 /* LittleFS partition (writable saves region; grows DOWN from the top of extflash).
  * top   = 0x90000000 + extflash_size  (superblock/runtime), else linker __FILESYSTEM_END__.
  * bytes = littlefs_length             (superblock override),  else linker

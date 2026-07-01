@@ -14,6 +14,7 @@
 #include "gw_malloc.h"
 #include "gw_flash_alloc.h"
 #include "gw_ofw.h"
+#include "gw_layout_superblock.h"
 
 #define METADATA_FILE ODROID_BASE_PATH_SAVES "/flashcachedata.bin"
 #define METADATA_VERSION 1
@@ -87,7 +88,7 @@ static uint32_t align_to_next_block(uint32_t pointer)
  * the stock behavior when EXTFLASH_OFFSET is 0. */
 static uint32_t get_reserved_extflash_size()
 {
-    uint32_t ofw = get_ofw_extflash_size();
+    uint32_t ofw = gw_layout_reserved_size();
     uint32_t reserved = (uint32_t)&__EXTFLASH_OFFSET__;
     return ofw > reserved ? ofw : reserved;
 }
@@ -239,14 +240,14 @@ static bool circular_flash_write(const char *file_path,
 
     /* If there is not enough space available, wrap to the start of the cache. */
     if (flash_write_pointer - flash_write_base + erase_size_total >
-        OSPI_GetFlashSize() - get_reserved_extflash_size())
+        gw_layout_extflash_size() - get_reserved_extflash_size())
     {
         flash_write_pointer = flash_write_base;
     }
 
     /* Data larger than the usable flash cache — abort. */
     if (flash_write_pointer - flash_write_base + erase_size_total >
-        OSPI_GetFlashSize() - get_reserved_extflash_size())
+        gw_layout_extflash_size() - get_reserved_extflash_size())
     {
         fclose(file);
         return false;
