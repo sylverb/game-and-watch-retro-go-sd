@@ -262,8 +262,10 @@ static void msx_sleep_wake_up()
 
     /* SD was unmounted: reopen the FILE* only. insertDiskette() would also
      * reset the mixer and re-probe the image (disk icon flash). */
+#if SD_CARD == 1
     if (!diskReopenDrive(drive))
         insertDiskette(properties, drive, current_disk_path, NULL, -1);
+#endif
 }
 
 /* Core stubs */
