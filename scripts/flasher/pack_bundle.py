@@ -50,6 +50,8 @@ def main():
     ap.add_argument("--sd-content", required=True)
     ap.add_argument("--blob-bank1", required=True)  # INTFLASH_BANK=1 link (0x08000000)
     ap.add_argument("--blob-bank2", required=True)  # INTFLASH_BANK=2 link (0x08100000)
+    ap.add_argument("--blob-sd-bank1", required=True)     # SD_CARD=1 link (0x08000000)
+    ap.add_argument("--blob-sd-bank2", required=True)     # SD_CARD=1 link (0x08100000)
     ap.add_argument("--out", required=True)
     ap.add_argument("--id", required=True)
     ap.add_argument("--ref", required=True)
@@ -82,10 +84,12 @@ def main():
             arc = os.path.join("sd_content", os.path.relpath(full, args.sd_content))
             members.append((full, arc.replace(os.sep, "/")))
 
-    # Two linked blobs — bank is the intflash address, not a runtime patch.
+    # Two linked blobs per configuration — bank is the intflash address, not a runtime patch.
     banks = [
         ("bank1", "gw_retro_go_intflash_bank1.bin", args.blob_bank1, "0x08000000"),
         ("bank2", "gw_retro_go_intflash_bank2.bin", args.blob_bank2, "0x08100000"),
+        ("sd_bank1", "gw_retro_go_intflash_sd_bank1.bin", args.blob_sd_bank1, "0x08000000"),
+        ("sd_bank2", "gw_retro_go_intflash_sd_bank2.bin", args.blob_sd_bank2, "0x08100000"),
     ]
     manifest = {
         "id": args.id,
