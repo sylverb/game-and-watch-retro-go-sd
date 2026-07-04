@@ -52,6 +52,14 @@ def main():
     ap.add_argument("--blob-bank2", required=True)  # INTFLASH_BANK=2 link (0x08100000)
     ap.add_argument("--blob-sd-bank1", required=True)     # SD_CARD=1 link (0x08000000)
     ap.add_argument("--blob-sd-bank2", required=True)     # SD_CARD=1 link (0x08100000)
+    # Optional matching ELFs (debug symbols), one per blob above. Bundled in so a
+    # debugger can be pointed at symbols that actually match whatever's flashed on a
+    # given device, instead of a locally-built ELF that may be a different commit or
+    # build variant entirely (a real mix-up during this branch's debugging sessions).
+    ap.add_argument("--elf-bank1", default=None)
+    ap.add_argument("--elf-bank2", default=None)
+    ap.add_argument("--elf-sd-bank1", default=None)
+    ap.add_argument("--elf-sd-bank2", default=None)
     ap.add_argument("--out", required=True)
     ap.add_argument("--id", required=True)
     ap.add_argument("--ref", required=True)
@@ -86,11 +94,16 @@ def main():
 
     # Two linked blobs per configuration — bank is the intflash address, not a runtime patch.
     banks = [
-        ("bank1", "gw_retro_go_intflash_bank1.bin", args.blob_bank1, "0x08000000"),
-        ("bank2", "gw_retro_go_intflash_bank2.bin", args.blob_bank2, "0x08100000"),
-        ("sd_bank1", "gw_retro_go_intflash_sd_bank1.bin", args.blob_sd_bank1, "0x08000000"),
-        ("sd_bank2", "gw_retro_go_intflash_sd_bank2.bin", args.blob_sd_bank2, "0x08100000"),
+        ("bank1", "gw_retro_go_intflash_bank1.bin", args.blob_bank1, "0x08000000", args.elf_bank1),
+        ("bank2", "gw_retro_go_intflash_bank2.bin", args.blob_bank2, "0x08100000", args.elf_bank2),
+        ("sd_bank1", "gw_retro_go_intflash_sd_bank1.bin", args.blob_sd_bank1, "0x08000000", args.elf_sd_bank1),
+        ("sd_bank2", "gw_retro_go_intflash_sd_bank2.bin", args.blob_sd_bank2, "0x08100000", args.elf_sd_bank2),
     ]
+    elf_arcnames = {}  # bank -> arcname, only for banks with an ELF actually supplied
+    for bank, _fname, _path, _addr, elf_path in banks:
+        if elf_path and os.path.isfile(elf_path):
+            elf_arcnames[bank] = f"elf/gw_retro_go_{bank}.elf"
+
     manifest = {
         "id": args.id,
         "ref": args.ref,
@@ -100,8 +113,13 @@ def main():
         "builtAt": args.built_at,
         "asset": ZIP_NAME,
         "blobs": {
-            bank: {"file": fname, "intflashAddr": addr, "bytes": os.path.getsize(path)}
-            for bank, fname, path, addr in banks
+            bank: {
+                "file": fname,
+                "intflashAddr": addr,
+                "bytes": os.path.getsize(path),
+                **({"elf": elf_arcnames[bank]} if bank in elf_arcnames else {}),
+            }
+            for bank, fname, path, addr, _elf_path in banks
         },
         # Capabilities baked into the blobs (content like covers/cheats is added later
         # by the browser into the FrogFS; these flags just enable the firmware paths).
@@ -141,8 +159,10 @@ def main():
                         restool_members.append((full, arc))
 
     with zipfile.ZipFile(zip_path, "w") as zf:
-        for _bank, fname, path, _addr in banks:
+        for bank, fname, path, _addr, elf_path in banks:
             add_file(zf, path, fname)
+            if bank in elf_arcnames:
+                add_file(zf, elf_path, elf_arcnames[bank])
         for full, arc in members:
             add_file(zf, full, arc)
         for full, arc in restool_members:

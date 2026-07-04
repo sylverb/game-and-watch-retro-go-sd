@@ -89,18 +89,26 @@ jobs:
             "$BUILDER_IMAGE" \
             bash -l -c "set -e
               mkdir -p _blobs
+              # ELF alongside each .bin (same clean-then-stash pattern) — attached to the
+              # release below so a debugger can be pointed at symbols that ACTUALLY match
+              # what's running on a given device, instead of whatever happens to be sitting
+              # in a dev's local build/ dir (a real mix-up during this branch's debugging).
               make clean
               make -j\$(nproc) INTFLASH_BANK=1 $FLAGS build/gw_retro_go_intflash.bin
               cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_bank1.bin
+              cp build/gw_retro_go.elf _blobs/gw_retro_go_bank1.elf
               make clean
               make -j\$(nproc) INTFLASH_BANK=2 $FLAGS create_sd_data build/gw_retro_go_intflash.bin
               cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_bank2.bin
+              cp build/gw_retro_go.elf _blobs/gw_retro_go_bank2.elf
               make clean
               make -j\$(nproc) INTFLASH_BANK=1 $FLAGS_SD build/gw_retro_go_intflash.bin
               cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_sd_bank1.bin
+              cp build/gw_retro_go.elf _blobs/gw_retro_go_sd_bank1.elf
               make clean
-              make -j\$(nproc) INTFLASH_BANK=2 $FLAGS_SD build/gw_retro_go_intflash.bin
-              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_sd_bank2.bin"
+              make -j\$(nproc) INTFLASH_BANK=2 $FLAGS_SD create_sd_data build/gw_retro_go_intflash.bin
+              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_sd_bank2.bin
+              cp build/gw_retro_go.elf _blobs/gw_retro_go_sd_bank2.elf"
 
       - name: Pack web-artifacts.zip + manifest.json
         id: pack
@@ -124,6 +132,10 @@ jobs:
             --blob-bank2 _blobs/gw_retro_go_intflash_bank2.bin \
             --blob-sd-bank1 _blobs/gw_retro_go_intflash_sd_bank1.bin \
             --blob-sd-bank2 _blobs/gw_retro_go_intflash_sd_bank2.bin \
+            --elf-bank1 _blobs/gw_retro_go_bank1.elf \
+            --elf-bank2 _blobs/gw_retro_go_bank2.elf \
+            --elf-sd-bank1 _blobs/gw_retro_go_sd_bank1.elf \
+            --elf-sd-bank2 _blobs/gw_retro_go_sd_bank2.elf \
             --out _bundle --id "$ID" --ref web-builder-flash \
             --sha "$GITHUB_SHA" \
             --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
