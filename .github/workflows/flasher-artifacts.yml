@@ -20,17 +20,25 @@ on:
         type: string
   push:
     branches: [web-builder-flash]
+    # Broad on purpose: an enumerated list of individual firmware files (the previous
+    # version of this filter) silently misses any file it doesn't name — that's exactly
+    # how a real regression (Core/Src/gw_flash_alloc.c, not in the old list) shipped
+    # without a rebuild ever firing on the push that fixed it. Any file under Core/,
+    # Drivers/, or external/ (submodule cores/homebrew) can affect the built blobs, so
+    # they're covered wholesale; add build-config/linker/script files individually.
     paths:
       - '.github/workflows/flasher-artifacts.yml'
-      - 'scripts/flasher/**'
-      - 'scripts/update_gittag.sh'
-      - 'Core/Src/retro-go/gw_layout_superblock.*'
-      - 'Core/Inc/retro-go/gw_layout_superblock.h'
-      - 'Core/Src/retro-go/rg_frogfs.c'
-      - 'Core/Src/gw_littlefs.c'
+      - 'scripts/**'
+      - 'Core/**'
+      - 'Drivers/**'
+      - 'external/**'
       - 'Makefile'
       - 'Makefile.common'
       - 'STM32H7B0VBTx_FLASH.ld'
+      - 'STM32H7B0VBTx_SDCARD.ld'
+      - 'startup_stm32h7b0xx.s'
+      - 'choices.yaml'
+      - 'firmware_helper.py'
 
 permissions:
   contents: write   # to create the prerelease + upload assets
