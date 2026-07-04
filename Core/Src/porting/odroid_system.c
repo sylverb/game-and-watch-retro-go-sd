@@ -474,14 +474,23 @@ void odroid_system_switch_app(int app)
         }
 
         void _boot_bank2(void) {
-            /* sp/pc must live in callee-saved registers across HAL_MPU_Disable.
-             * If the compiler spills them to the (caller-saved) stack, the
-             * subsequent __set_MSP() switches the stack and the reload
-             * reads garbage from the new stack (out-of-DTCM at 0x20020004
-             * which is 0 → bx 0 → fault). Forcing r6/r7 keeps them safe
-             * regardless of optimisation level / register pressure. */
-            register uint32_t sp asm("r6") = *((uint32_t *)FLASH_BANK2_BASE);
-            register uint32_t pc asm("r7") = *((uint32_t *)FLASH_BANK2_BASE + 1);
+            /* sp/pc are `static` (not stack-resident), so the __set_MSP() stack
+             * switch below can never invalidate them. The previous approach forced
+             * them into r6/r7 via register-hinted locals, betting that they'd stay
+             * live there across the HAL_MPU_Disable() call — but that's only a hint
+             * to the compiler, not a guarantee: it can still spill them to the
+             * (caller-saved) stack depending on optimisation/register pressure, and
+             * after the stack switch the reload reads garbage from the NEW stack
+             * (out-of-DTCM at 0x20020004, which is 0 → bx 0 → fault). This was a
+             * real, intermittent bug — bisected on real hardware to reproduce with
+             * IDENTICAL source just from an unrelated string elsewhere in the image
+             * changing length (which perturbs the compiler's register-allocation
+             * decisions here enough to trigger the spill). `static` storage removes
+             * both the stack and register allocation from the equation entirely. */
+            static uint32_t sp;
+            static uint32_t pc;
+            sp = *((uint32_t *)FLASH_BANK2_BASE);
+            pc = *((uint32_t *)FLASH_BANK2_BASE + 1);
 
             HAL_MPU_Disable();
             __set_MSP(sp);
