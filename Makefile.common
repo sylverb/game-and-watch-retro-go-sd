@@ -338,6 +338,12 @@ CODEPAGE_PARAM := --codepage=$(ROMINFOCODE)
 # No SD Card reader -> No FatFS, allow compression
 ifeq ($(SD_CARD), 1)
 EXTFLASH_TOTAL_LENGTH = 0
+# gw_flash_alloc.c's ROM-cache allocator calls gw_layout_reserved_size()/
+# gw_layout_extflash_size() (Core/Src/retro-go/gw_layout_superblock.c) — that file is
+# otherwise part of FROGFS_C_SOURCES (a flash-only, SD_CARD=0 source group; FrogFS
+# itself is never used in SD builds), so it needs its own explicit compile here rather
+# than living in the FrogFS group.
+C_SOURCES += Core/Src/retro-go/gw_layout_superblock.c
 C_SOURCES += Core/src/gw_flash_alloc.c
 C_SOURCES += Core/Src/gw_sdcard.c
 C_SOURCES += Core/Src/gw_timer.c
