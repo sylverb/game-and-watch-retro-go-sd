@@ -15,7 +15,11 @@ fi
 
 # --match 'v*' so the version comes from a real release tag, not the CI's own
 # web-artifacts-* prerelease tags (which describe would otherwise pick as nearest).
-GITTAG=$(git describe --tags --match 'v*' --dirty=+ 2> /dev/null || echo "NOTAG")
+# --exclude '*-g*' additionally excludes the web-builder-flash CI's own prerelease
+# tags, which are also named "vX.Y.Z-N-gHASH..." (self-tagged with this same describe
+# output) — without it, each build's tag becomes the next build's "nearest v* tag",
+# compounding an ever-longer suffix onto GIT_TAG on every single build forever.
+GITTAG=$(git describe --tags --match 'v*' --exclude '*-g*' --dirty=+ 2> /dev/null || echo "NOTAG")
 
 echo -e "#ifndef GIT_TAG\n#define GIT_TAG \"Retro-Go SD "${GITTAG}"\"\n#endif" > "${TMPFILE}"
 

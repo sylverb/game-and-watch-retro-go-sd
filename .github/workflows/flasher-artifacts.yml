@@ -107,7 +107,11 @@ jobs:
         run: |
           set -euo pipefail
           SHORT="${GITHUB_SHA::7}"
-          GIT_DESCRIBE="$(git describe --tags --always --match 'v*')"
+          # --exclude '*-g*': without this, each prerelease is tagged with its own
+          # describe output (also "vX.Y.Z-N-gHASH", matching --match 'v*'), so the next
+          # build finds THIS build's tag as "nearest" and compounds another suffix onto
+          # it — ever-growing version strings across builds. See scripts/update_gittag.sh.
+          GIT_DESCRIBE="$(git describe --tags --always --match 'v*' --exclude '*-g*')"
           ID="web-builder-flash-${SHORT}"
           {
             echo "short=$SHORT"
