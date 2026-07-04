@@ -78,11 +78,20 @@ jobs:
           # (~246 KB, fits the single 256 KB bank); the browser adds covers/cheats CONTENT
           # later. All 12 languages baked. NOTE: `make clean` wipes BUILD_DIR (build/)
           # AND SD_FOLDER (sd_content/) — so (a) stash each blob in _blobs/ (outside the
-          # cleaned dirs) right after its build, and (b) run create_sd_data in the LAST
-          # pass so sd_content survives to packing. Cores are bank-independent, so taking
-          # them from the bank-2 ELF is fine. MAX_CHEAT_CODES=13 is passed on the command
-          # line (NOT a Makefile edit): the stock Makefile only defines it for SD_CARD=1,
-          # so CHEAT_CODES=1 SD_CARD=0 needs it supplied here — matches the SD value.
+          # cleaned dirs) right after its build, and (b) run create_sd_data ONCE PER
+          # SD_CARD VALUE, stashing each to its own _sd_content_{flash,sd}/ dir. Cores
+          # ARE bank-independent (bank1 == bank2 within the same SD_CARD value, verified),
+          # but are NOT SD_CARD-independent: core/homebrew .bin files are objcopy'd out of
+          # whichever ELF just built, and several overlay entry points (confirmed: NES,
+          # PCE, MSX; likely more) land at different RAM addresses between SD_CARD=0 and
+          # SD_CARD=1 builds. Reusing one SD_CARD's sd_content for the other variant loads
+          # a core's compiled code at the address the OTHER build's linker chose — the
+          # firmware jumps into it expecting its own address and corrupts execution
+          # immediately. Real bug, found via hardware debugging on this branch; the two
+          # variants must each get their own freshly-extracted sd_content. MAX_CHEAT_CODES=13
+          # is passed on the command line (NOT a Makefile edit): the stock Makefile only
+          # defines it for SD_CARD=1, so CHEAT_CODES=1 SD_CARD=0 needs it supplied here —
+          # matches the SD value.
           FLAGS="SD_CARD=0 COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SCREENSHOTS=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
           FLAGS_SD="SD_CARD=1 COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SCREENSHOTS=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
@@ -101,6 +110,7 @@ jobs:
               make -j\$(nproc) INTFLASH_BANK=2 $FLAGS create_sd_data build/gw_retro_go_intflash.bin
               cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_bank2.bin
               cp build/gw_retro_go.elf _blobs/gw_retro_go_bank2.elf
+              cp -r sd_content _sd_content_flash
               make clean
               make -j\$(nproc) INTFLASH_BANK=1 $FLAGS_SD build/gw_retro_go_intflash.bin
               cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_sd_bank1.bin
@@ -108,7 +118,8 @@ jobs:
               make clean
               make -j\$(nproc) INTFLASH_BANK=2 $FLAGS_SD create_sd_data build/gw_retro_go_intflash.bin
               cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_sd_bank2.bin
-              cp build/gw_retro_go.elf _blobs/gw_retro_go_sd_bank2.elf"
+              cp build/gw_retro_go.elf _blobs/gw_retro_go_sd_bank2.elf
+              cp -r sd_content _sd_content_sd"
 
       - name: Pack web-artifacts.zip + manifest.json
         id: pack
@@ -127,7 +138,8 @@ jobs:
             echo "tag=$GIT_DESCRIBE"
           } >> "$GITHUB_OUTPUT"
           python3 scripts/flasher/pack_bundle.py \
-            --sd-content sd_content \
+            --sd-content-flash _sd_content_flash \
+            --sd-content-sd _sd_content_sd \
             --blob-bank1 _blobs/gw_retro_go_intflash_bank1.bin \
             --blob-bank2 _blobs/gw_retro_go_intflash_bank2.bin \
             --blob-sd-bank1 _blobs/gw_retro_go_intflash_sd_bank1.bin \

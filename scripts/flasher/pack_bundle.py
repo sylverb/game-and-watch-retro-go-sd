@@ -5,17 +5,23 @@ Release asset (NOT for end users — end users want retro-go_update.bin).
 Outputs into <out>/:
   web-artifacts.zip  - gw_retro_go_intflash_bank{1,2}.bin (two superblock blobs, one
                        per intflash bank — bank is the link address, not a runtime
-                       patch) + sd_content/ (default content: cores, bios, fonts, lang,
-                       logo, homebrew; covers/ and cheats/ EXCLUDED for now) + manifest.json.
+                       patch) + sd_content/ AND sd_content_sd/ (cores, bios, fonts,
+                       lang, logo, homebrew; covers/ and cheats/ EXCLUDED for now) +
+                       manifest.json.
   manifest.json      - standalone copy, uploaded as its own release asset so the
                        web-flasher's version picker can read metadata without
                        downloading the whole zip.
 
-The zip is a matched set: the cores are objcopy slices of THIS exact ELF, so the
-blob and sd_content must ship together. Consumed by gnw-web-builder (merge
-sd_content + user ROMs -> FrogFS -> patch superblock -> flash).
+TWO separate content trees, not one: every core/homebrew .bin is an objcopy slice
+of whichever ELF was built, and several overlay entry points land at different RAM
+addresses between an SD_CARD=0 (flash) and SD_CARD=1 (SD) build of the identical
+source — confirmed on real hardware for NES/PCE/MSX, likely more. Loading a core
+built for one variant's memory layout into the other corrupts execution on launch.
+sd_content/ is extracted from (and only valid for) the SD_CARD=0 build; sd_content_sd/
+from the SD_CARD=1 build. gnw-web-builder must use sd_content/ for flash-mode FrogFS
+building and sd_content_sd/ only when actually syncing an SD card.
 
-Layout (flat): gw_retro_go_intflash.bin, sd_content/..., manifest.json
+Layout (flat): gw_retro_go_intflash.bin, sd_content/..., sd_content_sd/..., manifest.json
 """
 import argparse
 import hashlib
@@ -47,7 +53,8 @@ def sha256(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sd-content", required=True)
+    ap.add_argument("--sd-content-flash", required=True)  # from the SD_CARD=0 build
+    ap.add_argument("--sd-content-sd", required=True)     # from the SD_CARD=1 build
     ap.add_argument("--blob-bank1", required=True)  # INTFLASH_BANK=1 link (0x08000000)
     ap.add_argument("--blob-bank2", required=True)  # INTFLASH_BANK=2 link (0x08100000)
     ap.add_argument("--blob-sd-bank1", required=True)     # SD_CARD=1 link (0x08000000)
@@ -70,27 +77,34 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     zip_path = os.path.join(args.out, ZIP_NAME)
 
-    cores_dir = os.path.join(args.sd_content, "cores")
-    cores = sorted(
-        f[:-4]
-        for f in os.listdir(cores_dir)
-        if f.endswith(".bin") and not f.endswith("_defprops.bin")
-    ) if os.path.isdir(cores_dir) else []
+    def collect_content(src_dir, arc_prefix):
+        """Walk one sd_content tree (excluding covers/cheats/update-trigger files) into
+        (abs_path, arcname) pairs under arc_prefix/, plus its own core name list."""
+        cores_dir = os.path.join(src_dir, "cores")
+        found_cores = sorted(
+            f[:-4]
+            for f in os.listdir(cores_dir)
+            if f.endswith(".bin") and not f.endswith("_defprops.bin")
+        ) if os.path.isdir(cores_dir) else []
 
-    # collect sd_content files (excluding covers/cheats), deterministic order
-    members = []  # (abs_path, arcname)
-    for root, dirs, files in os.walk(args.sd_content):
-        rel = os.path.relpath(root, args.sd_content)
-        if rel.split(os.sep)[0] in EXCLUDE_TOP:
-            dirs[:] = []
-            continue
-        dirs.sort()
-        for fn in sorted(files):
-            if fn in EXCLUDE_FILES:
+        found_members = []
+        for root, dirs, files in os.walk(src_dir):
+            rel = os.path.relpath(root, src_dir)
+            if rel.split(os.sep)[0] in EXCLUDE_TOP:
+                dirs[:] = []
                 continue
-            full = os.path.join(root, fn)
-            arc = os.path.join("sd_content", os.path.relpath(full, args.sd_content))
-            members.append((full, arc.replace(os.sep, "/")))
+            dirs.sort()
+            for fn in sorted(files):
+                if fn in EXCLUDE_FILES:
+                    continue
+                full = os.path.join(root, fn)
+                arc = os.path.join(arc_prefix, os.path.relpath(full, src_dir))
+                found_members.append((full, arc.replace(os.sep, "/")))
+        return found_members, found_cores
+
+    members, cores = collect_content(args.sd_content_flash, "sd_content")
+    members_sd, cores_sd = collect_content(args.sd_content_sd, "sd_content_sd")
+    members += members_sd
 
     # Two linked blobs per configuration — bank is the intflash address, not a runtime patch.
     banks = [
@@ -124,7 +138,11 @@ def main():
         # Capabilities baked into the blobs (content like covers/cheats is added later
         # by the browser into the FrogFS; these flags just enable the firmware paths).
         "capabilities": ["coverflow", "cheatCodes", "screenshot", "sharedHibernateSavestate"],
+        # cores: extracted from the SD_CARD=0 (flash) build, valid ONLY for flash-mode
+        # FrogFS/LittleFS building. coresSd: extracted from the SD_CARD=1 build, valid
+        # ONLY for writing to an actual SD card. NOT interchangeable — see module docstring.
         "cores": cores,
+        "coresSd": cores_sd,
         "fileCount": len(members),
     }
 
