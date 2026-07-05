@@ -10,14 +10,28 @@ uint32_t dma_counter;
 
 static uint16_t audiobuffer_full_length = AUDIO_BUFFER_LENGTH * 2;
 
+/* Opt-in ISR refill hook (see gw_audio.h). NULL → legacy frame-pumped path. */
+static audio_dma_refill_t dma_refill_cb = NULL;
+
+void audio_set_dma_refill_callback(audio_dma_refill_t cb) {
+    dma_refill_cb = cb;
+}
+
 void HAL_SAI_TxHalfCpltCallback(SAI_HandleTypeDef *hsai) {
     dma_counter++;
     dma_state = DMA_TRANSFER_STATE_HF;
+    /* DMA just finished the first half; it is now safe to refill offset 0. */
+    if (dma_refill_cb)
+        dma_refill_cb(&audiobuffer_dma[0], audiobuffer_full_length / 2);
 }
 
 void HAL_SAI_TxCpltCallback(SAI_HandleTypeDef *hsai) {
     dma_counter++;
     dma_state = DMA_TRANSFER_STATE_TC;
+    /* DMA just finished the second half; refill from its start offset. */
+    if (dma_refill_cb)
+        dma_refill_cb(&audiobuffer_dma[audiobuffer_full_length / 2],
+                      (audiobuffer_full_length + 1) / 2);
 }
 
 uint16_t audio_get_buffer_full_length() {

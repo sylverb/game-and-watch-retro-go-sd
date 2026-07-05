@@ -703,6 +703,7 @@ C_INCLUDES +=  \
 -ICore/Inc/porting/amstrad \
 -ICore/Inc/porting/zelda3 \
 -ICore/Inc/porting/smw \
+-ICore/Inc/porting/earthbound \
 -ICore/Inc/porting/videopac \
 -ICore/Inc/porting/celeste \
 -ICore/Inc/porting/pico8 \
@@ -812,6 +813,7 @@ A7800_OBJECTS = $(addprefix $(BUILD_DIR)/a7800/,$(notdir $(A7800_C_SOURCES:.c=.o
 AMSTRAD_OBJECTS = $(addprefix $(BUILD_DIR)/amstrad/,$(notdir $(AMSTRAD_C_SOURCES:.c=.o)))
 ZELDA3_OBJECTS = $(addprefix $(BUILD_DIR)/zelda3/,$(notdir $(ZELDA3_C_SOURCES:.c=.o)))
 SMW_OBJECTS = $(addprefix $(BUILD_DIR)/smw/,$(notdir $(SMW_C_SOURCES:.c=.o)))
+EARTHBOUND_OBJECTS = $(addprefix $(BUILD_DIR)/earthbound/,$(notdir $(EARTHBOUND_C_SOURCES:.c=.o)))
 VIDEOPAC_OBJECTS = $(addprefix $(BUILD_DIR)/videopac/,$(notdir $(VIDEOPAC_C_SOURCES:.c=.o)))
 CELESTE_OBJECTS = $(addprefix $(BUILD_DIR)/celeste/,$(notdir $(CELESTE_C_SOURCES:.c=.o)))
 PICO8_ALL_SOURCES = $(PICO8_C_SOURCES) $(PICO8_CXX_SOURCES) $(PICO8_CXX_STUBS)
@@ -820,6 +822,11 @@ TAMA_OBJECTS = $(addprefix $(BUILD_DIR)/tama/,$(notdir $(TAMA_C_SOURCES:.c=.o)))
 PKMINI_OBJECTS = $(addprefix $(BUILD_DIR)/pkmini/,$(notdir $(PKMINI_C_SOURCES:.c=.o)))
 
 vpath %.c $(sort $(dir $(C_SOURCES) $(FATFS_C_SOURCES) $(TAMP_C_SOURCES) $(NES_C_SOURCES) $(NES_FCEU_C_SOURCES) $(TGBDUAL_C_SOURCES) $(TGBDUAL_C_SOURCES) $(SMSPLUSGX_C_SOURCES) $(PCE_C_SOURCES) $(MSX_C_SOURCES) $(GW_C_SOURCES) $(WSV_C_SOURCES) $(MD_C_SOURCES) $(A2600_C_SOURCES) $(A7800_C_SOURCES) $(AMSTRAD_C_SOURCES) $(ZELDA3_C_SOURCES) $(SMW_C_SOURCES) $(VIDEOPAC_C_SOURCES) $(CELESTE_C_SOURCES) $(TAMA_C_SOURCES) $(PKMINI_C_SOURCES) $(PICO8_C_SOURCES) $(SDK_C_SOURCES)))
+# Note: EARTHBOUND_C_SOURCES is intentionally NOT in the vpath above —
+# earthbound's per-object rule (earthbound_obj_prereq_gen) uses full
+# paths via $1, so vpath isn't needed for its own compile, and adding
+# it here would shadow same-named files in other emulator cores
+# (e.g. earthbound/src/snes/ppu.c vs fceumm-go/src/ppu.c).
 # Guard empty lists: vpath with empty path resets the pattern's search path.
 # The GPL stub build has no PICO8_CXX_SOURCES, so only emit these when non-empty.
 ifneq ($(strip $(PICO8_CXX_SOURCES)),)
@@ -943,9 +950,12 @@ $(BUILD_DIR)/memcpy-armv7m.o: Core/Src/memcpy-armv7m.s Makefile.common Makefile 
 	$(V)$(ECHO) [ AS ] $(notdir $<)
 	$(V)$(AS) -c $(CFLAGS) $< -o $@
 
-$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
+$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(EARTHBOUND_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
 	$(V)$(ECHO) [ LD ] $(notdir $@)
-	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
+	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(EARTHBOUND_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
+ifeq ($(SD_CARD), 0)
+	$(V)./scripts/extflash_size.sh $@
+endif
 
 $(BUILD_DIR)/core/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC core ] $(notdir $<)
@@ -1171,9 +1181,205 @@ endef
 # generate all smw object prerequisite rules
 $(eval $(foreach obj,$(SMW_C_SOURCES),$(call smw_obj_prereq_gen,$(obj))))
 
+# C defines for earthbound. EB_EMBEDDED gates printf/stderr/state_dump
+# fallbacks; EB_NORELOC_REQUIRED gates EB_NORELOC attribute placement
+# of pointer tables into .noreloc (RAM) so PatchCodeRodataOffset can fix
+# them up. USA selects the EarthBound US retail flavor in src/.
+# VIEWPORT_{WIDTH,HEIGHT}=320x240 makes the PPU renderer pad each scanline
+# out to the G&W LCD's native resolution; SNES content stays 256x224 centered,
+# margins filled by the renderer (BG fill color / black during force blank).
+# To re-enable PPU/BGPROF/audio/video diagnostics, add -DEB_PPU_PROFILE=1 to the
+# list below. It's left off for max performance (per-scanline timer reads +
+# periodic printf add measurable overhead); all instrumentation is gated behind
+# #ifdef EB_PPU_PROFILE in ppu_render.c, gw_video.c, gw_audio.c, game_main.c.
+# NB: every configurable upstream knob carries an EB_ prefix as of submodule
+# commit 2e7968d8; the old un-prefixed spellings are removed (not aliased), so a
+# stale -D<old> is silently ignored and the knob reverts to its default.
+# EB_HAVE_SAVESTATE_BACKEND drops src/platform/savestate_backend_stub.c so our
+# gw_savestate.c platform_savestate_* implementation links instead.
+C_DEFS_EARTHBOUND =  \
+-DEB_EMBEDDED=1 \
+-DEB_NORELOC_REQUIRED=1 \
+-DEB_B_OPENS_MAIN_MENU=1 \
+-DUSA=1 \
+-DEB_VIEWPORT_WIDTH=320 \
+-DEB_VIEWPORT_HEIGHT=240 \
+-DEB_PIXEL_RGB565=1 \
+-DEB_ENABLE_AUDIO=1 \
+-DEB_HOST_PACED_FRAMESKIP=1 \
+-DEB_PPU_FORCE_SPEED_OPT=1 \
+-DEB_HAVE_SAVESTATE_BACKEND=1 \
+-DTAMP_STREAM=0 \
+-include Core/Inc/porting/earthbound/eb_alloc.h \
+
+# Items/music headers come from `ebtools generate items-header` and
+# `ebtools generate music-header`. Listed here so the per-object rule
+# below can include them as prerequisites — actual generation rules
+# live in the ebtools block further down.
+EARTHBOUND_HEADERS_EXTRA = \
+	$(EARTHBOUND_GEN_DIR)/items_generated.h \
+	$(EARTHBOUND_GEN_DIR)/music_generated.h
+
+# Headers/sources produced by `ebtools embed-registry`. Must be defined
+# before the $(eval $(foreach ...)) below — make expands prerequisite
+# lists at rule-parse time, not target-build time, so referencing an
+# undefined variable here would silently drop these prereqs and let
+# parallel builds race against header generation.
+EARTHBOUND_GEN_HEADERS = \
+	$(EARTHBOUND_GEN_DIR)/embedded_assets.h \
+	$(EARTHBOUND_GEN_DIR)/asset_ids.h \
+	$(EARTHBOUND_GEN_DIR)/embedded_assets_array.c \
+	$(EARTHBOUND_GEN_DIR)/embedded_assets.inc.c \
+	$(EARTHBOUND_GEN_DIR)/embedded_assets_decl.h
+
+# function used to generate prerequisite rules for earthbound objects.
+# NOTE: reverted to -O2. -O3 worked up to the title/file-select screen but
+# BSODs (imprecise bus fault, CFSR=0x400) when loading a file and entering the
+# overworld — a wild store from a latent UB that -O3's codegen exposes but -O2
+# leaves benign. -fno-strict-aliasing did not fix it, so it's not aliasing
+# (likely an uninitialized pointer landing on a bus-rejecting address at -O3).
+# The trailing -O switch wins over $(CFLAGS) because GCC uses the last one.
+# Re-bump to -O3 only after root-causing the wild store (gdb single-step).
+# EARTHBOUND_OBJ_OPT is per-object overridable (target-specific var): the vendored
+# tamp objects build at -Os since they're off the critical path (savestate I/O is
+# the bottleneck, not (de)compress CPU) and the EB overlay's RAM_EMU budget is tight.
+EARTHBOUND_OBJ_OPT ?= -O2
+define earthbound_obj_prereq_gen
+$$(BUILD_DIR)/earthbound/$(patsubst %.c,%.o,$(notdir $1)): $1 Makefile.common Makefile $$(SDK_HEADERS) $$(EARTHBOUND_GEN_HEADERS) $$(EARTHBOUND_HEADERS_EXTRA) | $$(BUILD_DIR)
+	$$(V)$$(ECHO) [ CC earthbound ] $$(notdir $$<)
+	$$(V)$$(CC) -c $$(CFLAGS) $$(C_DEFS_EARTHBOUND) $$(EARTHBOUND_C_INCLUDES) -Wa,-a,-ad,-alms=$$(BUILD_DIR)/earthbound/$$(notdir $$(<:.c=.lst)) $$< -o $$@ $$(EARTHBOUND_OBJ_OPT) \
+	-Wno-parentheses -Wno-unknown-pragmas -Wno-incompatible-pointer-types -Wno-unused-const-variable -Wno-strict-aliasing -Wno-comment -Wno-unused-function -Wno-stack-usage -Wno-int-in-bool-context -Wno-unused-variable -Wno-unused-but-set-variable -Wno-implicit-function-declaration
+	$$(V)$$(CP) --redefine-syms=earthbound_redefines $$@
+
+endef
+# note: the blank line above is intentional
+
+# generate all earthbound object prerequisite rules — embedded_assets_array.c
+# is filtered out because it has its own explicit rule below with the
+# INCBIN_OUTPUT_SECTION + EBASSET_TABLE_ATTR overrides.
+$(eval $(foreach obj,$(filter-out %/embedded_assets_array.c,$(EARTHBOUND_C_SOURCES)),$(call earthbound_obj_prereq_gen,$(obj))))
+
+# Vendored tamp (savestate compression) + the savestate engine itself: build for
+# size, not speed — see note above. state_dump runs once per save/load (not per
+# frame) and its CRC now covers only the ~30 KB compressed payload, so -Os there
+# costs nothing measurable and buys back EB-overlay RAM_EMU headroom.
+$(BUILD_DIR)/earthbound/common.o \
+$(BUILD_DIR)/earthbound/compressor.o \
+$(BUILD_DIR)/earthbound/decompressor.o \
+$(BUILD_DIR)/earthbound/state_dump.o: EARTHBOUND_OBJ_OPT := -Os
+
+# NB: -O3 on the lakesnes APU files (apu/dsp/spc, ~9 ms/frame of audio
+# generation at -O2) was tried and does NOT fit: +3.8 KB (dsp) / +0.7 KB
+# (apu) of .text overflows the RAM_EMU audio-heap margin (~2.3 KB) and
+# trips the __EARTHBOUND_MIN_RAM_HEAP__ link assert. Revisit only with
+# freed RAM or a per-function optimize attribute on dsp_cycle.
+
+# embedded_assets_array.c is special: INCBIN_OUTPUT_SECTION routes the 3 MB
+# of asset bytes into .rodata_assets (caught by .rodata_earthbound in the
+# linker script and extracted to earthbound.ro), and EBASSET_TABLE_ATTR
+# places the embedded_assets[] index table in .noreloc (RAM) so its
+# pointers can be fixed up by PatchCodeRodataOffset at boot.
+$(BUILD_DIR)/earthbound/embedded_assets_array.o: EXTRA_CFLAGS_EARTHBOUND := \
+	-DINCBIN_OUTPUT_SECTION='".rodata_assets"' \
+	-DEBASSET_TABLE_ATTR='__attribute__((section(".noreloc")))'
+
+$(BUILD_DIR)/earthbound/embedded_assets_array.o: $(EARTHBOUND_GEN_DIR)/embedded_assets_array.c Makefile.common Makefile $(SDK_HEADERS) $(EARTHBOUND_GEN_HEADERS) $(EARTHBOUND_HEADERS_EXTRA) | $(BUILD_DIR)
+	$(V)$(ECHO) [ CC earthbound ] embedded_assets_array.c
+	$(V)$(CC) -c $(CFLAGS) $(C_DEFS_EARTHBOUND) $(EXTRA_CFLAGS_EARTHBOUND) $(EARTHBOUND_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/earthbound/embedded_assets_array.lst $< -o $@ \
+	-Wno-parentheses -Wno-unknown-pragmas -Wno-unused-const-variable -Wno-strict-aliasing -Wno-comment -Wno-unused-function -Wno-unused-variable
+	$(V)$(CP) --redefine-syms=earthbound_redefines $@
+
 external/smw/smw_assets.dat: roms/smw/smw.sfc | $(BUILD_DIR)
 	cp $< external/smw/assets/smw.sfc
 	$(MAKE) -C external/smw smw_assets.dat
+
+# EarthBound donor ROM. Defaults to ./earthbound.sfc to match upstream's
+# convention (port/unix and the submodule's own Makefile both look for
+# ./earthbound.sfc in the project root). Override with:
+#   make GNW_TARGET=mario EARTHBOUND_SFC=/path/to/earthbound.sfc
+EARTHBOUND_SFC ?= earthbound.sfc
+
+# Three-stage upstream asset pipeline:
+#   1. ebtools extract        — donor ROM → asm/bin/{US,JP}/* + assets.manifest
+#   2. ebtools pack-all       — src/assets/ JSON → packed_assets/ binary
+#   3. ebtools embed-registry — packed + raw → embedded_assets_*.{c,h}
+#
+# Stage 1 is handled by upstream's `make unix-extract` (which also sets up
+# the .venv and installs ebtools). Stages 2 and 3 we drive directly into
+# our build tree. All three depend on the donor ROM at $(EARTHBOUND_SFC);
+# if it's not there the rule errors out with a clear "No rule to make"
+# message pointing at the user-overridable path.
+EARTHBOUND_ASSETS_MANIFEST = external/earthbound/asm/bin/assets.manifest
+EARTHBOUND_PACKED_DIR = $(EARTHBOUND_GEN_DIR)/packed_assets
+
+# EARTHBOUND_GEN_HEADERS is defined earlier (next to EARTHBOUND_HEADERS_EXTRA)
+# so the per-object rule's prerequisite expansion at $(eval) time sees it.
+
+# items_generated.h and music_generated.h come from `ebtools generate
+# items-header` / `music-header` (separate from embed-registry). Both
+# depend on JSON files that `ebtools extract` writes under src/assets/.
+# Declared in EARTHBOUND_HEADERS_EXTRA above (which is referenced from
+# earthbound_obj_prereq_gen so the variable must exist before that eval).
+$(EARTHBOUND_GEN_DIR)/items_generated.h: $(EARTHBOUND_ASSETS_MANIFEST) | $(BUILD_DIR)
+	@echo "[ ebtools generate items-header  ]"
+	@cd external/earthbound && . .venv/bin/activate && ebtools generate items-header \
+		port/assets/items/items.json $(abspath $@)
+
+$(EARTHBOUND_GEN_DIR)/music_generated.h: $(EARTHBOUND_ASSETS_MANIFEST) | $(BUILD_DIR)
+	@echo "[ ebtools generate music-header  ]"
+	@cd external/earthbound && . .venv/bin/activate && ebtools generate music-header \
+		port/assets/music_tracks.json $(abspath $@)
+
+# Symlink the user's donor ROM into the submodule's expected location.
+# Upstream's unix-extract / unix-check-rom both look for ./earthbound.sfc.
+external/earthbound/earthbound.sfc: $(EARTHBOUND_SFC)
+	@ln -sf $(abspath $<) $@
+
+$(EARTHBOUND_ASSETS_MANIFEST): external/earthbound/earthbound.sfc
+	@echo "[ ebtools extract ] from $(EARTHBOUND_SFC)"
+	@$(MAKE) -C external/earthbound unix-venv unix-extract
+
+$(EARTHBOUND_GEN_HEADERS) &: $(EARTHBOUND_ASSETS_MANIFEST) Makefile.common | $(BUILD_DIR)
+	@echo "[ ebtools pack-all       ]"
+	# EB's gnw-port branch keeps human-authored YAML/JSON sources under
+	# port/assets/ (not src/assets/). pack-all also generates a C header
+	# (text_refs.h) into the source tree; by default it computes that path
+	# as <assets_dir>/../data, which would be port/data — a directory that
+	# doesn't exist. The C port includes the header as "data/text_refs.h",
+	# so we want it written into src/data/. --text-refs-dir overrides the
+	# inferred location.
+	@cd external/earthbound && . .venv/bin/activate && ebtools pack-all \
+		port/assets $(abspath $(EARTHBOUND_PACKED_DIR)) \
+		-b asm/bin -y earthbound.yml -c commondefs.yml \
+		--text-refs-dir src/data
+	@echo "[ ebtools embed-registry ]"
+	@cd external/earthbound && . .venv/bin/activate && ebtools embed-registry \
+		asm/bin/assets.manifest asm/bin $(abspath $(EARTHBOUND_GEN_DIR)) src/vendor/incbin \
+		--custom-dir $(abspath $(EARTHBOUND_PACKED_DIR)) \
+		--locale US \
+		--exclude "overworld_sprites/gfx/*" \
+		--exclude "US/overworld_sprites/gfx/*" \
+		--exclude "psianims/arrangements/*.arr.lzhal" \
+		--exclude "data/EEVENT*.bin" \
+		--exclude "data/EBATTLE*.bin" \
+		--exclude "data/EGOODS*.bin" \
+		--exclude "data/ESYSTEM.bin" \
+		--exclude "data/EGLOBAL.bin" \
+		--exclude "data/EHINT.bin" \
+		--exclude "data/ENEWS.bin" \
+		--exclude "data/ESHOP*.bin" \
+		--exclude "data/EEXPL*.bin" \
+		--exclude "data/EBGMESS.bin" \
+		--exclude "data/EDEBUG.bin" \
+		--exclude "data/KEYBOARD.bin" \
+		--exclude "data/DEBUG_TEXT.bin" \
+		--exclude "data/DOOR_SCRIPTS.bin" \
+		--exclude "data/UNKNOWN_EFA2FA.bin" \
+		--exclude "data/E0[1-9]*.bin" \
+		--exclude "data/E1[0-9]*.bin" \
+		--exclude "dialogue/addr_remap.bin" \
+		--exclude "data/compressed_text_data.bin" \
+		--exclude "data/compressed_text_ptrs.bin"
 
 $(BUILD_DIR):
 	$(V)mkdir $@
@@ -1195,6 +1401,8 @@ $(BUILD_DIR):
 	$(V)mkdir $@/amstrad
 	$(V)mkdir $@/zelda3
 	$(V)mkdir $@/smw
+	$(V)mkdir $@/earthbound
+	$(V)mkdir $@/earthbound_gen
 	$(V)mkdir $@/videopac
 	$(V)mkdir $@/celeste
 	$(V)mkdir $@/pico8
@@ -1478,6 +1686,8 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
 	@$(CP) -O binary --only-section=.overlay_zelda3 $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/Zelda 3.bin"
 	@$(CP) -O binary --only-section=.rodata_zelda3 $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/zelda3.ro"
 	@$(CP) -O binary --only-section=.overlay_smw $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/Super Mario World.bin"
+	@$(CP) -O binary --only-section=.overlay_earthbound $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/EarthBound.bin"
+	@$(CP) -O binary --only-section=.rodata_earthbound $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/earthbound.ro"
 	@$(CP) -O binary --only-section=.coleco_bios_data $(BUILD_DIR)/$(TARGET).elf $(SD_FOLDER)/bios/coleco/coleco.bin
 	@$(CP) -O binary --only-section=.overlay_graphics $(BUILD_DIR)/$(TARGET).elf $(SD_FOLDER)/bios/logo.bin
 	@rm -f $(FONTS_DIR)/cp1251_*.bin $(FONTS_DIR)/cp1252_*.bin $(FONTS_DIR)/unicode_*.bin
@@ -1549,6 +1759,7 @@ flash_sd: FORCE
 	$(V)$(DOCKER_RUN) $(MAKE) flash_sd $(_DOCKER_FWDVARS) CHECK_DIRTY_SUBMODULE=0
 else
 flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
+	@echo "[ FLASH ] flashing intflash + pushing SD content (gnwmanager)..."
 	$(eval MAPPERS_SDPUSH := $(foreach mapper,$(MAPPER_NAMES),-- sdpush --file $(MAPPERS_DIR)/mapper_$(mapper).bin --dest-path "/cores/mappers/"))
 	@$(GNWMANAGER) flash $(INTFLASH_ADDRESS) $(BUILD_DIR)/$(TARGET)_intflash.bin \
 		-- sdpush --file $(CORES_DIR)/nes_fceu.bin --dest-path "/cores/" \
@@ -1571,6 +1782,8 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file "$(HOMEBREWS_FOLDER)/Super Mario World.bin" --dest-path "/roms/homebrew/" \
 		-- sdpush --file "$(HOMEBREWS_FOLDER)/Zelda 3.bin" --dest-path "/roms/homebrew/" \
 		-- sdpush --file "$(HOMEBREWS_FOLDER)/zelda3.ro" --dest-path "/roms/homebrew/" \
+		-- sdpush --file "$(HOMEBREWS_FOLDER)/EarthBound.bin" --dest-path "/roms/homebrew/" \
+		-- sdpush --file "$(HOMEBREWS_FOLDER)/earthbound.ro" --dest-path "/roms/homebrew/" \
 		-- sdpush --file $(MAPPERS_DIR)/mappers_table.bin --dest-path "/cores/mappers/" \
 		-- sdpush --file $(MAPPERS_DIR)/ines_correct.bin --dest-path "/cores/mappers/" \
 		-- sdpush --file $(SD_FOLDER)/bios/nes/palettes.bin --dest-path "/bios/nes/" \

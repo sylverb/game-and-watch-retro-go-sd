@@ -281,6 +281,7 @@ renders it with the PICO-8 palette, and saves as a JPEG cover.
 ### SNES Ports
 - The Legend of Zelda: A Link to the Past
 - Super Mario World
+- EarthBound
 
 ### Homebrew Ports
 - Celeste Classic 
@@ -517,6 +518,30 @@ By default, dialogues extracted from the US ROM are in english. You can replace 
 | Portuguese | Romhack | zelda3_pt.sfc | D0D09ED41F9C373FE6AFDCCAFBF0DA8C88D3D90D |
 | Dutch    | Romhack | zelda3_nl.sfc | FA8ADFDBA2697C9A54D583A1284A22AC764C7637 |
 | Swedish  | Romhack | zelda3_sv.sfc | 43CD3438469B2C3FE879EA2F410B3EF3CB3F1CA4 |
+
+### EarthBound
+
+EarthBound runs from a C reimplementation of the game ([`external/earthbound`](external/earthbound)) rather than an emulated SNES ROM. Unlike Zelda 3 and Super Mario World, there is no separate `*_assets.dat` step — the firmware build itself extracts the 3 MB of game data from your donor ROM, packs it into a `.rodata_earthbound` linker section, and emits it as `earthbound.ro` alongside the firmware binaries.
+
+To build:
+
+- clone the project with submodules if not already done:
+  ```git clone --recurse-submodules https://github.com/sylverb/game-and-watch-retro-go-sd```
+- install python requirements: ```python3 -m pip install -r requirements.txt```
+- place the EarthBound US retail donor ROM at `./earthbound.sfc` in the project root, or pass `EARTHBOUND_SFC=/path/to/earthbound.sfc` on the make command line
+- bootstrap the upstream Python toolchain once: `make -C external/earthbound unix-venv` (creates a `.venv` under the submodule and installs `ebtools` into it)
+
+After that, `make flash_sd GNW_TARGET=mario` builds the firmware, runs `ebtools extract` automatically the first time it sees the ROM, and pushes both the launcher binary and `earthbound.ro` (to `/roms/homebrew/earthbound.ro`) onto the SD card. `make release` includes `earthbound.ro` in the update tarball.
+
+Due to the limited set of buttons on the Mario console, the control scheme is minimal:
+
+| Description | Binding on Mario units | Binding on Zelda units |
+| ----------- | ---------------------- | ---------------------- |
+| `L` button (Auto-check) | `A` | `A` |
+| `B` button (Cancel) | `B` | `B` |
+| `X` button (Town map) | `TIME` | `TIME` |
+
+EarthBound's SNES `L` button auto-checks the nearest object regardless of facing direction, so it strictly supersedes SNES `A` in normal play — we give it the always-accessible G&W A button and leave SNES `A` unmapped. SNES `Y`, `Select`, `Start`, and `R` are unmapped.
 
 ### Super Mario World
 

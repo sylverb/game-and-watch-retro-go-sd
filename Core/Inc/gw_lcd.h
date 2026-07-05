@@ -64,8 +64,11 @@ void lcd_clone(void);
 void* lcd_get_active_buffer(void);
 void* lcd_get_inactive_buffer(void);
 void lcd_set_buffers(uint16_t *buf1, uint16_t *buf2);
+void lcd_present_at_vblank(void *addr);
+void *lcd_get_displayed_buffer(void);
 void lcd_wait_for_vblank(void);
 uint32_t lcd_is_swap_pending(void);
+uint32_t lcd_is_tb_mode(void);
 bool lcd_sleep_while_swap_pending(void);
 
 // To be used by fault handlers
@@ -178,14 +181,24 @@ typedef struct {
     uint8_t  is_lut8;   /* 1 if framebuffer is 1 byte/pixel LUT8 */
 } lcd_pen_t;
 
-static inline lcd_pen_t lcd_pen(uint16_t color)
+/* Pen targeting an explicit framebuffer — REQUIRED for cores that manage
+ * their own buffers (EarthBound's triple-buffer rotation): there the
+ * launcher's active-buffer pointer is frozen/stale, and drawing through it
+ * lands on an arbitrary rotation buffer (the volume/brightness overlay
+ * flicker bug). Pixel format still follows the LCD mode. */
+static inline lcd_pen_t lcd_pen_for(void *fb, uint16_t color)
 {
     lcd_pen_t p;
-    p.fb       = lcd_get_active_buffer();
+    p.fb       = fb;
     p.rgb565   = color;
     p.is_lut8  = (lcd_get_mode() == LCD_MODE_LUT8) ? 1 : 0;
     p.lut8_idx = p.is_lut8 ? (uint8_t)lcd_pack_color(color) : 0;
     return p;
+}
+
+static inline lcd_pen_t lcd_pen(uint16_t color)
+{
+    return lcd_pen_for(lcd_get_active_buffer(), color);
 }
 
 /* Write a single pixel at framebuffer offset `off` (in pixels, not bytes). */

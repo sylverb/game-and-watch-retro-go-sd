@@ -34,6 +34,29 @@ uint32_t active_framebuffer;
 uint32_t frame_counter;
 uint32_t last_frequency = 60;
 
+/* --- Generic vblank-synchronized present (opt-in; used by triple-buffered
+ * cores like EarthBound) ---------------------------------------------------
+ * lcd_present_at_vblank(addr) loads the address into the LTDC layer SHADOW
+ * registers via HAL_LTDC_SetAddress_NoReload(), then arms a vertical-blanking
+ * reload so the *hardware* latches it tear-free at the next vblank.
+ *
+ * It deliberately does NOT program the address from the reload-event ISR with
+ * HAL_LTDC_SetAddress() (which forces an *immediate* reload). That older design
+ * was racy: the immediate reload only lands tear-free if the ISR runs inside
+ * the vblank window, but a higher-priority interrupt (audio SAI / SD DMA) can
+ * delay the LTDC reload ISR past vblank into the active display area. The
+ * immediate reload then reloads the layer window / line-count registers
+ * mid-scanout, which blanks the remainder of the frame to the background colour
+ * — an occasional 1-frame black flash. Letting the hardware do the vblank
+ * reload removes the software-timing dependency entirely.
+ *
+ * tb_mode selects this path: lcd_present_at_vblank() sets it; lcd_swap() and
+ * lcd_set_buffers() clear it so the launcher / other cores keep the legacy
+ * fb1/fb2 toggle in the reload callback. */
+static volatile uint32_t tb_mode;       /* 1 = triple-buffer present active */
+static volatile uint32_t tb_pending;    /* addr queued for next vblank (legacy compat) */
+static volatile uint32_t tb_displayed;  /* addr the LTDC will scan out next vblank */
+
 #define HAL_DAC_ENABLED(__HANDLE__, __DAC_Channel__) \
   (((__HANDLE__)->Instance->CR & (DAC_CR_EN1 << ((__DAC_Channel__) & 0x10UL))))
 
@@ -171,6 +194,15 @@ void lcd_init(SPI_HandleTypeDef *spi, LTDC_HandleTypeDef *ltdc, lcd_init_flags_t
 }
 
 void HAL_LTDC_ReloadEventCallback (LTDC_HandleTypeDef *hltdc) {
+  if (tb_mode) {
+    /* Triple-buffer present: the address was loaded into the shadow registers
+     * by lcd_present_at_vblank() and this very interrupt fired *because* the
+     * hardware just completed the vblank reload that latched it. There is
+     * nothing to do here — and crucially we must NOT issue another SetAddress
+     * (immediate reload), which is what used to glitch a frame when this ISR
+     * ran late. */
+    return;
+  }
   if (active_framebuffer == 0) {
     HAL_LTDC_SetAddress(hltdc, (uint32_t) fb2, 0);
   } else {
@@ -181,6 +213,11 @@ void HAL_LTDC_ReloadEventCallback (LTDC_HandleTypeDef *hltdc) {
 void HAL_LTDC_LineEventCallback (LTDC_HandleTypeDef *hltdc) {
   frame_counter++;
   HAL_LTDC_ProgramLineEvent(hltdc,  239);
+}
+
+uint32_t lcd_is_tb_mode(void)
+{
+  return tb_mode;
 }
 
 uint32_t lcd_is_swap_pending(void)
@@ -208,6 +245,9 @@ uint32_t lcd_get_pixel_position()
 
 void lcd_swap(void)
 {
+  /* Legacy fb1/fb2 double-buffer swap; the reload callback programs the
+   * address. Leaving triple-buffer mode if a core had entered it. */
+  tb_mode = 0;
   HAL_LTDC_Reload(&hltdc, LTDC_RELOAD_VERTICAL_BLANKING);
   active_framebuffer = active_framebuffer ? 0 : 1;
 }
@@ -252,6 +292,30 @@ void lcd_set_buffers(uint16_t *buf1, uint16_t *buf2)
 {
   fb1 = buf1;
   fb2 = buf2;
+  /* Returning to legacy double-buffering (launcher / other cores). */
+  tb_mode = 0;
+  tb_pending = 0;
+  tb_displayed = 0;
+}
+
+/* Queue a buffer to be displayed at the next vblank, without blocking.
+ * The address is written to the LTDC shadow registers now and latched by the
+ * hardware vblank reload — no software immediate-reload, so a late reload ISR
+ * can't glitch the frame (see the tb_mode comment block above). */
+void lcd_present_at_vblank(void *addr)
+{
+  tb_mode = 1;
+  HAL_LTDC_SetAddress_NoReload(&hltdc, (uint32_t)addr, 0);
+  tb_displayed = (uint32_t)addr;
+  tb_pending = 0;
+  HAL_LTDC_Reload(&hltdc, LTDC_RELOAD_VERTICAL_BLANKING);
+}
+
+/* Address the LTDC will scan out as of the next vblank (0 until the first
+ * present). Used by triple-buffered cores' diagnostics. */
+void *lcd_get_displayed_buffer(void)
+{
+  return (void *)tb_displayed;
 }
 
 /* ----- LCD pool layout / mode switching (Phase 2) -----

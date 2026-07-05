@@ -805,6 +805,35 @@ $(CORE_SMW)/src/snes/cart.c \
 $(CORE_SMW)/src/tracing.c \
 Core/Src/porting/smw/main_smw.c
 
+CORE_EARTHBOUND = external/earthbound
+EARTHBOUND_GEN_DIR = $(BUILD_DIR)/earthbound_gen
+EARTHBOUND_C_SOURCES = \
+$(wildcard $(CORE_EARTHBOUND)/src/core/*.c) \
+$(CORE_EARTHBOUND)/src/core/tamp/common.c \
+$(CORE_EARTHBOUND)/src/core/tamp/compressor.c \
+$(CORE_EARTHBOUND)/src/core/tamp/decompressor.c \
+$(wildcard $(CORE_EARTHBOUND)/src/entity/*.c) \
+$(wildcard $(CORE_EARTHBOUND)/src/game/*.c) \
+$(wildcard $(CORE_EARTHBOUND)/src/intro/*.c) \
+$(wildcard $(CORE_EARTHBOUND)/src/platform/*.c) \
+$(wildcard $(CORE_EARTHBOUND)/src/snes/*.c) \
+$(wildcard $(CORE_EARTHBOUND)/src/data/*.c) \
+$(CORE_EARTHBOUND)/src/vendor/lakesnes/snes/apu.c \
+$(CORE_EARTHBOUND)/src/vendor/lakesnes/snes/spc.c \
+$(CORE_EARTHBOUND)/src/vendor/lakesnes/snes/dsp.c \
+$(CORE_EARTHBOUND)/src/vendor/lakesnes/snes/statehandler.c \
+$(CORE_EARTHBOUND)/src/game_main.c \
+$(CORE_EARTHBOUND)/port/gw_retro_go/main.c \
+$(EARTHBOUND_GEN_DIR)/embedded_assets_array.c \
+Core/Src/porting/earthbound/main_earthbound.c \
+Core/Src/porting/earthbound/gw_video.c \
+Core/Src/porting/earthbound/gw_input.c \
+Core/Src/porting/earthbound/gw_audio.c \
+Core/Src/porting/earthbound/gw_timer.c \
+Core/Src/porting/earthbound/gw_debug.c \
+Core/Src/porting/earthbound/gw_save.c \
+Core/Src/porting/earthbound/gw_savestate.c
+
 GNUBOY_C_INCLUDES +=  \
 -ICore/Inc \
 -ICore/Src/porting/lib \
@@ -988,6 +1017,19 @@ SMW_C_INCLUDES +=  \
 -Iexternal \
 -I./
 
+EARTHBOUND_C_INCLUDES +=  \
+-ICore/Inc \
+-ICore/Inc/porting/earthbound \
+-ICore/Src/porting/lib \
+-Iretro-go-stm32/components/odroid \
+-I$(CORE_EARTHBOUND)/src \
+-I$(CORE_EARTHBOUND)/src/core/tamp \
+-I$(CORE_EARTHBOUND)/src/include \
+-I$(CORE_EARTHBOUND)/src/vendor/incbin \
+-I$(CORE_EARTHBOUND)/src/vendor/lakesnes/snes \
+-I$(EARTHBOUND_GEN_DIR) \
+-I./
+
 CELESTE_C_INCLUDES +=  \
 -ICore/Inc \
 -ICore/Src/porting/lib \
@@ -1026,7 +1068,7 @@ include Makefile.common
 
 $(BUILD_DIR)/$(TARGET)_extflash.bin: $(BUILD_DIR)/$(TARGET).elf | $(BUILD_DIR)
 	$(V)$(ECHO) [ BIN ] $(notdir $@)
-	$(V)$(BIN) -j ._itcram_hot -j ._ram_exec -j ._extflash -j .overlay_nes -j .overlay_nes_fceu -j .overlay_gb -j .overlay_tgb -j .overlay_sms -j .overlay_col -j .overlay_pce -j .overlay_msx -j .overlay_gw -j .overlay_wsv -j .overlay_md -j .overlay_a2600 -j .overlay_a7800 -j .overlay_amstrad -j .overlay_zelda3 -j .overlay_smw -j .overlay_videopac -j .overlay_celeste -j .overlay_pico8 -j .overlay_tama -j .overlay_pkmini $< $(BUILD_DIR)/$(TARGET)_extflash.bin
+	$(V)$(BIN) -j ._itcram_hot -j ._ram_exec -j ._extflash -j .overlay_nes -j .overlay_nes_fceu -j .overlay_gb -j .overlay_tgb -j .overlay_sms -j .overlay_col -j .overlay_pce -j .overlay_msx -j .overlay_gw -j .overlay_wsv -j .overlay_md -j .overlay_a2600 -j .overlay_a7800 -j .overlay_amstrad -j .overlay_zelda3 -j .overlay_smw -j .overlay_earthbound -j .overlay_videopac -j .overlay_celeste -j .overlay_pico8 -j .overlay_tama -j .overlay_pkmini $< $(BUILD_DIR)/$(TARGET)_extflash.bin
 
 $(BUILD_DIR)/$(TARGET)_intflash.bin: $(BUILD_DIR)/$(TARGET).elf | $(BUILD_DIR)
 	$(V)$(ECHO) [ BIN ] $(notdir $@)

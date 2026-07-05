@@ -57,6 +57,9 @@
 [submodule "external/oswan-go"]
 	path = external/oswan-go
 	url = https://github.com/sylverb/oswan-go.git
+[submodule "external/earthbound"]
+	path = external/earthbound
+	url = git@github.com:BrianPugh/earthbound.git
 [submodule "Core/Src/porting/lib/frogfs"]
 	path = Core/Src/porting/lib/frogfs
 	url = https://github.com/jkent/frogfs.git

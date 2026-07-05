@@ -79,6 +79,7 @@ void common_emu_clear_dwt_cycles(void);
  * Drawable stuff over current emulation.
  */
 void common_ingame_overlay(void);
+void common_ingame_overlay_to(pixel_t *fb);
 
 void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
 

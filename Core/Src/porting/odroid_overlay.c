@@ -184,7 +184,11 @@ static bool odroid_overlay_clip_rect_to_lcd(int *x, int *y, int *w, int *h)
     return true;
 }
 
-void odroid_overlay_draw_rect(int x, int y, int width, int height, int border, uint16_t color)
+/* _to variants target an explicit framebuffer — required from contexts where
+ * the launcher's active-buffer pointer is stale (cores with a private buffer
+ * rotation, e.g. EarthBound's triple buffer; see lcd_pen_for). The unsuffixed
+ * versions keep the active-buffer behavior for menu/dialog code. */
+void odroid_overlay_draw_rect_to(void *fb, int x, int y, int width, int height, int border, uint16_t color)
 {
     if (width == 0 || height == 0 || border == 0)
         return;
@@ -198,7 +202,7 @@ void odroid_overlay_draw_rect(int x, int y, int width, int height, int border, u
     if (width < border || height < border)
         return;
 
-    lcd_pen_t pen = lcd_pen(color);
+    lcd_pen_t pen = lcd_pen_for(fb, color);
     /* Top + bottom horizontal borders (full width). */
     for (int by = 0; by < border; by++) {
         lcd_pen_run(&pen, (y + by) * ODROID_SCREEN_WIDTH + x, width);
@@ -211,7 +215,12 @@ void odroid_overlay_draw_rect(int x, int y, int width, int height, int border, u
     }
 }
 
-void odroid_overlay_draw_fill_rect(int x, int y, int width, int height, uint16_t color)
+void odroid_overlay_draw_rect(int x, int y, int width, int height, int border, uint16_t color)
+{
+    odroid_overlay_draw_rect_to(lcd_get_active_buffer(), x, y, width, height, border, color);
+}
+
+void odroid_overlay_draw_fill_rect_to(void *fb, int x, int y, int width, int height, uint16_t color)
 {
     if (width == 0 || height == 0)
         return;
@@ -219,10 +228,15 @@ void odroid_overlay_draw_fill_rect(int x, int y, int width, int height, uint16_t
     if (!odroid_overlay_clip_rect_to_lcd(&x, &y, &width, &height))
         return;
 
-    lcd_pen_t pen = lcd_pen(color);
+    lcd_pen_t pen = lcd_pen_for(fb, color);
     for (int row = y; row < y + height; row++) {
         lcd_pen_run(&pen, row * ODROID_SCREEN_WIDTH + x, width);
     }
+}
+
+void odroid_overlay_draw_fill_rect(int x, int y, int width, int height, uint16_t color)
+{
+    odroid_overlay_draw_fill_rect_to(lcd_get_active_buffer(), x, y, width, height, color);
 }
 
 static void draw_clock_digit(const uint8_t clock, uint16_t px, uint16_t py, uint16_t color)
@@ -261,7 +275,7 @@ void odroid_overlay_clock(int x_pos, int y_pos)
     draw_clock_digit(hour / 10, x_pos, y_pos, curr_colors->sel_c);
 };
 
-void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int y_pos)
+void odroid_overlay_draw_battery_to(void *fb, odroid_battery_state_t battery, int x_pos, int y_pos)
 {
     uint16_t percentage = battery.percentage;
     odroid_battery_charge_state_t battery_state = battery.state;
@@ -301,20 +315,20 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int 
     else if (percentage < 40)
         color_fill = C_ORANGE;
 
-    odroid_overlay_draw_rect(x_pos, y_pos, 18, 10, 1, color_border);
-    odroid_overlay_draw_rect(x_pos + 17, y_pos + 3, 1, 4, 1, color_empty);
-    odroid_overlay_draw_rect(x_pos + 18, y_pos + 2, 1, 6, 1, color_border);
-    odroid_overlay_draw_rect(x_pos + 19, y_pos + 3, 1, 4, 1, color_border);
+    odroid_overlay_draw_rect_to(fb, x_pos, y_pos, 18, 10, 1, color_border);
+    odroid_overlay_draw_rect_to(fb, x_pos + 17, y_pos + 3, 1, 4, 1, color_empty);
+    odroid_overlay_draw_rect_to(fb, x_pos + 18, y_pos + 2, 1, 6, 1, color_border);
+    odroid_overlay_draw_rect_to(fb, x_pos + 19, y_pos + 3, 1, 4, 1, color_border);
 
     switch (battery_state)
     {
     case ODROID_BATTERY_CHARGE_STATE_BATTERY_MISSING:
     case ODROID_BATTERY_CHARGE_STATE_CHARGING:
-        odroid_overlay_draw_fill_rect(x_pos + 2, y_pos + 2, width_fill, 6, (battery_state == ODROID_BATTERY_CHARGE_STATE_BATTERY_MISSING) ? 0x00 : 0x07E0);
+        odroid_overlay_draw_fill_rect_to(fb, x_pos + 2, y_pos + 2, width_fill, 6, (battery_state == ODROID_BATTERY_CHARGE_STATE_BATTERY_MISSING) ? 0x00 : 0x07E0);
         if ((get_elapsed_time() % 1000) < 800)
         {
-            lcd_pen_t pen_white = lcd_pen(0xFFFF);
-            lcd_pen_t pen_empty = lcd_pen(color_empty);
+            lcd_pen_t pen_white = lcd_pen_for(fb, 0xFFFF);
+            lcd_pen_t pen_empty = lcd_pen_for(fb, color_empty);
             for (int y = 0; y < 10; y++)
             {
                 for (int x = 0; x < 8; x++)
@@ -329,13 +343,18 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int 
         };
         break;
     case ODROID_BATTERY_CHARGE_STATE_DISCHARGING:
-        odroid_overlay_draw_fill_rect(x_pos + 2, y_pos + 2, width_fill, 6, color_fill);
+        odroid_overlay_draw_fill_rect_to(fb, x_pos + 2, y_pos + 2, width_fill, 6, color_fill);
         //odroid_overlay_draw_fill_rect(x_pos + 22 / 2 - 3, y_pos + 10 / 2 - 1, 6, 2, color_battery);
         break;
     case ODROID_BATTERY_CHARGE_STATE_FULL:
-        odroid_overlay_draw_fill_rect(x_pos + 2, y_pos + 2, width_empty - 2, 6, 0x07E0);
+        odroid_overlay_draw_fill_rect_to(fb, x_pos + 2, y_pos + 2, width_empty - 2, 6, 0x07E0);
         break;
     }
+}
+
+void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int y_pos)
+{
+    odroid_overlay_draw_battery_to(lcd_get_active_buffer(), battery, x_pos, y_pos);
 }
 
 static void save_state_and_sleep(bool standby, void_callback_t after_screen_off_cb)

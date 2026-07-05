@@ -141,6 +141,8 @@ __attribute__((optimize("-O0"))) void BSOD(BSOD_t fault, uint32_t pc, uint32_t l
 {
   char msg[128];
   char regs[64];
+  char regs2[80];
+  char regs3[80];
   size_t i = 0;
   char *start;
   char *end;
@@ -151,6 +153,19 @@ __attribute__((optimize("-O0"))) void BSOD(BSOD_t fault, uint32_t pc, uint32_t l
 
   snprintf(msg, sizeof(msg), "FATAL EXCEPTION: %s %s", fault_list[fault], GIT_TAG);
   snprintf(regs, sizeof(regs), "PC=0x%08lx LR=0x%08lx", pc, lr);
+  // CFSR/HFSR/BFAR/MMFAR are sticky until written, so they still hold the fault
+  // cause here. CFSR bit 15 (BFARVALID) => BFAR holds the faulting address
+  // (precise bus fault); CFSR bit 7 (MMARVALID) => MMFAR holds it (precise
+  // MemManage). CFSR bit 10 (IMPRECISERR) => the faulting store is NOT at PC
+  // (store-buffer drained late) and BFAR is meaningless; in that case ABFSR (the
+  // M7 Auxiliary Bus Fault Status Reg, 0xE000EFA8) names the bus interface the
+  // wild access went to: bit0 ITCM, bit1 DTCM, bit2 AHBP (peripheral space
+  // 0x40000000-0x5FFFFFFF), bit3 AXIM (all RAM/flash), bit4 EPPB.
+  snprintf(regs2, sizeof(regs2), "CFSR=0x%08lx HFSR=0x%08lx",
+           (unsigned long)SCB->CFSR, (unsigned long)SCB->HFSR);
+  snprintf(regs3, sizeof(regs3), "BFAR=0x%08lx MMFAR=0x%08lx ABFSR=0x%08lx",
+           (unsigned long)SCB->BFAR, (unsigned long)SCB->MMFAR,
+           (unsigned long)(*(volatile uint32_t *)0xE000EFA8));
 
   lcd_sync();
   lcd_reset_active_buffer();
@@ -158,6 +173,8 @@ __attribute__((optimize("-O0"))) void BSOD(BSOD_t fault, uint32_t pc, uint32_t l
 
   y += odroid_overlay_draw_text(0, y, GW_LCD_WIDTH, msg, C_RED, C_BLUE);
   y += odroid_overlay_draw_text(0, y, GW_LCD_WIDTH, regs, C_RED, C_BLUE);
+  y += odroid_overlay_draw_text(0, y, GW_LCD_WIDTH, regs2, C_RED, C_BLUE);
+  y += odroid_overlay_draw_text(0, y, GW_LCD_WIDTH, regs3, C_RED, C_BLUE);
 
   // Print each line from the log in reverse
   end = &logbuf[strnlen(logbuf, sizeof(logbuf)) - 1];
@@ -381,6 +398,14 @@ int main(void)
 
   SCB_EnableICache();
   SCB_EnableDCache();
+
+  /* Enable the configurable fault handlers so they don't all escalate to
+   * HardFault. With these set the BSOD label self-disambiguates ("Busfault" /
+   * "Usagefault" / "Memfault" instead of a generic "Hardfault"), and a precise
+   * MemManage fault lands in MemManage_Handler with a valid MMFAR. */
+  SCB->SHCSR |= SCB_SHCSR_BUSFAULTENA_Msk
+              | SCB_SHCSR_USGFAULTENA_Msk
+              | SCB_SHCSR_MEMFAULTENA_Msk;
 
   // Initialize the external flash
 

@@ -2,6 +2,11 @@
 #include <odroid_system.h>
 #include <odroid_overlay.h>
 
+/* Explicit-fb battery draw (Core/Src/porting/odroid_overlay.c). Declared here
+ * rather than in odroid_overlay.h — that header lives in the retro-go-stm32
+ * submodule, which must stay pristine. */
+void odroid_overlay_draw_battery_to(void *fb, odroid_battery_state_t battery, int x, int y);
+
 #include <string.h>
 #include "main.h"
 #include "bitmaps.h"
@@ -395,10 +400,18 @@ void common_emu_input_loop(odroid_gamepad_state_t *joystick, odroid_dialog_choic
 
     if (common_emu_state.clear_frames) {
         common_emu_state.clear_frames--;
-        lcd_sleep_while_swap_pending();
+        /* Only meaningful for double-buffer cores (clear the stale overlay,
+         * caller repaints). Cores presenting through the triple-buffer path
+         * (EB) repaint every pixel each frame AND own the buffer rotation —
+         * the launcher's active-buffer pointer is stale there, so this
+         * memset would black out the displayed or in-flight buffer (visible
+         * screen flash on every overlay expiry). */
+        if (!lcd_is_tb_mode()) {
+            lcd_sleep_while_swap_pending();
 
-        // Clear the active screen buffer, caller must repaint it 
-        lcd_clear_active_buffer();
+            // Clear the active screen buffer, caller must repaint it
+            lcd_clear_active_buffer();
+        }
     }
 
     if (joystick->values[ODROID_INPUT_POWER]) {
@@ -537,14 +550,18 @@ static const uint8_t ROUND[] = {  // This is the top/left of a 8-pixel radius ci
 #define IMG_W 24
 
 
-/* Mode-agnostic via lcd_pen_t — handles both RGB565 and LUT8. The fb
- * argument is unused (the pen captures lcd_get_active_buffer() itself);
- * it's kept on the signature for back-compat with existing call sites. */
+/* Mode-agnostic via lcd_pen_t — handles both RGB565 and LUT8. The pen
+ * targets the CALLER-SUPPLIED fb: cores with private buffer rotations
+ * (EarthBound triple-buffer) pass the frame they are actually presenting
+ * via common_ingame_overlay_to(); the launcher's active-buffer pointer is
+ * stale there, and an earlier version that ignored fb (lcd_pen captures
+ * lcd_get_active_buffer) drew the whole overlay onto one fixed rotation
+ * buffer — visible only every 3rd present, i.e. the volume/brightness
+ * panel flicker. */
 
 __attribute__((optimize("unroll-loops")))
 static void draw_img(pixel_t *fb, const uint8_t *img, uint16_t x, uint16_t y){
-    (void)fb;
-    lcd_pen_t pen = lcd_pen(OVERLAY_COLOR_565);
+    lcd_pen_t pen = lcd_pen_for(fb, OVERLAY_COLOR_565);
     uint16_t idx = 0;
     for(uint8_t i=0; i < IMG_H; i++) {
         for(uint8_t j=0; j < IMG_W; j++) {
@@ -558,8 +575,7 @@ static void draw_img(pixel_t *fb, const uint8_t *img, uint16_t x, uint16_t y){
 
 __attribute__((optimize("unroll-loops")))
 static void draw_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2){
-    (void)fb;
-    lcd_pen_t pen = lcd_pen(OVERLAY_COLOR_565);
+    lcd_pen_t pen = lcd_pen_for(fb, OVERLAY_COLOR_565);
     for(uint16_t i=y1; i < y2; i++){
         lcd_pen_run(&pen, x1 + GW_LCD_WIDTH * i, x2 - x1);
     }
@@ -567,8 +583,7 @@ static void draw_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, u
 
 __attribute__((optimize("unroll-loops")))
 static void draw_darken_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2){
-    (void)fb;
-    lcd_pen_t pen = lcd_pen(0); /* color unused for darken — pen carries mode */
+    lcd_pen_t pen = lcd_pen_for(fb, 0); /* color unused for darken — pen carries mode */
     for(uint16_t i=y1; i < y2; i++){
         for(uint16_t j=x1; j < x2; j++){
             lcd_pen_darken(&pen, j + GW_LCD_WIDTH * i);
@@ -578,17 +593,16 @@ static void draw_darken_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_
 
 __attribute__((optimize("unroll-loops")))
 void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2){
-    (void)fb;
     // *1 is inclusive, *2 is exclusive
     uint16_t h = y2 - y1;
     uint16_t w = x2 - x1;
     if (w < 16 || h < 16) {
         // Draw not rounded rectangle
-        draw_darken_rectangle(NULL, x1, y1, x2, y2);
+        draw_darken_rectangle(fb, x1, y1, x2, y2);
         return;
     }
 
-    lcd_pen_t pen = lcd_pen(0); /* mode-only pen, color irrelevant for darken */
+    lcd_pen_t pen = lcd_pen_for(fb, 0); /* mode-only pen, color irrelevant for darken */
 
     // Draw upper left round
     for(uint8_t i=0; i < 8; i++) for(uint8_t j=0; j < 8; j++)
@@ -653,8 +667,15 @@ static uint8_t box_height(uint8_t n) {
 }
 
 void common_ingame_overlay(void) {
+    common_ingame_overlay_to(lcd_get_active_buffer());
+}
+
+/* Same as common_ingame_overlay(), but draws into an explicit framebuffer
+ * instead of the launcher's double-buffered lcd_get_active_buffer(). Cores that
+ * manage their own framebuffers (e.g. EarthBound's triple-buffer scheme) must
+ * use this so the overlay lands on the frame they're actually presenting. */
+void common_ingame_overlay_to(pixel_t *fb) {
     rg_app_desc_t *app = odroid_system_get_app();
-    pixel_t *fb = lcd_get_active_buffer();
     int8_t level;
     uint8_t bh;
     uint8_t turbo_key;
@@ -664,7 +685,7 @@ void common_ingame_overlay(void) {
     uint16_t percentage = battery_state.percentage;
     if (percentage <= 15) {
         if ((get_elapsed_time() % 1000) < 300)
-            odroid_overlay_draw_battery(battery_state, 150, 90); 
+            odroid_overlay_draw_battery_to(fb, battery_state, 150, 90);
     }
     
     switch(common_emu_state.overlay)

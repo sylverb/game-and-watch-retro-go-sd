@@ -26,6 +26,7 @@
 #include "main_amstrad.h"
 #include "main_zelda3.h"
 #include "main_smw.h"
+#include "main_earthbound.h"
 #include "main_videopac.h"
 #include "main_celeste.h"
 #include "main_pico8.h"
@@ -1233,6 +1234,13 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
             memset(&_OVERLAY_SMW_BSS_START, 0x0, (size_t)&_OVERLAY_SMW_BSS_SIZE);
             SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_SMW_SIZE);
             app_main_smw(load_state, start_paused, save_slot);
+        } else if (strcmp(newfile->name,"EarthBound") == 0) {
+            memset(&_OVERLAY_EARTHBOUND_BSS_START, 0x0, (size_t)&_OVERLAY_EARTHBOUND_BSS_SIZE);
+            /* entity.o + map_loader.o .bss live in AHBRAM (uncached, separate
+             * region — not covered by the RAM_EMU memset above); zero them too. */
+            memset(&_EARTHBOUND_AHB_BSS_START, 0x0, (size_t)&_EARTHBOUND_AHB_BSS_SIZE);
+            SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_EARTHBOUND_SIZE);
+            app_main_earthbound(load_state, start_paused, save_slot);
         }
       }
     } else if(strcmp(system_name, "Tamagotchi") == 0) {

@@ -546,6 +546,33 @@ INCLUDE build/fceumm_mappers.ld
     __rodata_zelda3_end__ = .;
   } > RODATA
 
+  .overlay_earthbound __RAM_EMU_START__ : {
+    . = ALIGN(4);
+    __ram_emu_earthbound_start__ = .;
+    _EARTHBOUND_MAIN_CODE_START = .;
+    build/earthbound/main_earthbound.o (.data .data* .text .text* .rodata .rodata*)
+    _EARTHBOUND_MAIN_CODE_END = .;
+    build/earthbound/*.o (.data .data* .text .text* .noreloc)
+    build/earthbound/embedded_assets_array.o (.rodata_assets)
+    build/earthbound/*.o (.rodata .rodata*)
+    . = ALIGN(4);
+    _OVERLAY_EARTHBOUND_LOAD_END = .;
+  } AT> EXTFLASH
+  _OVERLAY_EARTHBOUND_LOAD_START = LOADADDR(.overlay_earthbound);
+  _OVERLAY_EARTHBOUND_SIZE = SIZEOF(.overlay_earthbound);
+
+  .overlay_earthbound_bss _OVERLAY_EARTHBOUND_LOAD_END : {
+    . = ALIGN(4);
+    _OVERLAY_EARTHBOUND_BSS_START = .;
+    build/earthbound/*.o (.bss .bss*)
+    . = ALIGN(4);
+    build/earthbound/*.o (COMMON)
+    __ram_emu_earthbound_end__ = .;
+    _OVERLAY_EARTHBOUND_BSS_END = .;
+    ASSERT(ABSOLUTE(_OVERLAY_EARTHBOUND_BSS_END) < __RAM_EMU_END__, "Error: EARTHBOUND BSS overflow");
+  }
+  _OVERLAY_EARTHBOUND_BSS_SIZE = SIZEOF(.overlay_earthbound_bss);
+
   .overlay_smw __RAM_EMU_START__ : {
     . = ALIGN(4);
     __ram_emu_smw_start__ = .;

@@ -76,6 +76,13 @@ __FLASH_LENGTH__    = 256K; /* Bank 1 */
 __FLASH2_LENGTH__   = 256K; /* Bank 2 */
 __RAM_FCEUMM_MAPPER_LENGTH__ = 48K; /* Current FCEUMM mapper code */
 
+/* Minimum RAM_EMU left free, after EarthBound's static .bss, for its runtime
+ * bump heap. The lakesnes audio engine ram_malloc()s ~70 KB at audio_init
+ * (Apu + 64 KB SPC ARAM + Spc/Dsp/statehandler — see eb_alloc.h) plus a little
+ * flash-cache metadata, all from RAM_EMU starting at ram_start =
+ * _OVERLAY_EARTHBOUND_BSS_END. Asserted at the bottom of this script. */
+__EARTHBOUND_MIN_RAM_HEAP__ = 74 * 1024; /* ~70 KB audio + margin; see RAM.md */
+
 /* Usefull only for round robin flash allocator */
 __EXTFLASH_OFFSET__ = DEFINED(__EXTFLASH_OFFSET__) ? __EXTFLASH_OFFSET__ : 0;  /* bytes reserved at the bottom by the chainloader */
 __EXTFLASH_BASE__ = 0x90000000;  /* Beginning of addressable extflash addresses */
@@ -137,6 +144,20 @@ SECTIONS
     __itcram_hot_start__ = .;
     __itcram_hot_end__ = .;
     __itcram_end__ = .;
+  } > ITCMRAM
+
+  /* Scratch stack for EarthBound STANDBY-hibernation restore. The restore
+     routine memcpy's the saved DTCM stack image back over [saved_SP, _estack),
+     so it must run on a stack OUTSIDE DTCM. ITCM is empty in this build and is
+     never part of the hibernation snapshot, so a tiny stack here is safe.
+     8-byte aligned (AAPCS). See Core/Src/gw_eb_hibernate.c. */
+  ._eb_hib_stack (NOLOAD) :
+  {
+    . = ALIGN(8);
+    __eb_hib_stack_bottom__ = .;
+    . = . + 4K;
+    . = ALIGN(8);
+    __eb_hib_stack_top__ = .;
   } > ITCMRAM
 
   /* Uncached and unbuffered LCD framebuffer pool. Sized for the largest
@@ -528,6 +549,68 @@ INCLUDE build/fceumm_mappers.ld
     __rodata_zelda3_end__ = .;
   } > RODATA
 
+  .overlay_earthbound __RAM_EMU_START__ : {
+    . = ALIGN(4);
+    __ram_emu_earthbound_start__ = .;
+    _EARTHBOUND_MAIN_CODE_START = .;
+    build/earthbound/main_earthbound.o (.data .data* .text .text* .rodata .rodata*)
+    _EARTHBOUND_MAIN_CODE_END = .;
+    build/earthbound/*.o (.data .data* .text .text* .noreloc)
+    . = ALIGN(4);
+    _OVERLAY_EARTHBOUND_LOAD_END = .;
+  } AT > CORES
+  _OVERLAY_EARTHBOUND_LOAD_START = LOADADDR(.overlay_earthbound);
+  _OVERLAY_EARTHBOUND_SIZE = SIZEOF(.overlay_earthbound);
+
+  /* EarthBound cold static .bss relocated to AHB SRAM (D2, uncached) to keep
+   * the triple-buffer (eb_fb3) and the lakesnes audio heap co-fitting in
+   * RAM_EMU. These two objects are touched per-frame / per-map-transition at
+   * most (entity table ~30 KB, map_loader shared_scratch 32 KB) — never the
+   * per-cycle hammering that makes the SPC ARAM unbearable uncached (see
+   * RAM.md). .bss-only on purpose: zeroed at load via a separate memset, so no
+   * SD-load init-copy is needed, and it sits OUTSIDE the
+   * [RAM_EMU_START .. _OVERLAY_EARTHBOUND_BSS_END] window that
+   * PatchCodeRodataOffset() rewrites (these hold no load-time rodata pointers).
+   * Must precede .overlay_earthbound_bss so ld assigns entity.o/map_loader.o
+   * .bss here instead of to the RAM_EMU catch-all below. */
+  .earthbound_ahb_bss (NOLOAD) : {
+    . = ALIGN(4);
+    _EARTHBOUND_AHB_BSS_START = .;
+    build/earthbound/entity.o (.bss .bss* COMMON)
+    build/earthbound/map_loader.o (.bss .bss* COMMON)
+    /* Audio stereo scratch (2.1 KB): CPU-only (written by
+     * audio_generate_samples, read once per sample by the mono mix loop —
+     * no DMA), so the uncached AHB penalty is ~tens of µs/frame. Moved here
+     * to keep ~2 KB of RAM_EMU headroom for the audio heap assert. */
+    build/earthbound/gw_audio.o (.bss.eb_stereo_scratch)
+    . = ALIGN(4);
+    _EARTHBOUND_AHB_BSS_END = .;
+  } > AHBRAM
+  _EARTHBOUND_AHB_BSS_SIZE = SIZEOF(.earthbound_ahb_bss);
+  ASSERT(SIZEOF(.earthbound_ahb_bss) <= __AHBRAM_LENGTH__,
+         "EARTHBOUND: relocated .bss overflows AHBRAM (shares it with the audio DMA buffer)")
+
+  .overlay_earthbound_bss _OVERLAY_EARTHBOUND_LOAD_END : {
+    . = ALIGN(4);
+    _OVERLAY_EARTHBOUND_BSS_START = .;
+    build/earthbound/*.o (.bss .bss*)
+    . = ALIGN(4);
+    build/earthbound/*.o (COMMON)
+    __ram_emu_earthbound_end__ = .;
+    _OVERLAY_EARTHBOUND_BSS_END = .;
+    ASSERT(ABSOLUTE(_OVERLAY_EARTHBOUND_BSS_END) < __RAM_EMU_END__, "Error: EARTHBOUND BSS overflow");
+  }
+  _OVERLAY_EARTHBOUND_BSS_SIZE = SIZEOF(.overlay_earthbound_bss);
+
+  .rodata_earthbound :
+  {
+    . = ALIGN(4);
+    __rodata_earthbound_start__ = .;
+    build/earthbound/embedded_assets_array.o (.rodata_assets)
+    build/earthbound/*.o (.rodata .rodata*)
+    __rodata_earthbound_end__ = .;
+  } > RODATA
+
   .overlay_smw __RAM_EMU_START__ : {
     . = ALIGN(4);
     __ram_emu_smw_start__ = .;
@@ -883,3 +966,22 @@ INCLUDE build/fceumm_mappers.ld
 
   .ARM.attributes 0 : { *(.ARM.attributes) }
 }
+
+/* EarthBound runtime-heap reserve check.
+ *
+ * The plain "EARTHBOUND BSS overflow" ASSERT inside .overlay_earthbound_bss
+ * only proves the STATIC .bss fits below __RAM_EMU_END__. It cannot see the
+ * ~70 KB the lakesnes audio engine bump-allocates from RAM_EMU at runtime
+ * (Apu + 64 KB SPC ARAM, via ram_malloc starting at ram_start =
+ * _OVERLAY_EARTHBOUND_BSS_END). That blind spot is exactly how commit 25a1c873
+ * (PPU persist cache, +80 KB .bss) linked green yet starved audio_init to a
+ * NULL malloc on hardware. The ARAM must stay in cached RAM_EMU — an
+ * experiment moving it to uncached AHB/D2 SRAM ran at ~266 ms/frame — so the
+ * only fix is to keep static .bss small enough. This check fails the LINK if
+ * the post-.bss headroom drops below __EARTHBOUND_MIN_RAM_HEAP__.
+ *
+ * Placed at top level (not inside the output section) so it sees the FINAL
+ * _OVERLAY_EARTHBOUND_BSS_END — an in-section ASSERT can evaluate the location
+ * counter before it is final and silently pass. */
+ASSERT(_OVERLAY_EARTHBOUND_BSS_END + __EARTHBOUND_MIN_RAM_HEAP__ <= __RAM_EMU_END__,
+       "EARTHBOUND: static .bss leaves < __EARTHBOUND_MIN_RAM_HEAP__ (74 KB) of RAM_EMU for the runtime audio heap (lakesnes Apu + 64 KB SPC ARAM ~70 KB starves to NULL). Shrink static state: disable PPU_PERSIST_DECODE or lower PERSIST_BITS. See RAM.md.")

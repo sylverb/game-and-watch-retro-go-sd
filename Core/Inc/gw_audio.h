@@ -24,6 +24,15 @@ extern int16_t audiobuffer_dma[AUDIO_BUFFER_LENGTH * 2] __attribute__((section (
 extern dma_transfer_state_t dma_state;
 extern uint32_t dma_counter;
 
+/* Optional ISR-driven refill hook. When set, the SAI Tx half/complete
+ * interrupts call it with the just-freed DMA half (dst, sample count) so a
+ * core can keep the buffer fed from an interrupt context rather than only at
+ * frame boundaries. NULL (the default) preserves the legacy frame-pumped
+ * behaviour for every other emulator — see EarthBound's gw_audio.c for the
+ * decoupling ring buffer that uses this. */
+typedef void (*audio_dma_refill_t)(int16_t *dst, uint16_t samples);
+void audio_set_dma_refill_callback(audio_dma_refill_t cb);
+
 uint16_t audio_get_buffer_full_length(void);
 uint16_t audio_get_buffer_length(void);
 uint16_t audio_get_buffer_size(void);
