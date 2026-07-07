@@ -17,6 +17,7 @@
 
 extern LTDC_HandleTypeDef hltdc;
 extern SPI_HandleTypeDef hspi2;
+extern TIM_HandleTypeDef htim1;
 
 static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callback, sleep_post_wakeup_callback_t post_wakeup_callback) {
   printf("[Sleep] Entering STOP2 mode\n");
@@ -25,12 +26,14 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
   bq24072_interrupts_disable();
 
   HAL_PWREx_ClearWakeupFlag(PWR_FLAG_WKUP1);
+  HAL_TIM_Base_Stop_IT(&htim1);
   HAL_PWREx_EnterSTOP2Mode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
   wdog_refresh();
   printf("[Sleep] Waking up\n");
 
   // Restore clocks
   SystemClock_Config(odroid_settings_cpu_oc_level_get());
+  HAL_TIM_Base_Start_IT(&htim1);
   HAL_ResumeTick();
 
   // Restore charger
