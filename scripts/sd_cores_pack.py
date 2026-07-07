@@ -30,6 +30,7 @@ _SYSTEM_CORE_RELFILES: dict[str, frozenset[str]] = {
     "msx": frozenset({"msx.bin"}),
     "wsv": frozenset({"wsv.bin"}),
     "a2600": frozenset({"a2600.bin", "a2600_defprops.bin"}),
+    "lynx": frozenset({"lynx.bin"}),
     "a7800": frozenset({"a7800.bin"}),
     "amstrad": frozenset({"amstrad.bin"}),
     "tama": frozenset({"tama.bin"}),

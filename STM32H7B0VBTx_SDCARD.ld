@@ -450,6 +450,32 @@ INCLUDE build/fceumm_mappers.ld
   }
   _OVERLAY_A2600_BSS_SIZE = SIZEOF(.overlay_a2600_bss);
 
+  /* Lynx (handy) — RAM overlay like a2600 */
+  .overlay_lynx __RAM_EMU_START__ : {
+    . = ALIGN(4);
+    __ram_emu_lynx_start__ = .;
+    __init_array_lynx_start__ = .;
+    KEEP(build/lynx/*.o(.init_array*))
+    __init_array_lynx_end__ = .;
+    build/lynx/*.o (.data .data* .text .text* .rodata .rodata* .ARM.extab.text.* .ARM.exidx.text.*)
+    . = ALIGN(4);
+    _OVERLAY_LYNX_LOAD_END = .;
+  } AT > CORES
+  _OVERLAY_LYNX_LOAD_START = LOADADDR(.overlay_lynx);
+  _OVERLAY_LYNX_SIZE = SIZEOF(.overlay_lynx);
+
+  .overlay_lynx_bss _OVERLAY_LYNX_LOAD_END : {
+    . = ALIGN(4);
+    _OVERLAY_LYNX_BSS_START = .;
+    build/lynx/*.o (COMMON)
+    . = ALIGN(4);
+    build/lynx/*.o (.bss .bss*)
+    _OVERLAY_LYNX_BSS_END = .;
+    __ram_emu_lynx_end__ = .;
+    ASSERT(ABSOLUTE(_OVERLAY_LYNX_BSS_END) < __RAM_EMU_END__, "Error: LYNX BSS overflow");
+  }
+  _OVERLAY_LYNX_BSS_SIZE = SIZEOF(.overlay_lynx_bss);
+
   .overlay_a7800 __RAM_EMU_START__ : {
     . = ALIGN(4);
     __ram_emu_a7800_start__ = .;

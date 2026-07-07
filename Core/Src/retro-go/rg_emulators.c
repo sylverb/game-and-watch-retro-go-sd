@@ -33,6 +33,7 @@
 #include "main_tama.h"
 #include "main_pkmini.h"
 #include "main_a2600.h"
+#include "main_lynx.h"
 #include "rg_rtc.h"
 #include "gittag.h"
 #include "heap.hpp"
@@ -238,7 +239,7 @@ static retro_emulator_file_t *shared_files = NULL;
 #define COVERFLOW 0
 #endif /* COVERFLOW */
 // Increase when adding new emulators
-#define MAX_EMULATORS 19
+#define MAX_EMULATORS 20
 static retro_emulator_t emulators[MAX_EMULATORS];
 static rom_system_t systems[MAX_EMULATORS];
 static int emulators_count = 0;
@@ -536,7 +537,7 @@ static void event_handler(gui_event_t event, tab_t *tab)
 static void add_emulator(const char *system, const char *dirname, const char* ext,
                          uint16_t logo_idx, uint16_t header_idx, game_data_type_t game_data_type)
 {
-    assert(emulators_count <= MAX_EMULATORS);
+    assert(emulators_count < MAX_EMULATORS);
     retro_emulator_t *p = &emulators[emulators_count];
     rom_system_t *s = &systems[emulators_count];
     emulators_count++;
@@ -1112,6 +1113,7 @@ static const emu_dispatch_t emu_msx     = { "/cores/msx.bin",     &_OVERLAY_MSX_
 static const emu_dispatch_t emu_wsv     = { "/cores/wsv.bin",     &_OVERLAY_WSV_BSS_START,     (uint32_t)&_OVERLAY_WSV_BSS_SIZE,     (uint32_t)&_OVERLAY_WSV_SIZE,     0, EMU_ENTRY(app_main_wsv) };
 static const emu_dispatch_t emu_md      = { "/cores/md.bin",      &_OVERLAY_MD_BSS_START,      (uint32_t)&_OVERLAY_MD_BSS_SIZE,      (uint32_t)&_OVERLAY_MD_SIZE,      0, EMU_ENTRY(app_main_gwenesis) };
 static const emu_dispatch_t emu_a2600   = { "/cores/a2600.bin",   &_OVERLAY_A2600_BSS_START,   (uint32_t)&_OVERLAY_A2600_BSS_SIZE,   (uint32_t)&_OVERLAY_A2600_SIZE,   (uint32_t)&_OVERLAY_A2600_BSS_END, EMU_ENTRY(app_main_a2600) };
+static const emu_dispatch_t emu_lynx    = { "/cores/lynx.bin",    &_OVERLAY_LYNX_BSS_START,    (uint32_t)&_OVERLAY_LYNX_BSS_SIZE,    (uint32_t)&_OVERLAY_LYNX_SIZE,    (uint32_t)&_OVERLAY_LYNX_BSS_END, EMU_ENTRY(app_main_lynx) };
 static const emu_dispatch_t emu_a7800   = { "/cores/a7800.bin",   &_OVERLAY_A7800_BSS_START,   (uint32_t)&_OVERLAY_A7800_BSS_SIZE,   (uint32_t)&_OVERLAY_A7800_SIZE,   0, EMU_ENTRY(app_main_a7800) };
 static const emu_dispatch_t emu_amstrad = { "/cores/amstrad.bin", &_OVERLAY_AMSTRAD_BSS_START, (uint32_t)&_OVERLAY_AMSTRAD_BSS_SIZE, (uint32_t)&_OVERLAY_AMSTRAD_SIZE, 0, EMU_ENTRY(app_main_amstrad) };
 static const emu_dispatch_t emu_tama    = { "/cores/tama.bin",    &_OVERLAY_TAMA_BSS_START,    (uint32_t)&_OVERLAY_TAMA_BSS_SIZE,    (uint32_t)&_OVERLAY_TAMA_SIZE,    0, EMU_ENTRY(app_main_tama) };
@@ -1206,6 +1208,8 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
         run_internal_emu(&emu_md, load_state, start_paused, save_slot);
     } else if(strcmp(system_name, "Atari 2600") == 0) {
         run_internal_emu(&emu_a2600, load_state, start_paused, save_slot);
+    } else if(strcmp(system_name, "Atari Lynx") == 0) {
+        run_internal_emu(&emu_lynx, load_state, start_paused, save_slot);
     } else if(strcmp(system_name, "Atari 7800") == 0)  {
         run_internal_emu(&emu_a7800, load_state, start_paused, save_slot);
     } else if(strcmp(system_name, "Amstrad CPC") == 0)  {
@@ -1378,6 +1382,7 @@ void emulators_init()
     add_emulator("MSX", "msx", "dsk rom mx1 mx2 cdk lzma", RG_LOGO_PAD_MSX, RG_LOGO_HEADER_MSX, NO_GAME_DATA);
     add_emulator("Atari 2600", "a2600", "a26 bin lzma", RG_LOGO_PAD_A2600, RG_LOGO_HEADER_A2600, NO_GAME_DATA);
     add_emulator("Atari 7800", "a7800", "a78 bin lzma", RG_LOGO_PAD_A7800, RG_LOGO_HEADER_A7800, NO_GAME_DATA);
+    add_emulator("Atari Lynx", "lynx", "lnx lyx lzma", RG_LOGO_PAD_LYNX, RG_LOGO_HEADER_LYNX, NO_GAME_DATA);
     add_emulator("Amstrad CPC", "amstrad", "dsk cdk", RG_LOGO_PAD_AMSTRAD, RG_LOGO_HEADER_AMSTRAD, NO_GAME_DATA);
 //    add_emulator("Philips Vectrex", "videopac", "bin lzma", RG_LOGO_PAD_VIDEOPAC, RG_LOGO_HEADER_AMSTRAD, NO_GAME_DATA); // TODO : change graphics
     add_emulator("Tamagotchi", "tama", "b", RG_LOGO_PAD_TAMA, RG_LOGO_HEADER_TAMA, NO_GAME_DATA);

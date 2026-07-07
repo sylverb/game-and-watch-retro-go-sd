@@ -628,6 +628,19 @@ $(CORE_A2600)/stella/src/emucore/TrackBall.cxx \
 $(CORE_A2600)/stella/src/emucore/StellaGenesis.cxx \
 $(CORE_A2600)/stella/src/emucore/StellaKeyboard.cxx
 
+LYNX_C_SOURCES =
+LYNX_CXX_SOURCES =
+
+CORE_LYNX = external/handy-go
+LYNX_CXX_SOURCES += \
+Core/Src/porting/lynx/main_lynx.cpp \
+$(CORE_LYNX)/cart.cpp \
+$(CORE_LYNX)/eeprom.cpp \
+$(CORE_LYNX)/lynxdec.cpp \
+$(CORE_LYNX)/mikie.cpp \
+$(CORE_LYNX)/susie.cpp \
+$(CORE_LYNX)/system.cpp
+
 A7800_C_SOURCES = 
 
 CORE_PROSYSTEM = external/prosystem-go
@@ -956,6 +969,14 @@ A2600_C_INCLUDES += \
 -I$(CORE_A2600)/libretro-common/include \
 -I./
 
+LYNX_C_INCLUDES += \
+-ICore/Inc \
+-ICore/Inc/porting/lynx \
+-ICore/Src/porting/lib \
+-ICore/Src/porting/lib/lzma \
+-I$(CORE_LYNX) \
+-I./
+
 A7800_C_INCLUDES += \
 -ICore/Inc \
 -ICore/Src/porting/lib \
@@ -1037,7 +1058,7 @@ include Makefile.common
 
 $(BUILD_DIR)/$(TARGET)_extflash.bin: $(BUILD_DIR)/$(TARGET).elf | $(BUILD_DIR)
 	$(V)$(ECHO) [ BIN ] $(notdir $@)
-	$(V)$(BIN) -j ._itcram_hot -j ._ram_exec -j ._extflash -j .overlay_nes -j .overlay_nes_fceu -j .overlay_gb -j .overlay_tgb -j .overlay_sms -j .overlay_col -j .overlay_pce -j .overlay_msx -j .overlay_gw -j .overlay_wsv -j .overlay_md -j .overlay_a2600 -j .overlay_a7800 -j .overlay_amstrad -j .overlay_zelda3 -j .overlay_smw -j .overlay_videopac -j .overlay_celeste -j .overlay_cupcake -j .overlay_pico8 -j .overlay_tama -j .overlay_pkmini $< $(BUILD_DIR)/$(TARGET)_extflash.bin
+	$(V)$(BIN) -j ._itcram_hot -j ._ram_exec -j ._extflash -j .overlay_nes -j .overlay_nes_fceu -j .overlay_gb -j .overlay_tgb -j .overlay_sms -j .overlay_col -j .overlay_pce -j .overlay_msx -j .overlay_gw -j .overlay_wsv -j .overlay_md -j .overlay_a2600 -j .overlay_lynx -j .overlay_a7800 -j .overlay_amstrad -j .overlay_zelda3 -j .overlay_smw -j .overlay_videopac -j .overlay_celeste -j .overlay_cupcake -j .overlay_pico8 -j .overlay_tama -j .overlay_pkmini $< $(BUILD_DIR)/$(TARGET)_extflash.bin
 
 $(BUILD_DIR)/$(TARGET)_intflash.bin: $(BUILD_DIR)/$(TARGET).elf | $(BUILD_DIR)
 	$(V)$(ECHO) [ BIN ] $(notdir $@)

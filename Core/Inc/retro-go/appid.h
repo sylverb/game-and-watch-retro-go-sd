@@ -21,6 +21,7 @@ typedef enum {
     APPID_PKMINI   = 17,
     APPID_WSWAN    = 18,
     APPID_PICO8    = 19,
+    APPID_LYNX     = 20,
 
     APPID_COUNT,
 } appid_t;

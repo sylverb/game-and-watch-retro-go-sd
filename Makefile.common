@@ -699,6 +699,7 @@ C_INCLUDES +=  \
 -ICore/Inc/porting/gw \
 -ICore/Inc/porting/gwenesis \
 -ICore/Inc/porting/a2600 \
+-ICore/Inc/porting/lynx \
 -ICore/Inc/porting/a7800 \
 -ICore/Inc/porting/amstrad \
 -ICore/Inc/porting/zelda3 \
@@ -844,8 +845,9 @@ MAPPER_NAMES := $(notdir $(basename $(subst -,_,$(MAPPER_SRCS))))
 CXX_OBJECTS =          $(addprefix $(BUILD_DIR)/core/,$(notdir $(CXX_SOURCES:.cpp=.o) ))
 TGBDUAL_CXX_OBJECTS = $(addprefix $(BUILD_DIR)/tgbdual/,$(notdir $(TGBDUAL_CXX_SOURCES:.cpp=.o)))
 A2600_CXX_OBJECTS = $(addprefix $(BUILD_DIR)/a2600/,$(notdir $(A2600_CXX_SOURCES:.cxx=.o)))
+LYNX_CXX_OBJECTS = $(addprefix $(BUILD_DIR)/lynx/,$(notdir $(LYNX_CXX_SOURCES:.cpp=.o)))
 
-vpath %.cpp $(sort $(dir $(CXX_SOURCES) $(TGBDUAL_CXX_SOURCES) ))
+vpath %.cpp $(sort $(dir $(CXX_SOURCES) $(TGBDUAL_CXX_SOURCES) $(LYNX_CXX_SOURCES) ))
 vpath %.cxx $(sort $(dir $(A2600_CXX_SOURCES) ))
 
 # list of ASM program objects
@@ -945,9 +947,9 @@ $(BUILD_DIR)/memcpy-armv7m.o: Core/Src/memcpy-armv7m.s Makefile.common Makefile 
 	$(V)$(ECHO) [ AS ] $(notdir $<)
 	$(V)$(AS) -c $(CFLAGS) $< -o $@
 
-$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CUPCAKE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
+$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CUPCAKE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
 	$(V)$(ECHO) [ LD ] $(notdir $@)
-	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CUPCAKE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
+	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CUPCAKE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
 
 $(BUILD_DIR)/core/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC core ] $(notdir $<)
@@ -1063,6 +1065,10 @@ $(BUILD_DIR)/tgbdual/%.o: %.cpp Makefile Makefile.common $(SDK_HEADERS) | $(BUIL
 $(BUILD_DIR)/a2600/%.o: %.cxx Makefile Makefile.common $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CXX a2600 ] $(notdir $<)
 	$(V)$(CXX) -c $(CXXFLAGS) $(A2600_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/a2600/$(notdir $(<:.cxx=.lst)) $< -o $@
+
+$(BUILD_DIR)/lynx/%.o: %.cpp Makefile Makefile.common $(SDK_HEADERS) | $(BUILD_DIR)
+	$(V)$(ECHO) [ CXX lynx ] $(notdir $<)
+	$(V)$(CXX) -c $(CXXFLAGS) $(LYNX_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/lynx/$(notdir $(<:.cpp=.lst)) $< -o $@
 
 # Zelda3 configuration
 
@@ -1197,6 +1203,7 @@ $(BUILD_DIR):
 	$(V)mkdir $@/wsv
 	$(V)mkdir $@/md
 	$(V)mkdir $@/a2600
+	$(V)mkdir $@/lynx
 	$(V)mkdir $@/a7800
 	$(V)mkdir $@/amstrad
 	$(V)mkdir $@/zelda3
@@ -1475,6 +1482,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_gw,$(CORES_DIR)/gw.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_md,$(CORES_DIR)/md.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_a2600,$(CORES_DIR)/a2600.bin)
+	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_lynx,$(CORES_DIR)/lynx.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_a7800,$(CORES_DIR)/a7800.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_amstrad,$(CORES_DIR)/amstrad.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_videopac,$(CORES_DIR)/videopac.bin)
@@ -1568,6 +1576,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/md.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/a2600.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/a2600_defprops.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/lynx.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/a7800.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/amstrad.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/videopac.bin --dest-path "/cores/" \

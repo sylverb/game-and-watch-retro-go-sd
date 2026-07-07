@@ -78,12 +78,13 @@ void *ahb_only_malloc(size_t size) {
 }
 
 void *ahb_calloc(size_t count,size_t size) {
-  void *pointer = NULL;
   size_t bytes = count * size;
-  pointer = ram_malloc(bytes);
+  void *pointer = ram_malloc(bytes);
   if (pointer == NULL)
     pointer = ahb_malloc(bytes);
-  memset(pointer,0,count*size);
+  if (pointer == NULL)
+    return NULL;
+  memset(pointer, 0, bytes);
   return pointer;
 }
 

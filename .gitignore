@@ -22,6 +22,7 @@ linux/loaded_o2em_rom.c
 linux/loaded_a2600_rom.c
 linux/loaded_pkmini_rom.c
 linux/loaded_gwenesis_rom.c
+linux/loaded_lynx_rom.c
 
 save_states
 
