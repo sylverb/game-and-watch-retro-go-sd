@@ -491,6 +491,31 @@ INCLUDE build/fceumm_mappers.ld
   }
   _OVERLAY_A7800_BSS_SIZE = SIZEOF(.overlay_a7800_bss);
 
+  .overlay_lynx __RAM_EMU_START__ : {
+    . = ALIGN(4);
+    __ram_emu_lynx_start__ = .;
+    __init_array_lynx_start__ = .;
+    KEEP(build/lynx/*.o(.init_array*))
+    __init_array_lynx_end__ = .;
+    build/lynx/*.o (.data .data* .text .text* .rodata .rodata* .ARM.extab.text.* .ARM.exidx.text.*)
+    . = ALIGN(4);
+    _OVERLAY_LYNX_LOAD_END = .;
+  } AT > CORES
+  _OVERLAY_LYNX_LOAD_START = LOADADDR(.overlay_lynx);
+  _OVERLAY_LYNX_SIZE = SIZEOF(.overlay_lynx);
+
+  .overlay_lynx_bss _OVERLAY_LYNX_LOAD_END : {
+    . = ALIGN(4);
+    _OVERLAY_LYNX_BSS_START = .;
+    build/lynx/*.o (.bss .bss*)
+    . = ALIGN(4);
+    build/lynx/*.o (COMMON)
+    __ram_emu_lynx_end__ = .;
+    _OVERLAY_LYNX_BSS_END = .;
+    ASSERT(ABSOLUTE(_OVERLAY_LYNX_BSS_END) < __RAM_EMU_END__, "Error: LYNX BSS overflow");
+  }
+  _OVERLAY_LYNX_BSS_SIZE = SIZEOF(.overlay_lynx_bss);
+
   .overlay_amstrad __RAM_EMU_START__ : {
     . = ALIGN(4);
     __ram_emu_amstrad_start__ = .;
