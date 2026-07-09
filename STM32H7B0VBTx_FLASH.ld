@@ -819,6 +819,12 @@ INCLUDE build/fceumm_mappers.ld
     *(.persistent_boot_magic)
     *(.persistent_log_idx)
     *(.persistent_logbuf)
+    /* FF4 line-renderer hot buffers: pinned to zero-wait-state DTCM (the
+     * ff4 overlay .bss lives in AXI SRAM, where the compositor's
+     * intermediate lines pay bus latency on every access). NOLOAD, not
+     * zero-initialized -- every buffer is fully written before it is read
+     * on each rendered line. */
+    *(.ff4_dtcm)
     . = ALIGN(4);
   } >DTCMRAM
 
