@@ -26,6 +26,34 @@ extern void ff4_shutdown(void);
 extern void ff4_get_state(uint32_t *frames_out, uint64_t *cycles_out);
 extern void ff4_blit_to_lcd(uint16_t *lcd_fb);
 extern void ff4_set_button(int player, int button, bool pressed);
+extern int  ff4_ppu_render_enabled;   /* frameskip hook (ff4/snes/ppu.c) */
+
+/* FF4_FRAMESKIP: SNES frames emulated WITHOUT rendering before each
+ * rendered one (so the LCD shows 1 frame in FF4_FRAMESKIP+1). Rendering
+ * dominates the frame cost on this device (title screen measured 6-8
+ * fps with every frame rendered, i.e. game logic at ~1/8 speed), and
+ * the skip changes nothing emulation-visible: sprite evaluation still
+ * runs on skipped frames (game-visible $213E flags), only the pixel
+ * loop is bypassed -- proven WRAM-identical on the desktop harness
+ * (--render-every). Held buttons persist across the batch, so input
+ * sampling granularity coarsens to one gamepad read per displayed
+ * frame. Override on the make command line if needed; 0 disables.
+ *
+ * The render period (FF4_FRAMESKIP+1) MUST be odd. SNES games fake
+ * transparency by flickering elements at 30 Hz (drawn every other
+ * frame -- FF4's battle menu does this); an even period samples a
+ * single phase of that flicker, freezing the element fully opaque or
+ * fully invisible (artifact observed on device with period 4 on
+ * 2026-07-08). An odd period alternates phases across rendered frames
+ * and keeps the flicker visible at a reduced rate.
+ *
+ * Default 0 (disabled): tested at 2 (render 1 of 3) on 2026-07-09 --
+ * game speed does improve, but the display reads as a slideshow, not a
+ * game. Kept as a tunable; the real speed levers are the per-line
+ * renderer restructuring and continued dispatch porting. */
+#ifndef FF4_FRAMESKIP
+#define FF4_FRAMESKIP 0
+#endif
 
 #if defined(FF4_AUTOBOOT) || defined(FF4_LOAD_SAVESTATE)
 #include <string.h>
@@ -484,6 +512,25 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         }
 #endif
 
+#ifdef FF4_AUTOBOOT
+        uint32_t d6_t0 = HAL_GetTick();
+#endif
+#if FF4_FRAMESKIP > 0
+        /* Emulate the skipped frames of this batch (no rendering; see
+         * the FF4_FRAMESKIP comment at the top). Audio is pulled only
+         * on the rendered frame below -- fine while the SPC is stubbed;
+         * revisit the pacing when real sound lands. */
+        for (int fs = 0; fs < FF4_FRAMESKIP; fs++) {
+            ff4_ppu_render_enabled = 0;
+            ff4_step();
+            frame++;
+            wdog_refresh();
+        }
+        ff4_ppu_render_enabled = 1;
+#endif
+#ifdef FF4_AUTOBOOT
+        uint32_t d6_t1 = HAL_GetTick();
+#endif
         ff4_step();
         frame++;
 
@@ -506,8 +553,42 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 #endif
 
         /* Blit the PPU frame to the active LCD buffer, then swap. */
+#ifdef FF4_AUTOBOOT
+        uint32_t d6_t2 = HAL_GetTick();
+#endif
         ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
         lcd_swap();
+
+#ifdef FF4_AUTOBOOT
+        /* D6: real frame-budget breakdown, every ~300 emulated frames.
+         * emu_ms   = the FF4_FRAMESKIP unrendered steps of each batch
+         * rend_ms  = the rendered step (its emulation share included)
+         * blit_ms  = ff4_blit_to_lcd + lcd_swap
+         * game_fps = emulated SNES frames per wall second -- the number
+         *            that decides whether the game feels right. */
+        {
+            static uint32_t d6_emu_ms, d6_rend_ms, d6_blit_ms;
+            static uint32_t d6_frames, d6_win_start;
+            uint32_t d6_t3 = HAL_GetTick();
+            if (d6_win_start == 0) d6_win_start = d6_t0;
+            d6_emu_ms  += d6_t1 - d6_t0;
+            d6_rend_ms += d6_t2 - d6_t1;
+            d6_blit_ms += d6_t3 - d6_t2;
+            d6_frames  += FF4_FRAMESKIP + 1;
+            if (d6_frames >= 300) {
+                uint32_t win_ms = d6_t3 - d6_win_start;
+                printf("=== FF4_DIAG_BUDGET_2026_07_08 === frames=%lu win_ms=%lu "
+                       "emu_ms=%lu rend_ms=%lu blit_ms=%lu game_fps_x10=%lu\n",
+                       (unsigned long)d6_frames, (unsigned long)win_ms,
+                       (unsigned long)d6_emu_ms, (unsigned long)d6_rend_ms,
+                       (unsigned long)d6_blit_ms,
+                       (unsigned long)(win_ms ? (d6_frames * 10000UL) / win_ms : 0));
+                d6_emu_ms = d6_rend_ms = d6_blit_ms = 0;
+                d6_frames = 0;
+                d6_win_start = 0;
+            }
+        }
+#endif
 
         /* Liveness probe: every 5 host frames print Snes-side counters
          * so we can tell whether the interpreter is actually progressing
