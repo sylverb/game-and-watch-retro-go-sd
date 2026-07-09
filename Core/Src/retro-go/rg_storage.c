@@ -304,7 +304,12 @@ bool rg_storage_scandir(const char *path, rg_scandir_cb_t *callback, void *arg, 
 #endif
 }
 
-size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_dest, uint32_t offset, file_progress_cb_t file_progress_cb) {
+/* max_len == 0 means unbounded (preserves the historical, unchecked
+ * behavior relied upon by every existing caller of the two public
+ * wrappers below). */
+static size_t rg_storage_copy_file_to_ram_impl(char *file_path, uint8_t *ram_dest,
+                                                uint32_t offset, uint32_t max_len,
+                                                file_progress_cb_t file_progress_cb) {
     FILE *file;
     size_t bytes_read;
     uint32_t total_written;
@@ -312,7 +317,7 @@ size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_des
     file = fopen(file_path,"rb");
     if (file == NULL) {
         return 0;
-    } 
+    }
 
     if (fseek(file, 0, SEEK_END) != 0) {
         fclose(file);
@@ -324,6 +329,11 @@ size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_des
         return 0;
     }
     uint32_t total_size = (uint32_t)file_size_l - offset;
+    if (max_len != 0 && total_size > max_len) {
+        // Refuse rather than overrun the caller's destination buffer/region.
+        fclose(file);
+        return 0;
+    }
     if (fseek(file, (long)offset, SEEK_SET) != 0) {
         fclose(file);
         return 0;
@@ -345,6 +355,14 @@ size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_des
     fclose(file);
 
     return total_written;
+}
+
+size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_dest, uint32_t offset, file_progress_cb_t file_progress_cb) {
+    return rg_storage_copy_file_to_ram_impl(file_path, ram_dest, offset, 0, file_progress_cb);
+}
+
+size_t rg_storage_copy_file_to_ram_bounded(char *file_path, uint8_t *ram_dest, uint32_t offset, uint32_t max_len, file_progress_cb_t file_progress_cb) {
+    return rg_storage_copy_file_to_ram_impl(file_path, ram_dest, offset, max_len, file_progress_cb);
 }
 
 /* copy file content into ram */
