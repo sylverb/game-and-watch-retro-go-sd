@@ -1166,14 +1166,6 @@ static void run_gwhb_homebrew(size_t copied, uint8_t load_state, uint8_t start_p
     if (hdr->magic != GWHB_MAGIC)
         return; /* not a GWHB file; nothing to dispatch */
 
-    /* total_size is attacker/corruption-controlled (comes from the file
-     * itself, not just its on-disk length), so clamp it before it's used
-     * for anything, including the cache-maintenance call below. */
-    if (hdr->total_size < sizeof(gwhb_header_t) || hdr->total_size > copied) {
-        show_incompatible_homebrew_screen();
-        return;
-    }
-
     /* Defense in depth, both against the same fields the app is expected
      * to self-check (see gnw_abi_ok()-style checks in ABI consumers), so a
      * binary built for a newer/bigger ABI than this firmware provides is
@@ -1192,7 +1184,7 @@ static void run_gwhb_homebrew(size_t copied, uint8_t load_state, uint8_t start_p
         return;
     }
 
-    SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, hdr->total_size);
+    SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, copied);
     SCB_InvalidateICache();
 
     /* | 1 keeps the CPU in Thumb mode. The binary zeroes its own BSS on
