@@ -1852,6 +1852,10 @@ distclean: clean
 #######################################
 # dependencies
 #######################################
--include $(wildcard $(BUILD_DIR)/*.d)
+# Port objects live in per-port subdirectories (build/ff4/*.o, ...) and their
+# generated .d files land next to them; the old root-only wildcard silently
+# ignored every one of those, so header changes (e.g. external/ff4 snes.h)
+# never triggered rebuilds and incremental builds could mix struct layouts.
+-include $(wildcard $(BUILD_DIR)/*.d) $(wildcard $(BUILD_DIR)/*/*.d)
 
 # *** EOF ***
