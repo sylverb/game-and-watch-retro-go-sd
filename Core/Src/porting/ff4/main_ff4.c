@@ -67,6 +67,11 @@ extern Snes *ff4_snes;
 #ifdef FF4_AUTOBOOT
 /* D3 + D4 + D5 shared state. D1/D2 are stateless. */
 static uint32_t g_diag_host_frame = 0;
+/* D6R deterministic block ring (see the D6 block in the frame loop) */
+#define D6R_SLOTS 24
+typedef struct { uint32_t win_ms, emu_ms, rend_ms, blit_ms; } D6RBlock;
+D6RBlock  g_d6_ring[D6R_SLOTS];
+uint32_t  g_d6_blocks = 0;
 static uint32_t g_diag_pc_bank_hist[256];
 static uint32_t g_diag_pc_sample_count = 0;
 /* miss ring written by ff4_dispatch_try (see dispatch_all.c patch);
@@ -583,6 +588,19 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
                        (unsigned long)d6_emu_ms, (unsigned long)d6_rend_ms,
                        (unsigned long)d6_blit_ms,
                        (unsigned long)(win_ms ? (d6_frames * 10000UL) / win_ms : 0));
+                /* D6R: deterministic per-block ring, readable in ONE gdb
+                 * halt (g_d6_ring / g_d6_blocks). Block N covers emulated
+                 * frames [300N, 300N+300) from the savestate boot with no
+                 * input, so the same block index is the same workload on
+                 * every firmware: A/B compares ring entries, immune to
+                 * the +/-1.5 fps wall-clock window alignment noise. */
+                if (g_d6_blocks < D6R_SLOTS) {
+                    g_d6_ring[g_d6_blocks].win_ms  = win_ms;
+                    g_d6_ring[g_d6_blocks].emu_ms  = d6_emu_ms;
+                    g_d6_ring[g_d6_blocks].rend_ms = d6_rend_ms;
+                    g_d6_ring[g_d6_blocks].blit_ms = d6_blit_ms;
+                }
+                g_d6_blocks++;
                 d6_emu_ms = d6_rend_ms = d6_blit_ms = 0;
                 d6_frames = 0;
                 d6_win_start = 0;
