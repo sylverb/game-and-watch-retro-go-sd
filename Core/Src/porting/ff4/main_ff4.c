@@ -517,6 +517,25 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         }
 #endif
 
+#ifdef FF4_AUTO_WALK
+        /* Deterministic walking workload for field metrology: hold DPAD
+         * directions in a 120-frame square from frame 60 on. Walking
+         * scrolls the map every frame, which defeats the R4/R5 render
+         * skips -- the idle savestate otherwise measures the skip path,
+         * not real play. Same D6R blocks = same walked route, firmware
+         * over firmware. */
+        {
+            static const int walk_btn[4] = {SNES_BTN_RIGHT, SNES_BTN_DOWN,
+                                            SNES_BTN_LEFT,  SNES_BTN_UP};
+            uint32_t wf = (uint32_t)frame;
+            if (wf >= 60) {
+                int phase = ((wf - 60) / 120) & 3;
+                int prev  = (phase + 3) & 3;
+                ff4_set_button(1, walk_btn[prev], false);
+                ff4_set_button(1, walk_btn[phase], true);
+            }
+        }
+#endif
 #ifdef FF4_AUTOBOOT
         uint32_t d6_t0 = HAL_GetTick();
 #endif
