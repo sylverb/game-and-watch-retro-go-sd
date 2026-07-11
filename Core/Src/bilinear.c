@@ -386,7 +386,7 @@ void imlib_draw_image(image_t *dst_img, image_t *src_img, int dst_x_start, int d
             } // while x
 
             // imlib_draw_row(dst_x_start, dst_x_end, dst_y, &imlib_draw_row_data);
-            memcpy(dst_img->pixels + dst_x_start * 2 + dst_y * dst_stride * 2, imlib_draw_row_data.row_buffer[0], (dst_x_end - dst_x_start) * 2);
+            memcpy(dst_img->pixels + dst_x_start * 2 + dst_y * dst_stride * 2, imlib_draw_row_data.row_buffer[0], IM_MIN((dst_x_end - dst_x_start) * 2, (int)sizeof(row_scratch_buf)));
 
             // Increment offsets
             dst_y += dst_delta_y;
