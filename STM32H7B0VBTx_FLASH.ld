@@ -694,12 +694,33 @@ INCLUDE build/fceumm_mappers.ld
     . = ALIGN(4);
     __ram_emu_ff4_start__ = .;
     build/ff4/main_ff4.o (.data .data* .text .text* .rodata .rodata*)
-    build/ff4/*.o (.data .data* .text .text* .noreloc)
+    /* R13: spc.o executable code lives in ._ff4_itcm below -- its data/
+     * rodata stay here in the overlay. */
+    build/ff4/*.o (.data .data* .noreloc)
+    EXCLUDE_FILE(build/ff4/spc.o) build/ff4/*.o (.text .text*)
     . = ALIGN(4);
     _OVERLAY_FF4_LOAD_END = .;
   } AT > CORES
   _OVERLAY_FF4_LOAD_START = LOADADDR(.overlay_ff4);
   _OVERLAY_FF4_SIZE = SIZEOF(.overlay_ff4);
+
+  /* FF4 hot code pinned to zero-wait-state ITCM (R13). VMA in ITCMRAM,
+   * LMA right behind .overlay_ff4 in CORES so the objcopy extraction
+   * (--only-section pair) bakes it at the tail of "Final Fantasy IV.bin".
+   * At launch the blob lands at __RAM_EMU_START__, so this payload sits
+   * at the start of the FF4 BSS region; rg_emulators.c copies it into
+   * ITCM BEFORE the BSS wipe. Shares ITCMRAM with the itc_malloc arena --
+   * safe while FF4 runs (nothing itc_mallocs), re-copied on every launch. */
+  ._ff4_itcm : {
+    . = ALIGN(8);
+    __ff4_itcm_start__ = .;
+    build/ff4/*.o (.ff4_itcm_text)
+    build/ff4/spc.o (.text .text*)
+    . = ALIGN(8);
+    __ff4_itcm_end__ = .;
+  } > ITCMRAM AT > CORES
+  __ff4_itcm_size__ = SIZEOF(._ff4_itcm);
+  __ff4_itcm_load_off__ = LOADADDR(._ff4_itcm) - LOADADDR(.overlay_ff4);
 
   .overlay_ff4_bss _OVERLAY_FF4_LOAD_END : {
     . = ALIGN(4);

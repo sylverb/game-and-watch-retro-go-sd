@@ -1234,6 +1234,21 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
             SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_SMW_SIZE);
             app_main_smw(load_state, start_paused, save_slot);
         } else if (strcmp(newfile->name,"Final Fantasy IV") == 0) {
+            /* FF4 hot-code payload (._ff4_itcm, R13): travels at the tail
+             * of the overlay blob, so after the blob copy it sits at the
+             * START of the BSS region. Move it into ITCM BEFORE the BSS
+             * wipe below erases it. ITCM is not cached; DSB/ISB order the
+             * copy against the upcoming instruction fetches. */
+            {
+                extern uint8_t __ff4_itcm_start__, __ff4_itcm_end__, __ff4_itcm_load_off__;
+                size_t ff4_itcm_size = (size_t)(&__ff4_itcm_end__ - &__ff4_itcm_start__);
+                if (ff4_itcm_size) {
+                    memcpy(&__ff4_itcm_start__,
+                           (uint8_t *)&__RAM_EMU_START__ + (uint32_t)&__ff4_itcm_load_off__,
+                           ff4_itcm_size);
+                    __DSB(); __ISB();
+                }
+            }
             memset(&_OVERLAY_FF4_BSS_START, 0x0, (size_t)&_OVERLAY_FF4_BSS_SIZE);
             SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_FF4_SIZE);
             app_main_ff4(load_state, start_paused, save_slot);
