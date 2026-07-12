@@ -272,6 +272,27 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     odroid_audio_volume_set(FF4_AUDIO_BOOT_VOLUME_LEVEL);
 #endif
 
+    /* CPU clock. ENABLE_BOOT_OC only affects the cold-boot path in main();
+     * the boot sequence then runs a sleep/wake cycle whose wake handler
+     * (gw_sleep.c) re-applies the PERSISTED odroid_settings_cpu_oc_level --
+     * default 0 -- silently clobbering the build-time overclock (found
+     * 2026-07-12: DIVN1 read back 139 despite the OC call site being in
+     * flash). Pin both: persist the level so every later wake keeps it,
+     * and re-apply it now. Levels: 0 = 280 MHz, 1 = 312 MHz, 2 = 354 MHz.
+     * Build with -DFF4_CPU_OC_LEVEL=-1 to leave the persisted setting
+     * alone. */
+#ifndef FF4_CPU_OC_LEVEL
+#if defined(ENABLE_BOOT_OC) && ENABLE_BOOT_OC == 1
+#define FF4_CPU_OC_LEVEL 2
+#else
+#define FF4_CPU_OC_LEVEL -1
+#endif
+#endif
+#if FF4_CPU_OC_LEVEL >= 0
+    odroid_settings_cpu_oc_level_set(FF4_CPU_OC_LEVEL);
+    SystemClock_Config(FF4_CPU_OC_LEVEL);
+#endif
+
     /* Cache the ROM into the round-robin flash region. The pointer
      * returned is XIP-addressable for the lifetime of this app.
      *
@@ -600,6 +621,35 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 #endif
         ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
         lcd_swap();
+
+#ifndef FF4_AUTO_WALK
+        /* 60 Hz pacer. With the overclock the emulator outruns real time
+         * (~63-65 emulated fps walking, 2026-07-12 ring), and nothing else
+         * in this loop blocks: lcd_swap does not wait for vsync here.
+         * Accumulate NTSC frame periods in thirds of a millisecond
+         * (16.667 ms = 50/3 ms exactly) against HAL_GetTick. Metrology
+         * builds (FF4_AUTO_WALK) stay unthrottled: the D6R ring wants the
+         * true cost, not the pacing. */
+        {
+            static uint32_t pace_thirds;
+            static uint32_t pace_base;
+            if (pace_base == 0) { pace_base = HAL_GetTick(); pace_thirds = 0; }
+            pace_thirds += 50;
+            const uint32_t due = pace_base + pace_thirds / 3;
+            uint32_t now = HAL_GetTick();
+            if ((int32_t)(now - due) > 100) {
+                /* fell way behind real time (heavy scene, savestate load,
+                 * debugger halt): resynchronize instead of fast-forwarding
+                 * through the accumulated debt once the scene gets light
+                 * again -- the first pacer build had this comparison
+                 * inverted, which made the game visibly SPEED UP after
+                 * every heavy stretch. */
+                pace_base = now; pace_thirds = 0;
+            } else {
+                while ((int32_t)(due - HAL_GetTick()) > 0) { __WFI(); }
+            }
+        }
+#endif
 
 #ifdef FF4_AUTOBOOT
         /* D6: real frame-budget breakdown, every ~300 emulated frames.
