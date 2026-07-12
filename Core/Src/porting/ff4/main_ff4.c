@@ -102,7 +102,12 @@ static void ff4_pump_buttons(const odroid_gamepad_state_t *js) {
     ff4_set_button(1, SNES_BTN_RIGHT,  js->values[ODROID_INPUT_RIGHT]);
     ff4_set_button(1, SNES_BTN_A,      js->values[ODROID_INPUT_A]);
     ff4_set_button(1, SNES_BTN_B,      js->values[ODROID_INPUT_B]);
-    ff4_set_button(1, SNES_BTN_X,      js->values[ODROID_INPUT_X]);
+    /* SNES X opens FF4's main menu. ODROID_INPUT_X is B_START, a physical
+     * button only the Zelda unit has -- on a Mario unit nothing reaches it.
+     * PAUSE/SET (ODROID_INPUT_VOLUME) is unused by this loop, so it doubles
+     * as X: the menu opens with PAUSE/SET on both units. */
+    ff4_set_button(1, SNES_BTN_X,      js->values[ODROID_INPUT_X]
+                                       || js->values[ODROID_INPUT_VOLUME]);
     ff4_set_button(1, SNES_BTN_Y,      js->values[ODROID_INPUT_Y]);
     ff4_set_button(1, SNES_BTN_SELECT, js->values[ODROID_INPUT_SELECT]);
     ff4_set_button(1, SNES_BTN_START,  js->values[ODROID_INPUT_START]);
@@ -253,6 +258,19 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     printf("=== FF4_BOOT_MARKER_2026_06_13_AUTOTEST ===\n");
 
     odroid_system_init(APPID_FF4, FF4_AUDIO_SAMPLE_RATE);
+
+    /* Boot volume. This loop never enters the common in-game overlay, so
+     * the persisted volume level cannot be changed from inside FF4 -- if it
+     * was last saved muted it stays muted forever. Force a comfortable
+     * level at app start instead; 6 is 25% in common.c's volume_tbl.
+     * Build with -DFF4_AUDIO_BOOT_VOLUME_LEVEL=-1 to keep the persisted
+     * setting untouched. */
+#ifndef FF4_AUDIO_BOOT_VOLUME_LEVEL
+#define FF4_AUDIO_BOOT_VOLUME_LEVEL 6
+#endif
+#if FF4_AUDIO_BOOT_VOLUME_LEVEL >= 0
+    odroid_audio_volume_set(FF4_AUDIO_BOOT_VOLUME_LEVEL);
+#endif
 
     /* Cache the ROM into the round-robin flash region. The pointer
      * returned is XIP-addressable for the lifetime of this app.
