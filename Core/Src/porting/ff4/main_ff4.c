@@ -385,39 +385,22 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     uint32_t t_start = HAL_GetTick();
 
 #ifndef FF4_AUTO_WALK
-    /* Adaptive render skip v2: steady odd render period (v1 user-approved
-     * 2026-07-13; v2 the same night). v1 never skipped two frames in a
-     * row, capping the skip rate at 50%: any zone whose rendered frame
-     * costs more than ~2x the 16.67 ms slot saturated the pacer and the
-     * GAME clock itself fell behind (014-baron-castle-exterior: ~35 Hz
-     * effective with sawtooth resyncs -- felt as slow-motion plus
-     * judder). v2 renders one frame in an ODD period p (1/3/5/7 -- odd
-     * periods sample the SNES 2-frame flicker alternation on alternating
-     * parity by construction, so no rephase hack is needed) at a steady
-     * phase, and adapts p from measured behaviour with hysteresis:
-     *  - step UP (deeper skip) when the pacer never had headroom over
-     *    the whole controller window (unsustainable period);
-     *  - step DOWN only when the window's WORST transient slack strictly
-     *    affords the extra renders of the shallower period, estimated
-     *    from the EMA cost gap between rendered and skipped frames --
-     *    the asymmetry is what prevents p from oscillating.
-     * The 60 Hz game clock now holds in every zone the device can
-     * emulate at 60 Hz; only the display cadence degrades, and it
-     * degrades EVENLY (steady phase) instead of in bursts.
+    /* Adaptive render skip (user-approved 2026-07-13). The render wall is
+     * ~26 ms/frame under continuous scroll while a render-skipped emulated
+     * frame costs ~7-8 ms: skipping the RENDER of at most every other
+     * frame when the 60 Hz pacer falls behind keeps the GAME clock at an
+     * exact 60 Hz everywhere -- display refresh floats between 60 (light
+     * scenes, no skips) and ~30 (heavy scroll, alternate skips). Guards:
+     * never two consecutive skips (30 fps display floor), and a periodic
+     * two-rendered-frames rephase so the skip pattern cannot lock onto
+     * one parity (SNES 2-frame flicker effects alias at 30 Hz otherwise).
      * Build with -DFF4_ADAPTIVE_SKIP=0 to disable. */
 #ifndef FF4_ADAPTIVE_SKIP
 #define FF4_ADAPTIVE_SKIP 1
 #endif
 #define FF4_ADASKIP_BEHIND_MS 3
-#define FF4_ADASKIP_MAX_PERIOD 7
-#define FF4_ADASKIP_WIN 60           /* controller window, frames */
-    uint8_t  adaskip_this = 0;
-    uint32_t adaskip_period = 1;     /* render 1 frame in p (odd) */
-    uint32_t adaskip_phase = 0;
-    uint32_t adaskip_win = 0, adaskip_waited = 0;
-    int32_t  adaskip_slack_min = INT32_MAX;
-    uint32_t adaskip_ema_r = 0, adaskip_ema_s = 0;  /* frame cost EMA, ms<<4 */
-    uint32_t adaskip_prev_tick = 0;
+    uint8_t adaskip_this = 0, adaskip_prev = 0;
+    uint32_t adaskip_run = 0;   /* consecutive skips since last rephase */
 #endif
 
     /* Start the SAI DMA loop with a length matching one frame worth of
@@ -697,45 +680,16 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             const uint32_t due = pace_base + pace_thirds / 3;
             uint32_t now = HAL_GetTick();
 #if FF4_ADAPTIVE_SKIP
-            /* v2 controller: account this frame's measured cost into the
-             * per-class EMA (adaskip_this still holds THIS frame's skip
-             * status here), fold the pacer slack into the window, then
-             * decide the NEXT frame from the steady phase. */
-            {
-                if (adaskip_prev_tick != 0) {
-                    const uint32_t cost16 = (now - adaskip_prev_tick) << 4;
-                    uint32_t *ema = adaskip_this ? &adaskip_ema_s : &adaskip_ema_r;
-                    *ema = *ema ? (*ema - (*ema >> 3)) + (cost16 >> 3) : cost16;
-                }
-                adaskip_prev_tick = now;
-                const int32_t slack = (int32_t)(due - now);
-                if (slack < adaskip_slack_min) adaskip_slack_min = slack;
-                if (slack > 0) adaskip_waited++;
-                if (++adaskip_win >= FF4_ADASKIP_WIN) {
-                    const uint32_t p = adaskip_period;
-                    if (adaskip_waited == 0 && p < FF4_ADASKIP_MAX_PERIOD) {
-                        adaskip_period += 2;    /* pacer starved all window */
-                    } else if (p > 1 && adaskip_ema_r > adaskip_ema_s) {
-                        /* extra per-frame cost of stepping down to p-2:
-                         * (ema_r - ema_s) * (1/(p-2) - 1/p), ms<<4 */
-                        const uint32_t d16 = adaskip_ema_r - adaskip_ema_s;
-                        const uint32_t extra_ms = (d16 * 2 / (p * (p - 2))) >> 4;
-                        if (adaskip_slack_min > (int32_t)(extra_ms + 2))
-                            adaskip_period -= 2;
-                    }
-                    if (adaskip_period != p)
-                        printf("=== FF4_ADASKIP period %lu -> %lu (ema_r=%lu ema_s=%lu) ===\n",
-                               (unsigned long)p, (unsigned long)adaskip_period,
-                               (unsigned long)(adaskip_ema_r >> 4),
-                               (unsigned long)(adaskip_ema_s >> 4));
-                    adaskip_win = 0; adaskip_waited = 0;
-                    adaskip_slack_min = INT32_MAX;
-                }
-                if (++adaskip_phase >= adaskip_period) adaskip_phase = 0;
-                adaskip_this = (adaskip_phase != 0);
-                if (adaskip_this) g_adaskip_skipped++;
-                else g_adaskip_rendered++;
+            /* Decide the NEXT frame's render skip from how far behind the
+             * pacer we are. Rephase: after 16 skips, force two rendered
+             * frames so the pattern's parity slips. */
+            adaskip_prev = adaskip_this;
+            adaskip_this = 0;
+            if (!adaskip_prev && (int32_t)(now - due) > FF4_ADASKIP_BEHIND_MS) {
+                if (adaskip_run >= 16) { adaskip_run = 0; /* rephase: render */ }
+                else { adaskip_this = 1; adaskip_run++; g_adaskip_skipped++; }
             }
+            if (!adaskip_this) g_adaskip_rendered++;
 #endif
             if ((int32_t)(now - due) > 100) {
                 /* fell way behind real time (heavy scene, savestate load,
