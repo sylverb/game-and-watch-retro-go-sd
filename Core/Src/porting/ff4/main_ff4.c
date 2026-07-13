@@ -564,8 +564,18 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
          * not real play. Same D6R blocks = same walked route, firmware
          * over firmware. */
         {
+            /* FF4_AUTO_WALK_LR: hold left/right only (120 frames each).
+             * The square's up/down legs stall against the corridor walls
+             * of fixture 009 (no scroll, light frames), under-measuring
+             * real play by ~50% -- found 2026-07-13 while chasing the
+             * user's walking dip. LR scrolls on every frame. */
+#ifdef FF4_AUTO_WALK_LR
+            static const int walk_btn[4] = {SNES_BTN_LEFT,  SNES_BTN_RIGHT,
+                                            SNES_BTN_LEFT,  SNES_BTN_RIGHT};
+#else
             static const int walk_btn[4] = {SNES_BTN_RIGHT, SNES_BTN_DOWN,
                                             SNES_BTN_LEFT,  SNES_BTN_UP};
+#endif
             uint32_t wf = (uint32_t)frame;
             if (wf >= 60) {
                 int phase = ((wf - 60) / 120) & 3;
