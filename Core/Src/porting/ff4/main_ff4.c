@@ -67,6 +67,9 @@ extern Snes *ff4_snes;
 #ifdef FF4_AUTOBOOT
 /* D3 + D4 + D5 shared state. D1/D2 are stateless. */
 static uint32_t g_diag_host_frame = 0;
+/* Adaptive-skip probe counters (playable builds; read via gdb) */
+uint32_t g_adaskip_rendered, g_adaskip_skipped;
+
 /* D6R deterministic block ring (see the D6 block in the frame loop) */
 #define D6R_SLOTS 24
 typedef struct { uint32_t win_ms, emu_ms, rend_ms, blit_ms; } D6RBlock;
@@ -381,6 +384,25 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     int frame = 0;
     uint32_t t_start = HAL_GetTick();
 
+#ifndef FF4_AUTO_WALK
+    /* Adaptive render skip (user-approved 2026-07-13). The render wall is
+     * ~26 ms/frame under continuous scroll while a render-skipped emulated
+     * frame costs ~7-8 ms: skipping the RENDER of at most every other
+     * frame when the 60 Hz pacer falls behind keeps the GAME clock at an
+     * exact 60 Hz everywhere -- display refresh floats between 60 (light
+     * scenes, no skips) and ~30 (heavy scroll, alternate skips). Guards:
+     * never two consecutive skips (30 fps display floor), and a periodic
+     * two-rendered-frames rephase so the skip pattern cannot lock onto
+     * one parity (SNES 2-frame flicker effects alias at 30 Hz otherwise).
+     * Build with -DFF4_ADAPTIVE_SKIP=0 to disable. */
+#ifndef FF4_ADAPTIVE_SKIP
+#define FF4_ADAPTIVE_SKIP 1
+#endif
+#define FF4_ADASKIP_BEHIND_MS 3
+    uint8_t adaskip_this = 0, adaskip_prev = 0;
+    uint32_t adaskip_run = 0;   /* consecutive skips since last rephase */
+#endif
+
     /* Start the SAI DMA loop with a length matching one frame worth of
      * mono samples. The DMA half-buffer callbacks toggle dma_state and
      * audio_get_active_buffer() returns the half we may safely write. */
@@ -604,6 +626,9 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 #ifdef FF4_AUTOBOOT
         uint32_t d6_t1 = HAL_GetTick();
 #endif
+#if !defined(FF4_AUTO_WALK) && FF4_ADAPTIVE_SKIP
+        ff4_ppu_render_enabled = !adaskip_this;
+#endif
         ff4_step();
         frame++;
 
@@ -629,8 +654,15 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 #ifdef FF4_AUTOBOOT
         uint32_t d6_t2 = HAL_GetTick();
 #endif
+#if !defined(FF4_AUTO_WALK) && FF4_ADAPTIVE_SKIP
+        if (!adaskip_this) {
+            ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
+            lcd_swap();
+        }
+#else
         ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
         lcd_swap();
+#endif
 
 #ifndef FF4_AUTO_WALK
         /* 60 Hz pacer. With the overclock the emulator outruns real time
@@ -647,6 +679,18 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             pace_thirds += 50;
             const uint32_t due = pace_base + pace_thirds / 3;
             uint32_t now = HAL_GetTick();
+#if FF4_ADAPTIVE_SKIP
+            /* Decide the NEXT frame's render skip from how far behind the
+             * pacer we are. Rephase: after 16 skips, force two rendered
+             * frames so the pattern's parity slips. */
+            adaskip_prev = adaskip_this;
+            adaskip_this = 0;
+            if (!adaskip_prev && (int32_t)(now - due) > FF4_ADASKIP_BEHIND_MS) {
+                if (adaskip_run >= 16) { adaskip_run = 0; /* rephase: render */ }
+                else { adaskip_this = 1; adaskip_run++; g_adaskip_skipped++; }
+            }
+            if (!adaskip_this) g_adaskip_rendered++;
+#endif
             if ((int32_t)(now - due) > 100) {
                 /* fell way behind real time (heavy scene, savestate load,
                  * debugger halt): resynchronize instead of fast-forwarding
