@@ -55,14 +55,13 @@ extern int  ff4_ppu_render_enabled;   /* frameskip hook (ff4/snes/ppu.c) */
 #define FF4_FRAMESKIP 0
 #endif
 
-#if defined(FF4_AUTOBOOT) || defined(FF4_LOAD_SAVESTATE)
 #include <string.h>
 #include "snes/snes.h"
 #include "snes/cpu.h"
 #include "snes/ppu.h"
 #include "snes/apu.h"
+#include "snes/statehandler.h"
 extern Snes *ff4_snes;
-#endif
 
 #ifdef FF4_AUTOBOOT
 /* D3 + D4 + D5 shared state. D1/D2 are stateless. */
@@ -98,27 +97,148 @@ extern uint32_t ff4_dispatch_misses;
 #define SNES_BTN_L      10
 #define SNES_BTN_R      11
 
+/* Runtime button layout (menu-tunable). PAUSE/SET now belongs to the
+ * retro-go pause menu (common_emu_input_loop), so it no longer doubles
+ * as SNES X. New default layout, user-requested 2026-07-14:
+ *   GAME  -> SNES X      (opens FF4's own main menu)
+ *   TIME  -> SNES Start  (title screen / pause)
+ *   A / B -> SNES A / B  (swappable from the pause menu)
+ *   SNES Select is unmapped on a Mario unit (no physical button left;
+ *   FF4 barely uses it). The Zelda unit's extra START/SELECT buttons
+ *   (ODROID_INPUT_X / ODROID_INPUT_Y) keep feeding SNES X / Y. */
+static bool ff4_swap_ab = false;
+
 static void ff4_pump_buttons(const odroid_gamepad_state_t *js) {
-    ff4_set_button(1, SNES_BTN_UP,     js->values[ODROID_INPUT_UP]);
-    ff4_set_button(1, SNES_BTN_DOWN,   js->values[ODROID_INPUT_DOWN]);
-    ff4_set_button(1, SNES_BTN_LEFT,   js->values[ODROID_INPUT_LEFT]);
-    ff4_set_button(1, SNES_BTN_RIGHT,  js->values[ODROID_INPUT_RIGHT]);
-    ff4_set_button(1, SNES_BTN_A,      js->values[ODROID_INPUT_A]);
-    ff4_set_button(1, SNES_BTN_B,      js->values[ODROID_INPUT_B]);
-    /* SNES X opens FF4's main menu. ODROID_INPUT_X is B_START, a physical
-     * button only the Zelda unit has -- on a Mario unit nothing reaches it.
-     * PAUSE/SET (ODROID_INPUT_VOLUME) is unused by this loop, so it doubles
-     * as X: the menu opens with PAUSE/SET on both units. */
-    ff4_set_button(1, SNES_BTN_X,      js->values[ODROID_INPUT_X]
-                                       || js->values[ODROID_INPUT_VOLUME]);
-    ff4_set_button(1, SNES_BTN_Y,      js->values[ODROID_INPUT_Y]);
-    ff4_set_button(1, SNES_BTN_SELECT, js->values[ODROID_INPUT_SELECT]);
-    ff4_set_button(1, SNES_BTN_START,  js->values[ODROID_INPUT_START]);
+    /* While PAUSE/SET is held every input belongs to the menu-combo
+     * layer -- nothing may leak into the SNES pad. */
+    const bool menu_held = js->values[ODROID_INPUT_VOLUME];
+    const bool a = !menu_held && js->values[ODROID_INPUT_A];
+    const bool b = !menu_held && js->values[ODROID_INPUT_B];
+    ff4_set_button(1, SNES_BTN_UP,     !menu_held && js->values[ODROID_INPUT_UP]);
+    ff4_set_button(1, SNES_BTN_DOWN,   !menu_held && js->values[ODROID_INPUT_DOWN]);
+    ff4_set_button(1, SNES_BTN_LEFT,   !menu_held && js->values[ODROID_INPUT_LEFT]);
+    ff4_set_button(1, SNES_BTN_RIGHT,  !menu_held && js->values[ODROID_INPUT_RIGHT]);
+    ff4_set_button(1, SNES_BTN_A,      ff4_swap_ab ? b : a);
+    ff4_set_button(1, SNES_BTN_B,      ff4_swap_ab ? a : b);
+    ff4_set_button(1, SNES_BTN_X,      !menu_held && (js->values[ODROID_INPUT_START]
+                                                      || js->values[ODROID_INPUT_X]));
+    ff4_set_button(1, SNES_BTN_Y,      !menu_held && js->values[ODROID_INPUT_Y]);
+    ff4_set_button(1, SNES_BTN_SELECT, false);
+    ff4_set_button(1, SNES_BTN_START,  !menu_held && js->values[ODROID_INPUT_SELECT]);
 }
+
 
 #include "gw_lcd.h"
 #include "gw_audio.h"
 #include "porting/common.h"
+
+/* ── retro-go pause-menu integration (savestates / screenshot) ─────────
+ * Savestates stream through the statehandler byte hooks and a 512-byte
+ * window: the ~270 KB state never exists contiguously in RAM. The
+ * LittleFS filesystem (~408 KB) holds one slot. On save, the header's
+ * length field (bytes 8..11, patched in-buffer by sh_placeInt AFTER the
+ * stream already went out) is re-patched into the file with fseek --
+ * without it snes_loadState's `length != size` check rejects the file. */
+static FILE   *ff4_ss_file;
+static uint8_t ff4_ss_iobuf[512];
+static int     ff4_ss_iolen;   /* write side: bytes buffered */
+static int     ff4_ss_iopos, ff4_ss_ioend;   /* read side: window cursor */
+
+static void ff4_ss_write_hook(uint8_t byte) {
+    ff4_ss_iobuf[ff4_ss_iolen++] = byte;
+    if (ff4_ss_iolen == (int)sizeof(ff4_ss_iobuf)) {
+        if (ff4_ss_file) fwrite(ff4_ss_iobuf, 1, sizeof(ff4_ss_iobuf), ff4_ss_file);
+        ff4_ss_iolen = 0;
+        wdog_refresh();
+    }
+}
+
+static uint8_t ff4_ss_read_hook(void) {
+    if (ff4_ss_iopos >= ff4_ss_ioend) {
+        ff4_ss_ioend = ff4_ss_file
+            ? (int)fread(ff4_ss_iobuf, 1, sizeof(ff4_ss_iobuf), ff4_ss_file) : 0;
+        ff4_ss_iopos = 0;
+        wdog_refresh();
+        if (ff4_ss_ioend <= 0) return 0;   /* short file: statehandler gets zeros */
+    }
+    return ff4_ss_iobuf[ff4_ss_iopos++];
+}
+
+static bool ff4_system_SaveState(char *savePathName) {
+    if (ff4_snes == NULL) return false;
+    odroid_audio_mute(true);
+    ff4_ss_file = fopen(savePathName, "wb");
+    if (ff4_ss_file == NULL) { odroid_audio_mute(false); return false; }
+    ff4_ss_iolen = 0;
+    /* Tiny scratch: the hook captures every byte; the statehandler
+     * silently drops the overflow past the external buffer. */
+    static uint8_t scratch[64];
+    sh_set_writeByte_hook(ff4_ss_write_hook);
+    int size = snes_saveStateInto(ff4_snes, scratch, (int)sizeof(scratch));
+    sh_set_writeByte_hook(NULL);
+    if (ff4_ss_iolen > 0) fwrite(ff4_ss_iobuf, 1, ff4_ss_iolen, ff4_ss_file);
+    /* Re-patch the length field the in-buffer sh_placeInt could not
+     * reach (little-endian u32 at offset 8). */
+    uint8_t len_le[4] = { (uint8_t)size, (uint8_t)(size >> 8),
+                          (uint8_t)(size >> 16), (uint8_t)(size >> 24) };
+    fseek(ff4_ss_file, 8, SEEK_SET);
+    fwrite(len_le, 1, 4, ff4_ss_file);
+    fclose(ff4_ss_file); ff4_ss_file = NULL;
+    printf("FF4: savestate saved, %d bytes -> %s\n", size, savePathName);
+    odroid_audio_mute(false);
+    return true;
+}
+
+static bool ff4_system_LoadState(char *savePathName) {
+    if (ff4_snes == NULL || savePathName == NULL) return false;
+    odroid_audio_mute(true);
+    ff4_ss_file = fopen(savePathName, "rb");
+    if (ff4_ss_file == NULL) {
+        printf("FF4: no savestate at %s\n", savePathName);
+        odroid_audio_mute(false);
+        return false;
+    }
+    fseek(ff4_ss_file, 0, SEEK_END);
+    long fsize = ftell(ff4_ss_file);
+    fseek(ff4_ss_file, 0, SEEK_SET);
+    ff4_ss_iopos = ff4_ss_ioend = 0;
+    static uint8_t dummy[16];   /* never read: the hook feeds every byte */
+    sh_set_readByte_hook(ff4_ss_read_hook);
+    bool ok = snes_loadState(ff4_snes, dummy, (int)fsize);
+    sh_set_readByte_hook(NULL);
+    fclose(ff4_ss_file); ff4_ss_file = NULL;
+    printf("FF4: savestate load %ld bytes -> %s\n", fsize, ok ? "OK" : "FAIL");
+    odroid_audio_mute(false);
+    return ok;
+}
+
+static void *ff4_system_Screenshot(void) {
+    lcd_clear_active_buffer();
+    ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
+    return lcd_get_active_buffer();
+}
+
+/* Runtime frameskip (pause-menu entry). Values 0/2/4/6 = render 1 frame
+ * in 1/3/5/7 -- the period MUST stay odd (see the FF4_FRAMESKIP comment
+ * above). 0 keeps the adaptive skip as the only skipper. */
+static int g_ff4_frameskip = FF4_FRAMESKIP;
+static char ff4_frameskip_value[16];
+static char ff4_swap_ab_value[16];
+
+static bool ff4_frameskip_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat) {
+    if (event == ODROID_DIALOG_PREV) g_ff4_frameskip = (g_ff4_frameskip + 6) % 8;
+    if (event == ODROID_DIALOG_NEXT) g_ff4_frameskip = (g_ff4_frameskip + 2) % 8;
+    if (g_ff4_frameskip == 0) strcpy(option->value, "off");
+    else sprintf(option->value, "1 in %d", g_ff4_frameskip + 1);
+    return event == ODROID_DIALOG_ENTER;
+}
+
+static bool ff4_swap_ab_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat) {
+    if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT)
+        ff4_swap_ab = !ff4_swap_ab;
+    strcpy(option->value, ff4_swap_ab ? "swapped" : "normal");
+    return event == ODROID_DIALOG_ENTER;
+}
 
 /* Called from inside LakeSnes's snes_runFrame loop every ~4096 opcodes
  * to keep the WWDG (≈237 ms window on this build) happy. Without this
@@ -253,14 +373,14 @@ static void ff4_dump_savestate_serial(void) {
 #endif
 
 int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
-    (void)load_state;
-    (void)start_paused;
-    (void)save_slot;
+    (void)start_paused;   /* our own pacer runs the loop; pause-at-start unsupported */
 
     printf("FF4 start (Phase 5.4 proof-of-life)\n");
     printf("=== FF4_BOOT_MARKER_2026_06_13_AUTOTEST ===\n");
 
     odroid_system_init(APPID_FF4, FF4_AUDIO_SAMPLE_RATE);
+    odroid_system_emu_init(&ff4_system_LoadState, &ff4_system_SaveState,
+                           &ff4_system_Screenshot, NULL, NULL, NULL);
 
     /* Boot volume. This loop never enters the common in-game overlay, so
      * the persisted volume level cannot be changed from inside FF4 -- if it
@@ -403,6 +523,11 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     uint32_t adaskip_run = 0;   /* consecutive skips since last rephase */
 #endif
 
+    /* Launcher-requested resume (autoboot passes load_state=1): restore
+     * the pause-menu savestate slot. A missing file is a clean no-op
+     * (ff4_system_LoadState returns false) and the game starts fresh. */
+    if (load_state) odroid_system_emu_load_state(save_slot);
+
     /* Start the SAI DMA loop with a length matching one frame worth of
      * mono samples. The DMA half-buffer callbacks toggle dma_state and
      * audio_get_active_buffer() returns the half we may safely write. */
@@ -414,11 +539,21 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 
         odroid_input_read_gamepad(&joystick);
 
-        /* Exit combo: SELECT+START returns to the launcher. */
-        if (joystick.values[ODROID_INPUT_SELECT]
-            && joystick.values[ODROID_INPUT_START]) {
-            printf("FF4: exit requested at frame %d\n", frame);
-            break;
+        /* Retro-go pause menu on PAUSE/SET: brightness, volume, save /
+         * load state, quit, plus the FF4 entries below. Replaces the old
+         * SELECT+START exit combo (TIME and GAME now carry SNES buttons).
+         * PAUSE/SET quick combos: A=save, B=load, arrows=volume/bright. */
+        {
+            odroid_dialog_choice_t options[] = {
+                {310, "Frameskip", ff4_frameskip_value, 1, &ff4_frameskip_cb},
+                {311, "A/B buttons", ff4_swap_ab_value, 1, &ff4_swap_ab_cb},
+                ODROID_DIALOG_CHOICE_LAST
+            };
+            void _repaint(void) {
+                ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
+                common_ingame_overlay();
+            }
+            common_emu_input_loop(&joystick, options, &_repaint);
         }
 
         ff4_pump_buttons(&joystick);
@@ -610,19 +745,18 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 #ifdef FF4_AUTOBOOT
         uint32_t d6_t0 = HAL_GetTick();
 #endif
-#if FF4_FRAMESKIP > 0
         /* Emulate the skipped frames of this batch (no rendering; see
          * the FF4_FRAMESKIP comment at the top). Audio is pulled only
          * on the rendered frame below -- fine while the SPC is stubbed;
-         * revisit the pacing when real sound lands. */
-        for (int fs = 0; fs < FF4_FRAMESKIP; fs++) {
+         * revisit the pacing when real sound lands. Runtime-tunable from
+         * the pause menu since 2026-07-14 (g_ff4_frameskip, 0 = off). */
+        for (int fs = 0; fs < g_ff4_frameskip; fs++) {
             ff4_ppu_render_enabled = 0;
             ff4_step();
             frame++;
             wdog_refresh();
         }
         ff4_ppu_render_enabled = 1;
-#endif
 #ifdef FF4_AUTOBOOT
         uint32_t d6_t1 = HAL_GetTick();
 #endif
@@ -720,7 +854,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             d6_emu_ms  += d6_t1 - d6_t0;
             d6_rend_ms += d6_t2 - d6_t1;
             d6_blit_ms += d6_t3 - d6_t2;
-            d6_frames  += FF4_FRAMESKIP + 1;
+            d6_frames  += g_ff4_frameskip + 1;
             if (d6_frames >= 300) {
                 uint32_t win_ms = d6_t3 - d6_win_start;
                 printf("=== FF4_DIAG_BUDGET_2026_07_08 === frames=%lu win_ms=%lu "
