@@ -302,18 +302,52 @@ void ff4_port_wdog_refresh(void) {
  * half-buffer before submission. */
 #define FF4_AUDIO_SAMPLE_RATE   48000
 #define FF4_AUDIO_FRAME_SAMPLES 800
+/* Deep DMA halves + an intermediate ring decouple audio production (one
+ * frame of samples per EMULATED frame, render-skipped ones included) from
+ * the loop's wall-clock jitter: a 30-50 ms rendered frame used to starve
+ * the previous one-frame-deep DMA buffer and crackle (title, mode-7
+ * intro, 2026-07-14). Halves of 3 frames absorb the bursts; the ring
+ * (10 frames) carries the backlog; a genuine sustained deficit (zone
+ * slower than real time) degrades to clean silence instead of garbage. */
+#define FF4_AUDIO_HALF_SAMPLES  (FF4_AUDIO_FRAME_SAMPLES * 3)
+#define FF4_AUDIO_RING_SAMPLES  (FF4_AUDIO_FRAME_SAMPLES * 10)
 
 static int16_t ff4_audio_stereo_scratch[FF4_AUDIO_FRAME_SAMPLES * 2];
+static int16_t ff4_audio_ring[FF4_AUDIO_RING_SAMPLES] __attribute__((section(".audio")));
+static uint32_t ff4_ring_head, ff4_ring_tail;   /* head=write, tail=read */
+
+static inline uint32_t ff4_ring_count(void) { return ff4_ring_head - ff4_ring_tail; }
 
 extern Snes *ff4_snes;
 extern void snes_setSamples(Snes *snes, int16_t *sampleData, int samplesPerFrame);
 
-static void ff4_sound_submit(void) {
-    if (common_emu_sound_loop_is_muted()) return;
+/* Producer: pull one emulated frame of DSP output, downmix to mono into
+ * the ring. Called after EVERY ff4_step -- render-skipped frames too
+ * (their audio exists; the old per-iteration submit dropped it). */
+static void ff4_sound_produce(void) {
+    if (ff4_snes == NULL || ff4_snes->apu == NULL) return;
+    snes_setSamples(ff4_snes, ff4_audio_stereo_scratch, FF4_AUDIO_FRAME_SAMPLES);
+    if (FF4_AUDIO_RING_SAMPLES - ff4_ring_count() < FF4_AUDIO_FRAME_SAMPLES)
+        return;   /* ring full (paused pacer backlog): drop, DMA is ahead anyway */
+    for (int i = 0; i < FF4_AUDIO_FRAME_SAMPLES; i++) {
+        int32_t mono = (int32_t)ff4_audio_stereo_scratch[i * 2]
+                     + (int32_t)ff4_audio_stereo_scratch[i * 2 + 1];
+        ff4_audio_ring[(ff4_ring_head++) % FF4_AUDIO_RING_SAMPLES] = (int16_t)(mono >> 1);
+    }
+}
+
+/* Consumer: on each DMA half flip, refill the freed half from the ring
+ * (volume applied here), zero-padding any shortfall -- silence, not the
+ * stale-buffer garbage loop the SAI used to replay on underrun. */
+static void ff4_sound_pump(void) {
+    static uint32_t last_flip;
+    uint32_t flips = *(volatile uint32_t *)&dma_counter;
+    if (flips == last_flip) return;
+    last_flip = flips;
 
     int16_t *dma_buf  = audio_get_active_buffer();
     uint16_t dma_len  = audio_get_buffer_length();
-    int16_t  vol      = common_emu_sound_get_volume();
+    int16_t  vol      = common_emu_sound_loop_is_muted() ? 0 : common_emu_sound_get_volume();
 
     /* Optional volume ceiling for noise-sensitive environments (e.g. a shared
      * office). Build with -DFF4_AUDIO_VOL_CAP_PCT=5 to hard-cap output at ~5%
@@ -330,16 +364,14 @@ static void ff4_sound_submit(void) {
     }
 #endif
 
-    /* Downmix stereo → mono with volume scaling. The LakeSnes DSP stores
-     * L, R interleaved at samplesPerFrame * 2 int16. */
-    uint16_t n = dma_len < FF4_AUDIO_FRAME_SAMPLES ? dma_len : FF4_AUDIO_FRAME_SAMPLES;
+    uint32_t avail = ff4_ring_count();
+    uint16_t n = (avail < dma_len) ? (uint16_t)avail : dma_len;
     for (uint16_t i = 0; i < n; i++) {
-        int32_t mono = (int32_t)ff4_audio_stereo_scratch[i * 2]
-                     + (int32_t)ff4_audio_stereo_scratch[i * 2 + 1];
-        mono >>= 1;
+        int32_t mono = ff4_audio_ring[(ff4_ring_tail++) % FF4_AUDIO_RING_SAMPLES];
         dma_buf[i] = (int16_t)((mono * vol) >> 8);
     }
-    /* Pad any remainder with silence so the SAI doesn't repeat stale data. */
+    /* Shortfall (emulation slower than real time over the ring window):
+     * clean silence instead of repeating stale samples. */
     for (uint16_t i = n; i < dma_len; i++) dma_buf[i] = 0;
 }
 
@@ -615,7 +647,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
      * mono samples. The DMA half-buffer callbacks toggle dma_state and
      * audio_get_active_buffer() returns the half we may safely write. */
     memset(ff4_audio_stereo_scratch, 0, sizeof(ff4_audio_stereo_scratch));
-    audio_start_playing(FF4_AUDIO_FRAME_SAMPLES);
+    audio_start_playing(FF4_AUDIO_HALF_SAMPLES);
 
     while (true) {
         wdog_refresh();
@@ -829,14 +861,15 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         uint32_t d6_t0 = HAL_GetTick();
 #endif
         /* Emulate the skipped frames of this batch (no rendering; see
-         * the FF4_FRAMESKIP comment at the top). Audio is pulled only
-         * on the rendered frame below -- fine while the SPC is stubbed;
-         * revisit the pacing when real sound lands. Runtime-tunable from
-         * the pause menu since 2026-07-14 (g_ff4_frameskip, 0 = off). */
+         * the FF4_FRAMESKIP comment at the top). Their audio is REAL
+         * emulated time: produce it into the ring (the pre-ring submit
+         * dropped it, which pitched the sound under frameskip).
+         * Runtime-tunable from the pause menu (g_ff4_frameskip, 0=off). */
         for (int fs = 0; fs < g_ff4_frameskip; fs++) {
             ff4_ppu_render_enabled = 0;
             ff4_step();
             frame++;
+            ff4_sound_produce();
             wdog_refresh();
         }
         ff4_ppu_render_enabled = 1;
@@ -849,15 +882,10 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         ff4_step();
         frame++;
 
-        /* Pull one frame worth of SPC/DSP samples (resampled to 48 kHz
-         * by dsp_getSamples) and copy into the active SAI half-buffer
-         * with mono downmix + volume scaling. */
-        if (ff4_snes != NULL && ff4_snes->apu != NULL) {
-            snes_setSamples(ff4_snes,
-                            ff4_audio_stereo_scratch,
-                            FF4_AUDIO_FRAME_SAMPLES);
-            ff4_sound_submit();
-        }
+        /* One emulated frame of DSP output into the ring, then refill any
+         * freed DMA half from it (see ff4_sound_produce/pump). */
+        ff4_sound_produce();
+        ff4_sound_pump();
 
 #ifdef FF4_AUTO_SAVESTATE_DUMP
         if (!ff4_savestate_dump_done

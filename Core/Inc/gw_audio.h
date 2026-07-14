@@ -12,7 +12,12 @@ extern DMA_HandleTypeDef hdma_sai1_a;
 // floor(313*3420/1008) = 1061 samples per frame (== GWENESIS_AUDIO_BUFFER_LENGTH_PAL),
 // so the SAI/DMA half-buffer must hold at least 1061 (full buffer = 1061*2 = 2122).
 // Use 1077 (== GWENESIS_AUDIO_BUFFER_CAPACITY) to match with a small margin.
-#define AUDIO_BUFFER_LENGTH (1077)
+/* 2026-07-14: enlarged for FF4's deep audio halves (3 frames of 800
+ * mono samples per half = 50 ms) -- burst-absorbing playback so a slow
+ * rendered frame no longer underruns the SAI (title / mode-7 crackle).
+ * Only the static array grows (AHB .audio); every port keeps requesting
+ * its own length via audio_start_playing. */
+#define AUDIO_BUFFER_LENGTH (2400)
 extern uint32_t audio_mute;
 
 typedef enum {
