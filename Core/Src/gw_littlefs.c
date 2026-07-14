@@ -432,8 +432,15 @@ int fs_write(fs_file_t *file, unsigned char *data, size_t size){
                     sizeof(output_buffer),
                     &chunk_output_written_size
                     ));
-            // TODO: better error-handling if the disk is full.
-            assert(chunk_output_written_size == lfs_file_write(&lfs, file, output_buffer, chunk_output_written_size));
+            /* Disk-full is an expected runtime condition (savestates),
+             * not an assertable invariant: propagate the short write so
+             * the caller can unlink the partial file and surface a
+             * graceful failure instead of the fatal-assert blue screen. */
+            {
+                lfs_ssize_t w = lfs_file_write(&lfs, file, output_buffer, chunk_output_written_size);
+                if (w < 0 || (size_t)w != chunk_output_written_size)
+                    return (w < 0) ? (int)w : LFS_ERR_NOSPC;
+            }
         }
     }
     // Note: we really return the number of consumed bytes, not the number of

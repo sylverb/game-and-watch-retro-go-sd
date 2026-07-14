@@ -158,11 +158,15 @@ $(error EXTFLASH_OFFSET + EXTFLASH_SIZE must be a power of two (bytes). \
 endif
 endif
 
-# Heuristic: if not set; 10% of your extflash should be good for filesystem.
-# Rounded down to the nearest 4096.
+# FF4-focused fork: the internal LittleFS holds TAMP-compressed FF4
+# savestates (~68 KB = 17 blocks each) NEXT TO the per-system save dirs
+# the image pre-creates (~19 dirs x 2 metadata blocks). The historic 10%
+# heuristic (408 KB on the 4 MB layout) fit only three slots -- the
+# fourth died in LFS_ERR_NOSPC (2026-07-14). Fixed default: 768 KB.
+# The environment override still wins.
 FILESYSTEM_SIZE := $(shell \
 					if [ -z "$$FILESYSTEM_SIZE" ]; then \
-						echo $$(($(EXTFLASH_SIZE) / 10 / 4096 * 4096)); \
+						echo 786432; \
 					else \
 						echo $$FILESYSTEM_SIZE; \
 					fi)
@@ -643,6 +647,7 @@ $(if $(filter 1,$(FF4_FORCE_DISPLAY_ON)),-DFF4_FORCE_DISPLAY_ON=1,) \
 $(if $(filter 1,$(FF4_AUTO_SAVESTATE_DUMP)),-DFF4_AUTO_SAVESTATE_DUMP=1,) \
 $(if $(FF4_AUDIO_VOL_CAP_PCT),-DFF4_AUDIO_VOL_CAP_PCT=$(FF4_AUDIO_VOL_CAP_PCT),) \
 $(if $(FF4_AUDIO_BOOT_VOLUME_LEVEL),-DFF4_AUDIO_BOOT_VOLUME_LEVEL=$(FF4_AUDIO_BOOT_VOLUME_LEVEL),) \
+$(if $(FF4_ML_LAYER),-DFF4_ML_LAYER=$(FF4_ML_LAYER),) \
 -DCHEAT_CODES=$(CHEAT_CODES) \
 -DDISABLE_SPLASH_SCREEN=$(DISABLE_SPLASH_SCREEN) \
 -DENABLE_BOOT_OC=$(ENABLE_BOOT_OC) \
