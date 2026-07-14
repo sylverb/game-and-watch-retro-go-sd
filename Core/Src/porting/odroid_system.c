@@ -21,6 +21,13 @@ static runtime_stats_t statistics;
 static runtime_counters_t counters;
 static uint skip;
 
+/* Ports whose savestate nearly fills the internal LittleFS (FF4: ~270 KB
+ * of a ~408 KB filesystem) can opt out of the per-slot companion
+ * screenshot (320x240x2 = 150 KB) that would otherwise blow the "no more
+ * free space" error screen on every save. Default keeps the screenshot
+ * for every other port. */
+bool odroid_system_disable_save_screenshot = false;
+
 static sleep_pre_sleep_hook_t pre_sleep_hook = NULL;
 
 #define TURBOS_SPEED 10
@@ -396,7 +403,7 @@ bool odroid_system_emu_save_state(int slot)
 
     bool success = (*currentApp.handlers.saveState)(filename);
 
-    if ((success) && (slot >= 0))
+    if ((success) && (slot >= 0) && !odroid_system_disable_save_screenshot)
     {
         char screenshot_path[RG_PATH_MAX];
         odroid_system_get_path_to_buf(ODROID_PATH_SCREENSHOT + slot, currentApp.romPath, screenshot_path, sizeof(screenshot_path));

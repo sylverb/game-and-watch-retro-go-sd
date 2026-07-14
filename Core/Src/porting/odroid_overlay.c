@@ -1258,6 +1258,10 @@ static bool turbo_buttons_update_cb(odroid_dialog_choice_t *option, odroid_dialo
     return event == ODROID_DIALOG_ENTER;
 }
 
+/* See odroid_overlay.h: ports whose blit/pacing make these entries
+ * inert (FF4) hide them; default keeps the historic menu. */
+bool odroid_overlay_hide_common_game_options = false;
+
 int odroid_overlay_settings_menu(odroid_dialog_choice_t *extra_options, void_callback_t repaint, odroid_menu_flags_t flags)
 {
     static char bright_value[25];
@@ -1271,6 +1275,10 @@ int odroid_overlay_settings_menu(odroid_dialog_choice_t *extra_options, void_cal
 
         ODROID_DIALOG_CHOICE_LAST, //
     };
+    if (odroid_overlay_hide_common_game_options) {
+        /* Drop the Turbo entry: terminate the base list right after Volume. */
+        options[2] = options[3];
+    }
 
     if (extra_options)
     {
@@ -1344,6 +1352,11 @@ odroid_overlay_game_settings_menu(odroid_dialog_choice_t *extra_options, void_ca
 
         ODROID_DIALOG_CHOICE_LAST,
     };
+    if (odroid_overlay_hide_common_game_options) {
+        /* Scaling/Filtering/Speed are inert for this port: pass only the
+         * port's own extra options through. */
+        options[0] = options[4];
+    }
 
     if (extra_options)
     {

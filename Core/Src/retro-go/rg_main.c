@@ -1074,7 +1074,10 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
     SystemClock_Config(oc);
 
 #ifdef FF4_AUTOBOOT
-    if (!force_launcher && file == NULL) {
+    /* Autoboot only on a cold/warm boot. A HOT boot means an emulator
+     * just exited through the pause menu's quit entry -- honour it and
+     * fall through to the launcher (FF4 stays one click away). */
+    if (!force_launcher && file == NULL && boot_mode != BOOT_MODE_HOT) {
         printf("=== FF4_AUTOBOOT_ATTEMPT_2026_06_13 ===\n");
         static char ff4_autoboot_path[] = "/roms/homebrew/Final Fantasy IV.bin";
         file = emulator_get_file(ff4_autoboot_path);

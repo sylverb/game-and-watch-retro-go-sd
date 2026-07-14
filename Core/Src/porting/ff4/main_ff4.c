@@ -56,6 +56,9 @@ extern int  ff4_ppu_render_enabled;   /* frameskip hook (ff4/snes/ppu.c) */
 #endif
 
 #include <string.h>
+#include <stdlib.h>
+#include <time.h>
+#include "rg_rtc.h"
 #include "snes/snes.h"
 #include "snes/cpu.h"
 #include "snes/ppu.h"
@@ -218,18 +221,24 @@ static void *ff4_system_Screenshot(void) {
     return lcd_get_active_buffer();
 }
 
-/* Runtime frameskip (pause-menu entry). Values 0/2/4/6 = render 1 frame
- * in 1/3/5/7 -- the period MUST stay odd (see the FF4_FRAMESKIP comment
- * above). 0 keeps the adaptive skip as the only skipper. */
+/* Render-skip mode (pause-menu entry). "adaptive" is the shipped v1
+ * controller (skip at most every other render when the pacer falls
+ * behind); "off" renders every frame; the fixed choices force an odd
+ * render period (see the FF4_FRAMESKIP comment above) and disable the
+ * adaptive controller. */
+enum { FF4_SKIP_ADAPTIVE = 0, FF4_SKIP_OFF, FF4_SKIP_1IN3, FF4_SKIP_1IN5, FF4_SKIP_1IN7 };
+static int g_ff4_skip_sel = FF4_SKIP_ADAPTIVE;
 static int g_ff4_frameskip = FF4_FRAMESKIP;
 static char ff4_frameskip_value[16];
 static char ff4_swap_ab_value[16];
 
 static bool ff4_frameskip_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat) {
-    if (event == ODROID_DIALOG_PREV) g_ff4_frameskip = (g_ff4_frameskip + 6) % 8;
-    if (event == ODROID_DIALOG_NEXT) g_ff4_frameskip = (g_ff4_frameskip + 2) % 8;
-    if (g_ff4_frameskip == 0) strcpy(option->value, "off");
-    else sprintf(option->value, "1 in %d", g_ff4_frameskip + 1);
+    static const char *names[] = {"adaptive", "off", "1 in 3", "1 in 5", "1 in 7"};
+    static const int   skips[] = {0, 0, 2, 4, 6};
+    if (event == ODROID_DIALOG_PREV) g_ff4_skip_sel = (g_ff4_skip_sel + 4) % 5;
+    if (event == ODROID_DIALOG_NEXT) g_ff4_skip_sel = (g_ff4_skip_sel + 1) % 5;
+    g_ff4_frameskip = skips[g_ff4_skip_sel];
+    strcpy(option->value, names[g_ff4_skip_sel]);
     return event == ODROID_DIALOG_ENTER;
 }
 
@@ -381,6 +390,41 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     odroid_system_init(APPID_FF4, FF4_AUDIO_SAMPLE_RATE);
     odroid_system_emu_init(&ff4_system_LoadState, &ff4_system_SaveState,
                            &ff4_system_Screenshot, NULL, NULL, NULL);
+
+    /* Flags defined in odroid_system.c / odroid_overlay.c (declared here
+     * rather than in the retro-go-stm32 submodule headers, which stay
+     * pristine). */
+    extern bool odroid_system_disable_save_screenshot;
+    extern bool odroid_overlay_hide_common_game_options;
+
+    /* FF4 frontend tuning: no per-slot companion screenshot (the ~270 KB
+     * state nearly fills the ~408 KB LittleFS -- the extra 150 KB write
+     * blew a "no more free space" error screen on every save), and no
+     * Turbo/Scaling/Filtering/Speed menu entries (inert here: this port
+     * drives its own blit and its own pacer). */
+    odroid_system_disable_save_screenshot = true;
+    odroid_overlay_hide_common_game_options = true;
+
+    /* Seed the RTC from the build timestamp when it was never set --
+     * savestate timestamps read 01/01/1970 otherwise. The launcher's
+     * time dialog stays the proper way to actually set it. */
+    {
+        struct tm tm;
+        GW_GetUnixTM(&tm);
+        if (tm.tm_year < (2024 - 1900)) {
+            static const char mon[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+            const char ms[4] = {__DATE__[0], __DATE__[1], __DATE__[2], 0};
+            const char *hit = strstr(mon, ms);
+            tm.tm_mon  = hit ? (int)((hit - mon) / 3) : 0;
+            tm.tm_mday = atoi(__DATE__ + 4);
+            tm.tm_year = atoi(__DATE__ + 7) - 1900;
+            tm.tm_hour = atoi(__TIME__);
+            tm.tm_min  = atoi(__TIME__ + 3);
+            tm.tm_sec  = atoi(__TIME__ + 6);
+            GW_SetUnixTM(&tm);
+            printf("FF4: RTC seeded from build time %s %s\n", __DATE__, __TIME__);
+        }
+    }
 
     /* Boot volume. This loop never enters the common in-game overlay, so
      * the persisted volume level cannot be changed from inside FF4 -- if it
@@ -788,15 +832,13 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
 #ifdef FF4_AUTOBOOT
         uint32_t d6_t2 = HAL_GetTick();
 #endif
-#if !defined(FF4_AUTO_WALK) && FF4_ADAPTIVE_SKIP
-        if (!adaskip_this) {
-            ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
-            lcd_swap();
-        }
-#else
+        /* Blit + swap EVERY frame, including render-skipped ones: the PPU
+         * pixelBuffer persists the last rendered game frame, so this only
+         * costs the ~0.4 ms blit -- and it purges pause-menu remnants from
+         * both LCD buffers within two swaps (they flickered against game
+         * frames when skipped frames left a stale buffer on screen). */
         ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
         lcd_swap();
-#endif
 
 #ifndef FF4_AUTO_WALK
         /* 60 Hz pacer. With the overclock the emulator outruns real time
@@ -819,7 +861,8 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
              * frames so the pattern's parity slips. */
             adaskip_prev = adaskip_this;
             adaskip_this = 0;
-            if (!adaskip_prev && (int32_t)(now - due) > FF4_ADASKIP_BEHIND_MS) {
+            if (g_ff4_skip_sel == FF4_SKIP_ADAPTIVE
+                && !adaskip_prev && (int32_t)(now - due) > FF4_ADASKIP_BEHIND_MS) {
                 if (adaskip_run >= 16) { adaskip_run = 0; /* rephase: render */ }
                 else { adaskip_this = 1; adaskip_run++; g_adaskip_skipped++; }
             }
