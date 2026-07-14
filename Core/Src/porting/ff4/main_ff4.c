@@ -933,7 +933,16 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             static uint32_t pace_thirds;
             static uint32_t pace_base;
             if (pace_base == 0) { pace_base = HAL_GetTick(); pace_thirds = 0; }
-            pace_thirds += 50;
+            /* One loop iteration emulates (g_ff4_frameskip + 1) SNES frames
+             * (the fixed-frameskip batch), so the 60 Hz pacer must advance
+             * by that many NTSC periods -- not one. With the old "+= 50" the
+             * pacer under-counted the batch, the game clock ran (N+1)x fast
+             * and the audio ring received (N+1)x the samples the DMA drained
+             * per 16.67 ms, overflowing it -- dropped samples were the
+             * "chunks missing" the fixed 1/3, 1/5, 1/7 modes produced
+             * (2026-07-14). Adaptive skip keeps g_ff4_frameskip = 0 (one
+             * emulated frame per iteration), so this is unchanged there. */
+            pace_thirds += 50u * (uint32_t)(g_ff4_frameskip + 1);
             const uint32_t due = pace_base + pace_thirds / 3;
             uint32_t now = HAL_GetTick();
 #if FF4_ADAPTIVE_SKIP
