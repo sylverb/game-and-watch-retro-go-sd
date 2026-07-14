@@ -329,6 +329,7 @@ fs_file_t *fs_open(const char *path, bool write_mode, bool use_compression){
     }
 
     tamp_is_compressing = write_mode;
+    fs_read_reset_pushback();
 
     if(use_compression){
         // TODO: initialize tamp; it's globally already been reserved.
@@ -440,42 +441,62 @@ int fs_write(fs_file_t *file, unsigned char *data, size_t size){
     return output_written_size;
 }
 
+/* Streaming-safe decompressing read. The original loop asserted that
+ * every byte fed to the decompressor was consumed, which only holds
+ * when a single fs_read drains the whole stream into a large-enough
+ * buffer (the historic single-shot usage). Partial reads -- FF4 streams
+ * its compressed savestates through a 512-byte window, and pre-reads a
+ * 12-byte header -- hit TAMP_OUTPUT_FULL mid-symbol with the input byte
+ * unconsumed and died on the assert (first seen 2026-07-14). The byte
+ * now survives in a one-byte pushback across calls; fs_open resets it. */
+static unsigned char tamp_read_pending_byte;
+static bool tamp_read_has_pending;
+
+void fs_read_reset_pushback(void){
+    tamp_read_has_pending = false;
+}
+
 int fs_read(fs_file_t *file, unsigned char *buffer, size_t size){
     if(!file_is_using_compression(file))
         return lfs_file_read(&lfs, file, buffer, size);
 
-    tamp_res res;
     int output_written_size = 0;
-    size_t input_chunk_consumed_size = 0;
-    size_t output_chunk_written_size;
-    int read_size = 0;
-    unsigned char input_byte;
     bool file_exhausted = false;
 
-    while(true){
-        res = tamp_decompressor_decompress(
+    while(size > 0){
+        unsigned char input_byte = 0;
+        int in_count;
+        if(tamp_read_has_pending){
+            input_byte = tamp_read_pending_byte;
+            in_count = 1;
+        } else {
+            int r = lfs_file_read(&lfs, file, &input_byte, 1);
+            if(r < 0) return r;
+            in_count = r;
+            file_exhausted = (r == 0);
+        }
+
+        size_t out_written = 0, in_consumed = 0;
+        tamp_res res = tamp_decompressor_decompress(
                 &tamp_engine.d,
                 buffer,
                 size,
-                &output_chunk_written_size,
+                &out_written,
                 &input_byte,
-                read_size,
-                &input_chunk_consumed_size
+                in_count,
+                &in_consumed
                 );
         assert(res >= TAMP_OK);  // i.e. an "ok" result
-        assert(input_chunk_consumed_size == read_size);
-                                 
-        output_written_size += output_chunk_written_size;
-        buffer += output_chunk_written_size;
-        size -= output_chunk_written_size;
 
-        if(res == TAMP_OUTPUT_FULL)
-            break;
-        if(res == TAMP_INPUT_EXHAUSTED && file_exhausted)
-            break;
+        tamp_read_has_pending = (in_count == 1 && in_consumed == 0);
+        if(tamp_read_has_pending) tamp_read_pending_byte = input_byte;
 
-        read_size = lfs_file_read(&lfs, file, &input_byte, 1);
-        file_exhausted = read_size == 0;
+        output_written_size += out_written;
+        buffer += out_written;
+        size -= out_written;
+
+        if(res == TAMP_INPUT_EXHAUSTED && file_exhausted && !tamp_read_has_pending)
+            break;   /* end of stream: short read */
     }
     return output_written_size;
 }
