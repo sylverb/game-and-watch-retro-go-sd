@@ -66,6 +66,18 @@ extern int  ff4_ppu_render_enabled;   /* frameskip hook (ff4/snes/ppu.c) */
 #include "snes/statehandler.h"
 extern Snes *ff4_snes;
 
+/* Synthetic A-press window, shared by FF4_AUTO_SAVESTATE_DUMP and the
+ * metrology-only FF4_AUTO_A (drives the title -> mode-7 intro without a
+ * human). Overridable from the make command line. */
+#ifndef FF4_AUTO_A_START
+#define FF4_AUTO_A_START 50
+#endif
+#ifndef FF4_AUTO_A_END
+#define FF4_AUTO_A_END   250
+#endif
+static const uint32_t FF4_AUTO_A_PRESS_START   = FF4_AUTO_A_START;
+static const uint32_t FF4_AUTO_A_PRESS_END     = FF4_AUTO_A_END;
+
 #ifdef FF4_AUTOBOOT
 /* D3 + D4 + D5 shared state. D1/D2 are stateless. */
 static uint32_t g_diag_host_frame = 0;
@@ -404,8 +416,9 @@ static int      ff4_savestate_dump_done = 0;
  * "press A to advance" prompt should fire. Then capture at frame 600 so
  * the resulting savestate is well into the post-A sequence. */
 static const uint32_t FF4_SAVESTATE_DUMP_FRAME = 600;
-static const uint32_t FF4_AUTO_A_PRESS_START   = 50;
-static const uint32_t FF4_AUTO_A_PRESS_END     = 250;
+/* Overridable so metrology builds (FF4_AUTO_A, no savestate dump) can
+ * hold A across whatever window drives the scene under measurement. */
+/* FF4_AUTO_A_PRESS_* now live outside this guard (metrology reuse) */
 
 static void ff4_savestate_flush_line(void) {
     if (ff4_savestate_line_off == 0) return;
@@ -811,11 +824,12 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
         }
 #endif
 
-#ifdef FF4_AUTO_SAVESTATE_DUMP
+#if defined(FF4_AUTO_SAVESTATE_DUMP) || defined(FF4_AUTO_A)
         /* Hold A synthetically across [START, END). Must come AFTER
          * ff4_pump_buttons (which sets A=0 from the unpressed joystick)
          * and BEFORE ff4_step (which is where the SNES auto-joypad reads
-         * input->currentState during its emulated VBlank). */
+         * input->currentState during its emulated VBlank). FF4_AUTO_A =
+         * metrology-only variant (no serial savestate dump). */
         if ((uint32_t)frame >= FF4_AUTO_A_PRESS_START
             && (uint32_t)frame < FF4_AUTO_A_PRESS_END) {
             ff4_set_button(1, SNES_BTN_A, true);
@@ -979,11 +993,15 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
                  * input, so the same block index is the same workload on
                  * every firmware: A/B compares ring entries, immune to
                  * the +/-1.5 fps wall-clock window alignment noise. */
-                if (g_d6_blocks < D6R_SLOTS) {
-                    g_d6_ring[g_d6_blocks].win_ms  = win_ms;
-                    g_d6_ring[g_d6_blocks].emu_ms  = d6_emu_ms;
-                    g_d6_ring[g_d6_blocks].rend_ms = d6_rend_ms;
-                    g_d6_ring[g_d6_blocks].blit_ms = d6_blit_ms;
+                /* Circular since 2026-07-14: keep the LAST 24 blocks so a
+                 * snapshot taken DURING a zone of interest captures it (the
+                 * first-24 policy lost everything past 2 minutes of game). */
+                {
+                    D6RBlock *slot = &g_d6_ring[g_d6_blocks % D6R_SLOTS];
+                    slot->win_ms  = win_ms;
+                    slot->emu_ms  = d6_emu_ms;
+                    slot->rend_ms = d6_rend_ms;
+                    slot->blit_ms = d6_blit_ms;
                 }
                 g_d6_blocks++;
                 d6_emu_ms = d6_rend_ms = d6_blit_ms = 0;
