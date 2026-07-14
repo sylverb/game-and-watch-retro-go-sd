@@ -52,7 +52,11 @@ static int8_t file_index_using_compression = -1;  //negative value indicates tha
 
 #define TAMP_WINDOW_BUFFER_BITS 10  // 1KB
 // TODO: if we want to save RAM, we could reuse the inactive lcd frame buffer.
-static unsigned char tamp_window_buffer[1 << TAMP_WINDOW_BUFFER_BITS];
+/* FF4's compressed savestates made TAMP live code: its 1 KB window no
+ * longer fits the DTCM budget (272 B short at link). The window is only
+ * touched during save/load streaming, so the uncached AHB region is
+ * fine; tamp_*_init fills it, NOLOAD zero-init is not required. */
+static unsigned char tamp_window_buffer[1 << TAMP_WINDOW_BUFFER_BITS] __attribute__((section(".ahb")));
 typedef union{
     TampDecompressor d;
     TampCompressor c;

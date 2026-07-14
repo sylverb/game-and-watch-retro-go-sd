@@ -133,37 +133,36 @@ static void ff4_pump_buttons(const odroid_gamepad_state_t *js) {
 
 #include "gw_lcd.h"
 #include "gw_audio.h"
+#include "gw_littlefs.h"
 #include "porting/common.h"
 
 /* ── retro-go pause-menu integration (savestates / screenshot) ─────────
- * Savestates stream through the statehandler byte hooks and a 512-byte
- * window: the ~270 KB state never exists contiguously in RAM. The
- * LittleFS filesystem (~408 KB) holds one slot. On save, the header's
- * length field (bytes 8..11, patched in-buffer by sh_placeInt AFTER the
- * stream already went out) is re-patched into the file with fseek --
- * without it snes_loadState's `length != size` check rejects the file. */
-static FILE   *ff4_ss_file;
-static uint8_t ff4_ss_iobuf[512];
-static int     ff4_ss_iolen;   /* write side: bytes buffered */
-static int     ff4_ss_iopos, ff4_ss_ioend;   /* read side: window cursor */
-
-static uint32_t ff4_ss_expected_size;   /* from the sizing pass */
+ * Savestates stream through the statehandler byte hooks, a 512-byte
+ * window and the gw_littlefs TAMP layer (FS_COMPRESS): the ~270 KB raw
+ * state compresses ~4:1 (the stubbed 64 KB ARAM is near-empty, WRAM is
+ * highly structured -- 67.7 KB measured on a real save), so all four
+ * pause-menu slots fit the ~408 KB LittleFS. Uncompressed, a single
+ * slot ate 67 of the 100 blocks and every second save died in
+ * LFS_ERR_NOSPC (first multi-slot test, 2026-07-14). The header length
+ * field (bytes 8..11) is injected in flight from a sizing pass -- see
+ * the write hook; a post-stream fseek would CTZ-rewrite the whole file. */
+static fs_file_t *ff4_ss_file;
+static uint8_t  ff4_ss_iobuf[512];
+static int      ff4_ss_iolen;    /* write side: bytes buffered */
+static int      ff4_ss_iopos, ff4_ss_ioend;  /* read side: window cursor */
+static bool     ff4_ss_werr;     /* write side: any fs_write failure */
+static uint32_t ff4_ss_expected_size;        /* from the sizing pass */
 static uint32_t ff4_ss_wroff;
 
 static void ff4_ss_write_hook(uint8_t byte) {
-    /* Inject the total size (known from the sizing pass) into the header
-     * length field AS IT STREAMS PAST (bytes 8..11, little-endian).
-     * Patching it afterwards with fseek looked cheaper but blew the
-     * filesystem: LittleFS files are CTZ skip-lists, so rewriting the
-     * FIRST block copy-on-writes the whole chain -- 2x the file's ~67
-     * blocks against the 100 available ("no more free space" on every
-     * save, first on-device test 2026-07-14). */
     const uint32_t off = ff4_ss_wroff++;
     if (off >= 8 && off < 12)
         byte = (uint8_t)(ff4_ss_expected_size >> (8 * (off - 8)));
     ff4_ss_iobuf[ff4_ss_iolen++] = byte;
     if (ff4_ss_iolen == (int)sizeof(ff4_ss_iobuf)) {
-        if (ff4_ss_file) fwrite(ff4_ss_iobuf, 1, sizeof(ff4_ss_iobuf), ff4_ss_file);
+        if (ff4_ss_file && !ff4_ss_werr
+            && fs_write(ff4_ss_file, ff4_ss_iobuf, sizeof(ff4_ss_iobuf)) < 0)
+            ff4_ss_werr = true;
         ff4_ss_iolen = 0;
         wdog_refresh();
     }
@@ -172,7 +171,7 @@ static void ff4_ss_write_hook(uint8_t byte) {
 static uint8_t ff4_ss_read_hook(void) {
     if (ff4_ss_iopos >= ff4_ss_ioend) {
         ff4_ss_ioend = ff4_ss_file
-            ? (int)fread(ff4_ss_iobuf, 1, sizeof(ff4_ss_iobuf), ff4_ss_file) : 0;
+            ? fs_read(ff4_ss_file, ff4_ss_iobuf, sizeof(ff4_ss_iobuf)) : 0;
         ff4_ss_iopos = 0;
         wdog_refresh();
         if (ff4_ss_ioend <= 0) return 0;   /* short file: statehandler gets zeros */
@@ -183,8 +182,6 @@ static uint8_t ff4_ss_read_hook(void) {
 static bool ff4_system_SaveState(char *savePathName) {
     if (ff4_snes == NULL) return false;
     odroid_audio_mute(true);
-    ff4_ss_file = fopen(savePathName, "wb");
-    if (ff4_ss_file == NULL) { odroid_audio_mute(false); return false; }
     /* Tiny scratch: the hooks capture every byte; the statehandler
      * silently drops the overflow past the external buffer. */
     static uint8_t scratch[64];
@@ -192,21 +189,30 @@ static bool ff4_system_SaveState(char *savePathName) {
      * deterministic and the game is paused, so pass 2 streams the exact
      * same bytes. */
     int size = snes_saveStateInto(ff4_snes, scratch, (int)sizeof(scratch));
-    /* Pass 2 -- stream to the file with the length injected in flight. */
+    ff4_ss_file = fs_open(savePathName, FS_WRITE, FS_COMPRESS);
+    if (ff4_ss_file == NULL) { odroid_audio_mute(false); return false; }
+    /* Pass 2 -- stream through TAMP with the length injected in flight. */
     ff4_ss_expected_size = (uint32_t)size;
     ff4_ss_wroff = 0;
     ff4_ss_iolen = 0;
+    ff4_ss_werr = false;
     sh_set_writeByte_hook(ff4_ss_write_hook);
     int size2 = snes_saveStateInto(ff4_snes, scratch, (int)sizeof(scratch));
     sh_set_writeByte_hook(NULL);
-    if (ff4_ss_iolen > 0) fwrite(ff4_ss_iobuf, 1, ff4_ss_iolen, ff4_ss_file);
-    fclose(ff4_ss_file); ff4_ss_file = NULL;
-    if (size2 != size) {
-        printf("FF4: savestate size drift %d != %d -- state NOT trusted\n", size2, size);
+    if (ff4_ss_iolen > 0 && !ff4_ss_werr
+        && fs_write(ff4_ss_file, ff4_ss_iobuf, ff4_ss_iolen) < 0)
+        ff4_ss_werr = true;
+    fs_close(ff4_ss_file); ff4_ss_file = NULL;
+    if (ff4_ss_werr || size2 != size) {
+        /* Do not leave a partial file squatting blocks: it reads as a
+         * plausible slot in the menu and starves later saves. */
+        unlink(savePathName);
+        printf("FF4: savestate write FAILED (%s) -- slot removed\n",
+               ff4_ss_werr ? "fs_write" : "size drift");
         odroid_audio_mute(false);
         return false;
     }
-    printf("FF4: savestate saved, %d bytes -> %s\n", size, savePathName);
+    printf("FF4: savestate saved, %d bytes raw -> %s\n", size, savePathName);
     odroid_audio_mute(false);
     return true;
 }
@@ -214,22 +220,36 @@ static bool ff4_system_SaveState(char *savePathName) {
 static bool ff4_system_LoadState(char *savePathName) {
     if (ff4_snes == NULL || savePathName == NULL) return false;
     odroid_audio_mute(true);
-    ff4_ss_file = fopen(savePathName, "rb");
+    /* Header pre-read: the LSSF length field (bytes 8..11) carries the
+     * RAW size snes_loadState validates against -- the compressed file
+     * size is meaningless for that check. The decompressor cannot seek,
+     * so close and reopen to restart the stream. */
+    ff4_ss_file = fs_open(savePathName, FS_READ, FS_COMPRESS);
     if (ff4_ss_file == NULL) {
         printf("FF4: no savestate at %s\n", savePathName);
         odroid_audio_mute(false);
         return false;
     }
-    fseek(ff4_ss_file, 0, SEEK_END);
-    long fsize = ftell(ff4_ss_file);
-    fseek(ff4_ss_file, 0, SEEK_SET);
+    uint8_t hdr[12];
+    int got = fs_read(ff4_ss_file, hdr, sizeof(hdr));
+    uint32_t raw_size = (uint32_t)hdr[8] | ((uint32_t)hdr[9] << 8)
+                      | ((uint32_t)hdr[10] << 16) | ((uint32_t)hdr[11] << 24);
+    fs_close(ff4_ss_file); ff4_ss_file = NULL;
+    if (got != (int)sizeof(hdr) || memcmp(hdr, "LSSF", 4) != 0 || raw_size == 0) {
+        printf("FF4: savestate header invalid at %s\n", savePathName);
+        odroid_audio_mute(false);
+        return false;
+    }
+    ff4_ss_file = fs_open(savePathName, FS_READ, FS_COMPRESS);
+    if (ff4_ss_file == NULL) { odroid_audio_mute(false); return false; }
     ff4_ss_iopos = ff4_ss_ioend = 0;
     static uint8_t dummy[16];   /* never read: the hook feeds every byte */
     sh_set_readByte_hook(ff4_ss_read_hook);
-    bool ok = snes_loadState(ff4_snes, dummy, (int)fsize);
+    bool ok = snes_loadState(ff4_snes, dummy, (int)raw_size);
     sh_set_readByte_hook(NULL);
-    fclose(ff4_ss_file); ff4_ss_file = NULL;
-    printf("FF4: savestate load %ld bytes -> %s\n", fsize, ok ? "OK" : "FAIL");
+    fs_close(ff4_ss_file); ff4_ss_file = NULL;
+    printf("FF4: savestate load %lu raw bytes -> %s\n",
+           (unsigned long)raw_size, ok ? "OK" : "FAIL");
     odroid_audio_mute(false);
     return ok;
 }
