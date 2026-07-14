@@ -147,7 +147,20 @@ static uint8_t ff4_ss_iobuf[512];
 static int     ff4_ss_iolen;   /* write side: bytes buffered */
 static int     ff4_ss_iopos, ff4_ss_ioend;   /* read side: window cursor */
 
+static uint32_t ff4_ss_expected_size;   /* from the sizing pass */
+static uint32_t ff4_ss_wroff;
+
 static void ff4_ss_write_hook(uint8_t byte) {
+    /* Inject the total size (known from the sizing pass) into the header
+     * length field AS IT STREAMS PAST (bytes 8..11, little-endian).
+     * Patching it afterwards with fseek looked cheaper but blew the
+     * filesystem: LittleFS files are CTZ skip-lists, so rewriting the
+     * FIRST block copy-on-writes the whole chain -- 2x the file's ~67
+     * blocks against the 100 available ("no more free space" on every
+     * save, first on-device test 2026-07-14). */
+    const uint32_t off = ff4_ss_wroff++;
+    if (off >= 8 && off < 12)
+        byte = (uint8_t)(ff4_ss_expected_size >> (8 * (off - 8)));
     ff4_ss_iobuf[ff4_ss_iolen++] = byte;
     if (ff4_ss_iolen == (int)sizeof(ff4_ss_iobuf)) {
         if (ff4_ss_file) fwrite(ff4_ss_iobuf, 1, sizeof(ff4_ss_iobuf), ff4_ss_file);
@@ -172,21 +185,27 @@ static bool ff4_system_SaveState(char *savePathName) {
     odroid_audio_mute(true);
     ff4_ss_file = fopen(savePathName, "wb");
     if (ff4_ss_file == NULL) { odroid_audio_mute(false); return false; }
-    ff4_ss_iolen = 0;
-    /* Tiny scratch: the hook captures every byte; the statehandler
+    /* Tiny scratch: the hooks capture every byte; the statehandler
      * silently drops the overflow past the external buffer. */
     static uint8_t scratch[64];
-    sh_set_writeByte_hook(ff4_ss_write_hook);
+    /* Pass 1 -- sizing only (no hook, no file): serialization is
+     * deterministic and the game is paused, so pass 2 streams the exact
+     * same bytes. */
     int size = snes_saveStateInto(ff4_snes, scratch, (int)sizeof(scratch));
+    /* Pass 2 -- stream to the file with the length injected in flight. */
+    ff4_ss_expected_size = (uint32_t)size;
+    ff4_ss_wroff = 0;
+    ff4_ss_iolen = 0;
+    sh_set_writeByte_hook(ff4_ss_write_hook);
+    int size2 = snes_saveStateInto(ff4_snes, scratch, (int)sizeof(scratch));
     sh_set_writeByte_hook(NULL);
     if (ff4_ss_iolen > 0) fwrite(ff4_ss_iobuf, 1, ff4_ss_iolen, ff4_ss_file);
-    /* Re-patch the length field the in-buffer sh_placeInt could not
-     * reach (little-endian u32 at offset 8). */
-    uint8_t len_le[4] = { (uint8_t)size, (uint8_t)(size >> 8),
-                          (uint8_t)(size >> 16), (uint8_t)(size >> 24) };
-    fseek(ff4_ss_file, 8, SEEK_SET);
-    fwrite(len_le, 1, 4, ff4_ss_file);
     fclose(ff4_ss_file); ff4_ss_file = NULL;
+    if (size2 != size) {
+        printf("FF4: savestate size drift %d != %d -- state NOT trusted\n", size2, size);
+        odroid_audio_mute(false);
+        return false;
+    }
     printf("FF4: savestate saved, %d bytes -> %s\n", size, savePathName);
     odroid_audio_mute(false);
     return true;
