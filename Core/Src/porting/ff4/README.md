@@ -57,9 +57,43 @@ The FF4 build path uses the SD-card-free FrogFS+LittleFS layout
 into the FrogFS image at make time.
 
 ```bash
-make flash SD_CARD=0 EXTFLASH_SIZE_MB=4 -j8           # normal path
+make flash SD_CARD=0 EXTFLASH_SIZE_MB=4 -j8           # normal path (JP only)
 make flash SD_CARD=0 FF4_AUTOBOOT=1 EXTFLASH_SIZE_MB=4 -j8  # diagnostic
+make flash SD_CARD=0 EXTFLASH_SIZE_MB=8 -j8           # dual-language (JP + EN)
 ```
+
+## Language variants (translation patches)
+
+FF4 can also run pre-patched translation variants (ff4-port ADR-008:
+one language = one canonical image + a CRC32-keyed dispatch profile in
+`external/ff4/rom_profiles.c`). Drop the variant next to the vanilla
+ROM — e.g. the J2e English image, built by
+`ff4-port/patches/apply_ips.py --patch-id j2e-en-v321`, at
+`sd_content/roms/homebrew/ff4-j2e.sfc` — and build with
+`EXTFLASH_SIZE_MB=8` so both images fit the FrogFS reserve (the 2 MiB
+variant does not fit next to the vanilla ROM at 4 MiB; for 4 MiB
+builds, exclude it via `sd_content/.frogfsignore` — see that file's
+header — and the variant then has to come from the SD flow instead).
+
+In-game switching: pause menu → **Language** → pick → the entry shows
+`(confirm)` → A opens *"Switch to \<lang\> and restart?"* → confirming
+stores the choice and resets the console, which reboots straight into
+the other image. An unknown/corrupt image is refused at boot with its
+CRC32 (`FF4_REQUIRE_KNOWN_ROM`, set in `C_DEFS_FF4`).
+
+Implementation notes (bench findings, 2026-07-15):
+
+- The choice persists in a dedicated 1-byte LittleFS file
+  (`/ff4_lang`) — **not** through `odroid_settings_int32_set`, which is
+  a no-op stub in this fork (only `persistent_config_t` fields written
+  to `/CONFIG` survive; any new per-app setting needs a struct field or
+  its own file).
+- Savestate slots are namespaced per language by pointing the app
+  descriptor's `romPath` at the active language's ROM file — the slot
+  UI derives its existence checks from that path, so per-handler path
+  suffixes do NOT work (saves become invisible). FF4 slots therefore
+  live under the per-language `.sfc` namespace, not the menu-entry
+  `.bin` one; a vanilla state can never feed the variant image.
 
 ## Status
 
