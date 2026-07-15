@@ -277,17 +277,25 @@ static void *ff4_system_Screenshot(void) {
  * behind); "off" renders every frame; the fixed choices force an odd
  * render period (see the FF4_FRAMESKIP comment above) and disable the
  * adaptive controller. */
-enum { FF4_SKIP_ADAPTIVE = 0, FF4_SKIP_OFF, FF4_SKIP_1IN3, FF4_SKIP_1IN5, FF4_SKIP_1IN7 };
+enum { FF4_SKIP_ADAPTIVE = 0, FF4_SKIP_SOUND, FF4_SKIP_OFF, FF4_SKIP_1IN3, FF4_SKIP_1IN5, FF4_SKIP_1IN7 };
 static int g_ff4_skip_sel = FF4_SKIP_ADAPTIVE;
 static int g_ff4_frameskip = FF4_FRAMESKIP;
 static char ff4_frameskip_value[16];
 static char ff4_swap_ab_value[16];
 
+/* Skip modes. "sound" = the user-requested sound-priority mode: skip the
+ * RENDER as deep as needed (up to 9 in a row, so >= 1 frame in 10 still
+ * shows) to keep emulation at 60 Hz and the audio ring full -- accepts a
+ * juddery display in exchange for gap-free sound. It only fully cures a
+ * zone whose PURE emulation fits 16.67 ms/frame (field/mode-7 do); where
+ * the interpreter alone overruns (heavy combat) it hits the 1/10 floor
+ * and sound still has some holes. */
+#define FF4_SKIP_MODES 6
 static bool ff4_frameskip_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat) {
-    static const char *names[] = {"adaptive", "off", "1 in 3", "1 in 5", "1 in 7"};
-    static const int   skips[] = {0, 0, 2, 4, 6};
-    if (event == ODROID_DIALOG_PREV) g_ff4_skip_sel = (g_ff4_skip_sel + 4) % 5;
-    if (event == ODROID_DIALOG_NEXT) g_ff4_skip_sel = (g_ff4_skip_sel + 1) % 5;
+    static const char *names[] = {"adaptive", "sound", "off", "1 in 3", "1 in 5", "1 in 7"};
+    static const int   skips[] = {0, 0, 0, 2, 4, 6};
+    if (event == ODROID_DIALOG_PREV) g_ff4_skip_sel = (g_ff4_skip_sel + FF4_SKIP_MODES - 1) % FF4_SKIP_MODES;
+    if (event == ODROID_DIALOG_NEXT) g_ff4_skip_sel = (g_ff4_skip_sel + 1) % FF4_SKIP_MODES;
     g_ff4_frameskip = skips[g_ff4_skip_sel];
     strcpy(option->value, names[g_ff4_skip_sel]);
     return event == ODROID_DIALOG_ENTER;
@@ -954,6 +962,16 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             if (g_ff4_skip_sel == FF4_SKIP_ADAPTIVE
                 && !adaskip_prev && (int32_t)(now - due) > FF4_ADASKIP_BEHIND_MS) {
                 if (adaskip_run >= 16) { adaskip_run = 0; /* rephase: render */ }
+                else { adaskip_this = 1; adaskip_run++; g_adaskip_skipped++; }
+            } else if (g_ff4_skip_sel == FF4_SKIP_SOUND
+                       && (int32_t)(now - due) > FF4_ADASKIP_BEHIND_MS) {
+                /* Sound-priority: skip the render as long as we're behind the
+                 * 60 Hz pacer, up to 9 in a row (>= 1 frame in 10 still
+                 * shows). Emulation (hence the audio ring) stays at 60 Hz
+                 * wherever pure emulation fits the frame; a zone whose
+                 * interpreter alone overruns hits the 1/10 floor. No 50% cap,
+                 * no parity rephase -- the skip pattern is lag-driven. */
+                if (adaskip_run >= 9) { adaskip_run = 0; /* forced render */ }
                 else { adaskip_this = 1; adaskip_run++; g_adaskip_skipped++; }
             }
             if (!adaskip_this) g_adaskip_rendered++;
