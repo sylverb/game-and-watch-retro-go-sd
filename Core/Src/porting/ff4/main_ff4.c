@@ -199,6 +199,52 @@ static uint8_t ff4_ss_read_hook(void) {
     return ff4_ss_iobuf[ff4_ss_iopos++];
 }
 
+/* ── Language / ROM-variant selection (translation-patch support) ──────
+ * One language = one pre-patched ROM file, built offline by
+ * ff4-port/patches/apply_ips.py and identified at ff4_init by CRC32
+ * against the generated dispatch profiles (ff4/rom_profiles.c). The ROM
+ * is cached into the round-robin flash region once per app start, so a
+ * live swap is impossible: switching goes through a confirmation dialog,
+ * a COMMITTED settings write (a raw power-cycle would lose an
+ * uncommitted odroid_settings value -- bench finding, 2026-07-15) and an
+ * automatic system reset that boots the other image. Menu callback:
+ * ff4_lang_cb below the savestate section. */
+#define FF4_LANG_COUNT 2
+static const char *ff4_lang_names[FF4_LANG_COUNT] = {"Japanese", "English"};
+static const char *ff4_lang_paths[FF4_LANG_COUNT] = {
+    "/roms/homebrew/ff4.sfc",       /* FF4 JP 1.1 (vanilla proof base)   */
+    "/roms/homebrew/ff4-j2e.sfc",   /* J2e EN v3.21 (apply_ips manifest) */
+};
+static int  g_ff4_lang_sel = 0;     /* selection shown in the menu       */
+static int  g_ff4_lang_active = 0;  /* the language actually booted      */
+static char ff4_lang_value[24];
+
+/* Language persistence: a dedicated 1-byte LittleFS file. The generic
+ * odroid_settings_int32_get/set API is a NO-OP STUB in this fork (only
+ * the persistent_config_t struct fields written to /CONFIG survive), so
+ * a key-value setting silently never persists -- bench finding,
+ * 2026-07-15. A raw file owned by the FF4 app avoids touching the
+ * shared config struct (versioning) and works on the same fs layer the
+ * savestate slots already use. */
+#define FF4_LANG_FILE "/ff4_lang"
+
+static int ff4_lang_load(void) {
+    fs_file_t *f = fs_open(FF4_LANG_FILE, FS_READ, FS_RAW);
+    if (f == NULL) return 0;
+    unsigned char b = 0;
+    int got = fs_read(f, &b, 1);
+    fs_close(f);
+    return (got == 1 && b < FF4_LANG_COUNT) ? (int)b : 0;
+}
+
+static void ff4_lang_store(int lang) {
+    fs_file_t *f = fs_open(FF4_LANG_FILE, FS_WRITE, FS_RAW);
+    if (f == NULL) return;
+    unsigned char b = (unsigned char)lang;
+    fs_write(f, &b, 1);
+    fs_close(f);
+}
+
 static bool ff4_system_SaveState(char *savePathName) {
     if (ff4_snes == NULL) return false;
     odroid_audio_mute(true);
@@ -316,31 +362,26 @@ static bool ff4_swap_ab_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t
     return event == ODROID_DIALOG_ENTER;
 }
 
-/* ── Language / ROM-variant selection (translation-patch support) ──────
- * One language = one pre-patched ROM file on the SD, built offline by
- * ff4-port/patches/apply_ips.py and identified at ff4_init by CRC32
- * against the generated dispatch profiles (ff4/rom_profiles.c). zelda3
- * model: the choice is a persisted setting applied at the NEXT launch --
- * no live swap, the ROM is cached into the round-robin flash region once
- * per app start. The pause-menu entry persists immediately and shows
- * "(restart)" while the pending choice differs from the booted one. */
-#define FF4_LANG_COUNT 2
-static const char *ff4_lang_names[FF4_LANG_COUNT] = {"Japanese", "English"};
-static const char *ff4_lang_paths[FF4_LANG_COUNT] = {
-    "/roms/homebrew/ff4.sfc",       /* FF4 JP 1.1 (vanilla proof base)   */
-    "/roms/homebrew/ff4-j2e.sfc",   /* J2e EN v3.21 (apply_ips manifest) */
-};
-static int  g_ff4_lang_sel = 0;     /* persisted choice ("ff4_lang")     */
-static int  g_ff4_lang_active = 0;  /* the language actually booted      */
-static char ff4_lang_value[24];
+static void ff4_menu_repaint(void) {
+    ff4_blit_to_lcd((uint16_t *)lcd_get_active_buffer());
+    common_ingame_overlay();
+}
 
 static bool ff4_lang_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat) {
     if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
         g_ff4_lang_sel = (g_ff4_lang_sel + (event == ODROID_DIALOG_NEXT ? 1 : FF4_LANG_COUNT - 1)) % FF4_LANG_COUNT;
-        odroid_settings_int32_set("ff4_lang", g_ff4_lang_sel);
+    }
+    if (event == ODROID_DIALOG_ENTER && g_ff4_lang_sel != g_ff4_lang_active) {
+        char msg[48];
+        sprintf(msg, "Switch to %s and restart?", ff4_lang_names[g_ff4_lang_sel]);
+        if (odroid_overlay_confirm(msg, false, &ff4_menu_repaint)) {
+            ff4_lang_store(g_ff4_lang_sel);
+            HAL_NVIC_SystemReset();  /* boots through the bootloader */
+        }
+        g_ff4_lang_sel = g_ff4_lang_active;  /* declined: revert */
     }
     sprintf(option->value, "%s%s", ff4_lang_names[g_ff4_lang_sel],
-            g_ff4_lang_sel != g_ff4_lang_active ? " (restart)" : "");
+            g_ff4_lang_sel != g_ff4_lang_active ? " (confirm)" : "");
     return event == ODROID_DIALOG_ENTER;
 }
 
@@ -596,9 +637,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
      * The actual SNES ROM lives at a separate path so the menu entry
      * and the data are decoupled — mirrors the zelda3 / zelda3.ro
      * convention. User drops the ROM at /roms/homebrew/ff4.sfc. */
-    g_ff4_lang_sel = odroid_settings_int32_get("ff4_lang", 0);
-    if (g_ff4_lang_sel < 0 || g_ff4_lang_sel >= FF4_LANG_COUNT)
-        g_ff4_lang_sel = 0;
+    g_ff4_lang_sel = ff4_lang_load();  /* bounds-checked inside */
     uint32_t rom_length = 0;
     uint8_t *rom_bytes = odroid_overlay_cache_file_in_flash(
         ff4_lang_paths[g_ff4_lang_sel], &rom_length, false);
@@ -610,7 +649,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
                 ff4_lang_paths[g_ff4_lang_sel]);
         odroid_overlay_alert(msg);
         g_ff4_lang_sel = 0;
-        odroid_settings_int32_set("ff4_lang", 0);
+        ff4_lang_store(0);
         rom_bytes = odroid_overlay_cache_file_in_flash(
             ff4_lang_paths[0], &rom_length, false);
     }
@@ -640,6 +679,14 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     }
     g_ff4_lang_active = g_ff4_lang_sel;
     printf("FF4: rom identity: %s\n", ff4_rom_ident_name());
+    /* Namespace every common-layer derived path (savestate slots,
+     * screenshots, AND the slot UI's existence checks) by the active
+     * language: point the app descriptor at the language's ROM file.
+     * Suffixing only inside the Save/Load handlers left the slot UI
+     * statting the canonical path -- saves "vanished" (bench finding,
+     * 2026-07-15). Side effect: slots move from the menu-entry (.bin)
+     * namespace to the per-language .sfc namespace. */
+    odroid_system_get_app()->romPath = (char *)ff4_lang_paths[g_ff4_lang_active];
 
 #ifdef FF4_LOAD_SAVESTATE
     {

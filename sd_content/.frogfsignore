@@ -1,6 +1,7 @@
 # Patterns (fnmatch, relative to roms/) excluded from the FrogFS image of
 # SD_CARD=0 builds. Files stay in sd_content for the SD sync flow.
 #
-# Pre-patched FF4 language variants (2 MiB each, ADR-008): SD-only — they
-# do not fit the 4 MiB extflash FrogFS budget next to the vanilla ROM.
-homebrew/ff4-j2e.sfc
+# Example -- exclude the FF4 J2e variant (2 MiB, ADR-008) when building
+# with EXTFLASH_SIZE_MB=4 (it does not fit next to the vanilla ROM; the
+# bench-validated dual-language config bakes BOTH at EXTFLASH_SIZE_MB=8):
+# homebrew/ff4-j2e.sfc
