@@ -1173,8 +1173,11 @@ $(eval $(foreach obj,$(SMW_C_SOURCES),$(call smw_obj_prereq_gen,$(obj))))
 
 # FF4 configuration
 
-# C defines for ff4
-C_DEFS_FF4 = -DHEADLESS -DFF4_PORT_STATIC_SNES
+# C defines for ff4. FF4_REQUIRE_KNOWN_ROM: refuse to boot a ROM whose
+# CRC32 matches no dispatch profile (rom_ident.c) -- the native routines
+# were only proven against profiled images, and the pure interpreter
+# cannot hold cadence on device (desktop stays tolerant: warn + interpret).
+C_DEFS_FF4 = -DHEADLESS -DFF4_PORT_STATIC_SNES -DFF4_REQUIRE_KNOWN_ROM
 
 # function used to generate prerequisite rules for ff4 objects
 define ff4_obj_prereq_gen

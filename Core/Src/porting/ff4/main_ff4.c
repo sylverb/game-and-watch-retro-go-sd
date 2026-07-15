@@ -28,6 +28,14 @@ extern void ff4_blit_to_lcd(uint16_t *lcd_fb);
 extern void ff4_set_button(int player, int button, bool pressed);
 extern int  ff4_ppu_render_enabled;   /* frameskip hook (ff4/snes/ppu.c) */
 
+/* ROM identification (ff4/rom_ident.h -- translation-patch support). With
+ * -DFF4_REQUIRE_KNOWN_ROM (Makefile.common C_DEFS_FF4) ff4_init returns
+ * false on an image whose CRC32 matches no dispatch profile; these
+ * accessors feed the refusal message. */
+extern int          ff4_rom_ident(void);        /* 0 vanilla, 1 variant, 2 unknown */
+extern uint32_t     ff4_rom_ident_crc32(void);
+extern const char  *ff4_rom_ident_name(void);
+
 /* FF4_FRAMESKIP: SNES frames emulated WITHOUT rendering before each
  * rendered one (so the LCD shows 1 frame in FF4_FRAMESKIP+1). Rendering
  * dominates the frame cost on this device (title screen measured 6-8
@@ -308,6 +316,34 @@ static bool ff4_swap_ab_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t
     return event == ODROID_DIALOG_ENTER;
 }
 
+/* ── Language / ROM-variant selection (translation-patch support) ──────
+ * One language = one pre-patched ROM file on the SD, built offline by
+ * ff4-port/patches/apply_ips.py and identified at ff4_init by CRC32
+ * against the generated dispatch profiles (ff4/rom_profiles.c). zelda3
+ * model: the choice is a persisted setting applied at the NEXT launch --
+ * no live swap, the ROM is cached into the round-robin flash region once
+ * per app start. The pause-menu entry persists immediately and shows
+ * "(restart)" while the pending choice differs from the booted one. */
+#define FF4_LANG_COUNT 2
+static const char *ff4_lang_names[FF4_LANG_COUNT] = {"Japanese", "English"};
+static const char *ff4_lang_paths[FF4_LANG_COUNT] = {
+    "/roms/homebrew/ff4.sfc",       /* FF4 JP 1.1 (vanilla proof base)   */
+    "/roms/homebrew/ff4-j2e.sfc",   /* J2e EN v3.21 (apply_ips manifest) */
+};
+static int  g_ff4_lang_sel = 0;     /* persisted choice ("ff4_lang")     */
+static int  g_ff4_lang_active = 0;  /* the language actually booted      */
+static char ff4_lang_value[24];
+
+static bool ff4_lang_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat) {
+    if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
+        g_ff4_lang_sel = (g_ff4_lang_sel + (event == ODROID_DIALOG_NEXT ? 1 : FF4_LANG_COUNT - 1)) % FF4_LANG_COUNT;
+        odroid_settings_int32_set("ff4_lang", g_ff4_lang_sel);
+    }
+    sprintf(option->value, "%s%s", ff4_lang_names[g_ff4_lang_sel],
+            g_ff4_lang_sel != g_ff4_lang_active ? " (restart)" : "");
+    return event == ODROID_DIALOG_ENTER;
+}
+
 /* Called from inside LakeSnes's snes_runFrame loop every ~4096 opcodes
  * to keep the WWDG (≈237 ms window on this build) happy. Without this
  * the first frame of pure-interpreter execution easily times out. */
@@ -560,20 +596,50 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
      * The actual SNES ROM lives at a separate path so the menu entry
      * and the data are decoupled — mirrors the zelda3 / zelda3.ro
      * convention. User drops the ROM at /roms/homebrew/ff4.sfc. */
+    g_ff4_lang_sel = odroid_settings_int32_get("ff4_lang", 0);
+    if (g_ff4_lang_sel < 0 || g_ff4_lang_sel >= FF4_LANG_COUNT)
+        g_ff4_lang_sel = 0;
     uint32_t rom_length = 0;
     uint8_t *rom_bytes = odroid_overlay_cache_file_in_flash(
-        "/roms/homebrew/ff4.sfc", &rom_length, false);
+        ff4_lang_paths[g_ff4_lang_sel], &rom_length, false);
+    if ((rom_bytes == NULL || rom_length == 0) && g_ff4_lang_sel != 0) {
+        /* Selected variant file missing on the SD: tell the user, fall
+         * back to the default ROM rather than refusing to start. */
+        char msg[80];
+        sprintf(msg, "FF4: missing %s\nfalling back to Japanese",
+                ff4_lang_paths[g_ff4_lang_sel]);
+        odroid_overlay_alert(msg);
+        g_ff4_lang_sel = 0;
+        odroid_settings_int32_set("ff4_lang", 0);
+        rom_bytes = odroid_overlay_cache_file_in_flash(
+            ff4_lang_paths[0], &rom_length, false);
+    }
     if (rom_bytes == NULL || rom_length == 0) {
-        printf("FF4: missing /roms/homebrew/ff4.sfc\n");
+        printf("FF4: missing %s\n", ff4_lang_paths[0]);
         return -1;
     }
-    printf("FF4: rom cached at %p, %lu bytes\n",
-           (void *)rom_bytes, (unsigned long)rom_length);
+    printf("FF4: rom cached at %p, %lu bytes (%s)\n",
+           (void *)rom_bytes, (unsigned long)rom_length,
+           ff4_lang_names[g_ff4_lang_sel]);
 
     if (!ff4_init(rom_bytes, (int)rom_length)) {
-        printf("FF4: LakeSnes init failed\n");
+        if (ff4_rom_ident() == 2 /* FF4_ROM_UNKNOWN */) {
+            /* The CRC32 matched no dispatch profile: the ~200 native
+             * routines were never proven against these bytes, and the
+             * pure interpreter cannot hold cadence on device -- refuse
+             * (FF4_REQUIRE_KNOWN_ROM in C_DEFS_FF4). */
+            char msg[96];
+            sprintf(msg, "FF4: unknown ROM (crc %08lX)\n"
+                         "not a supported image -- see patches/manifest.json",
+                    (unsigned long)ff4_rom_ident_crc32());
+            odroid_overlay_alert(msg);
+        } else {
+            printf("FF4: LakeSnes init failed\n");
+        }
         return -1;
     }
+    g_ff4_lang_active = g_ff4_lang_sel;
+    printf("FF4: rom identity: %s\n", ff4_rom_ident_name());
 
 #ifdef FF4_LOAD_SAVESTATE
     {
@@ -683,6 +749,7 @@ int app_main_ff4(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
             odroid_dialog_choice_t options[] = {
                 {310, "Frameskip", ff4_frameskip_value, 1, &ff4_frameskip_cb},
                 {311, "A/B buttons", ff4_swap_ab_value, 1, &ff4_swap_ab_cb},
+                {312, "Language", ff4_lang_value, 1, &ff4_lang_cb},
                 ODROID_DIALOG_CHOICE_LAST
             };
             void _repaint(void) {

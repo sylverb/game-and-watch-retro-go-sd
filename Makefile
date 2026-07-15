@@ -785,6 +785,8 @@ $(wildcard $(CORE_FF4)/menu/*.c) \
 $(CORE_FF4)/main.c \
 $(CORE_FF4)/dispatch_all.c \
 $(CORE_FF4)/ff4_helpers.c \
+$(CORE_FF4)/rom_ident.c \
+$(CORE_FF4)/rom_profiles.c \
 Core/Src/porting/ff4/main_ff4.c
 
 CORE_SMW = external/smw
