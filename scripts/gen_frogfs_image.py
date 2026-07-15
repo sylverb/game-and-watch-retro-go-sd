@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import fnmatch
 import hashlib
 import importlib.util
 import json
@@ -60,6 +61,36 @@ def skip_roms_file_by_extension(dest, path, rel_path):
     if is_pico8_cartridge_rom(rel_path, path):
         return False
     return path.suffix.lower() in ROMS_SKIP_EXTENSIONS
+
+
+def load_frogfsignore_rels(sd_content: pathlib.Path) -> frozenset:
+    """Exact roms-relative paths matched by <sd_content>/.frogfsignore.
+
+    One fnmatch pattern per line, relative to the roms/ tree (e.g.
+    "homebrew/ff4-j2e.sfc"); '#' comments and blank lines are skipped.
+    Lets multi-MiB assets that only make sense on the SD card (pre-patched
+    ROM variants, FF4 ADR-008) live in sd_content without blowing the
+    FrogFS budget of SD_CARD=0 builds -- the SD sync flow still ships them.
+    """
+    ign = sd_content / ".frogfsignore"
+    if not ign.is_file():
+        return frozenset()
+    pats = [
+        line.strip()
+        for line in ign.read_text().splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    roms_root = sd_content / "roms"
+    if not pats or not roms_root.is_dir():
+        return frozenset()
+    out = set()
+    for p in roms_root.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(roms_root)
+        if any(fnmatch.fnmatch(rel.as_posix(), pat) for pat in pats):
+            out.add(rel)
+    return frozenset(out)
 
 
 def is_pico8_cartridge_rom(rel_path: pathlib.Path, path: pathlib.Path) -> bool:
@@ -730,7 +761,13 @@ def main():
 
     roms_exclude = set(ROMS_TOP_EXCLUDE_FOR_BIOS_MERGE)
 
-    roms_skip_merged = frozenset()
+    roms_skip_merged = load_frogfsignore_rels(sd_content)
+    if roms_skip_merged:
+        print(
+            "frogfs: .frogfsignore skips "
+            + ", ".join(sorted(str(p) for p in roms_skip_merged)),
+            file=sys.stderr,
+        )
     if zelda3_frogfs_built:
         roms_skip_merged = roms_skip_merged | zelda3_rom_skip_rels
     if smw_frogfs_built:
