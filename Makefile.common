@@ -410,10 +410,17 @@ endif
 .PHONY: covers
 covers:
 ifeq ($(SD_CARD),0)
+# A source checkout has no roms/ (CI, or a fresh clone): download_covers.py exits
+# non-zero on a missing --roms dir, which would fail the whole build. Covers are
+# per-user content, so having none is normal, not an error.
+ifeq ($(wildcard roms),)
+	@echo "[ COVERS ] no roms/ directory - skipping"
+else
 ifeq ($(DOWNLOAD_COVERS),1)
 	$(V)$(MAKE) download_covers
 endif
 	$(V)$(MAKE) generate_covers
+endif
 endif
 
 # Common C sources
