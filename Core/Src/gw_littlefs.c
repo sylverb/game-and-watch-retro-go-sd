@@ -404,6 +404,10 @@ int fs_delete(const char *path){
     return lfs_remove(&lfs,path);
 }
 
+int fs_rename(const char *old_path, const char *new_path){
+    return lfs_rename(&lfs, old_path, new_path);
+}
+
 int fs_mkdir(const char *path){
     return lfs_mkdir(&lfs, path);
 }

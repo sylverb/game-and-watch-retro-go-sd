@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include "rg_emulators.h"
 #include "rg_utils.h"
@@ -15,7 +16,9 @@
 #include "gw_malloc.h"
 #include "bitmaps.h"
 #include "gui.h"
-#include "ff.h" /* f_unlink/f_rename: newlib rename() has no syscall here */
+/* Deletes go through remove() (backed per-variant by syscalls.c); the rename
+ * goes through rg_storage_rename(). Calling f_unlink/f_rename directly would
+ * fail to link in SD_CARD=0 builds, which omit FatFs entirely. */
 
 #define FAVORITES_FILE ODROID_BASE_PATH_CONFIG "/favorites.txt"
 /* Temp for the rewrite-on-remove; committed with f_rename so a mid-write
@@ -92,17 +95,15 @@ bool rg_favorites_remove(const char *path)
     fclose(out);
 
     if (!ok) {
-        f_unlink(FAVORITES_TMP);
+        remove(FAVORITES_TMP);
         return false;
     }
-    f_unlink(FAVORITES_FILE); /* may not exist; f_rename needs the name free */
-    return f_rename(FAVORITES_TMP, FAVORITES_FILE) == FR_OK;
+    return rg_storage_rename(FAVORITES_TMP, FAVORITES_FILE);
 }
 
 bool rg_favorites_reset(void)
 {
-    FRESULT res = f_unlink(FAVORITES_FILE);
-    return res == FR_OK || res == FR_NO_FILE;
+    return remove(FAVORITES_FILE) == 0 || errno == ENOENT;
 }
 
 /** Map "/roms/<dirname>/..." to its registered system, or NULL. */

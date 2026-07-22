@@ -65,6 +65,7 @@ bool rg_storage_get_activity_led(void);
 bool rg_storage_read_file(const char *path, void **data_ptr, size_t *data_len);
 bool rg_storage_write_file(const char *path, const void *data_ptr, const size_t data_len);
 bool rg_storage_delete(const char *path);
+bool rg_storage_rename(const char *old_path, const char *new_path);
 bool rg_storage_exists(const char *path);
 bool rg_storage_mkdir(const char *dir);
 bool rg_storage_scandir(const char *path, rg_scandir_cb_t *callback, void *arg, uint32_t flags);

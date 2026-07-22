@@ -11,6 +11,7 @@
 #include "ff.h"
 #else
 #include "rg_frogfs.h"
+#include "gw_littlefs.h"
 #endif
 #include "rg_storage.h"
 #include <unistd.h>
@@ -98,6 +99,23 @@ static int delete_cb(const rg_scandir_t *file, void *arg)
 {
     rg_storage_delete(file->path);
     return RG_SCANDIR_CONTINUE;
+}
+
+/* newlib's rename() is _link()+_unlink(), and _link() is an always-fail stub in
+ * this toolchain, so it can never work here — go straight at the backend. */
+bool rg_storage_rename(const char *old_path, const char *new_path)
+{
+    CHECK_PATH(old_path);
+    CHECK_PATH(new_path);
+
+    /* Neither backend replaces an existing destination, so clear it first. */
+    remove(new_path);
+
+#if SD_CARD == 1
+    return f_rename(old_path, new_path) == FR_OK;
+#else
+    return fs_rename(old_path, new_path) == 0;
+#endif
 }
 
 bool rg_storage_delete(const char *path)
