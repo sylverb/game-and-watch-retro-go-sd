@@ -9,6 +9,11 @@
 # to web-builder-flash that touch the firmware/workflow (a full retro-go build is
 # heavy), plus manual dispatch. (workflow_dispatch won't appear in the Actions UI
 # while this is off the default branch — the push trigger is how you test it.)
+#
+# The four blobs (SD_CARD={0,1} x INTFLASH_BANK={1,2}) used to build sequentially in
+# one job separated by `make clean`. They share nothing but the checkout, so they now
+# run as a matrix and the pack/publish step joins them. Wall clock is the slowest
+# single build instead of the sum of four.
 name: web-artifacts (POC)
 
 on:
@@ -41,85 +46,152 @@ on:
       - 'firmware_helper.py'
 
 permissions:
-  contents: write   # to create the prerelease + upload assets
+  contents: read
 
 concurrency:
   group: web-artifacts
   cancel-in-progress: false
 
 jobs:
-  build-and-publish:
+  build:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true   # one bad blob makes the bundle unpublishable anyway
+      matrix:
+        include:
+          # slug feeds the artifact filenames the pack step expects.
+          # sd_content is extracted ONCE PER SD_CARD VALUE — see the comment on the
+          # build step below; only the bank2 jobs do it (cores are bank-independent).
+          - slug: bank1
+            sd_card: 0
+            bank: 1
+            sd_content: ''
+          - slug: bank2
+            sd_card: 0
+            bank: 2
+            sd_content: flash
+          - slug: sd_bank1
+            sd_card: 1
+            bank: 1
+            sd_content: ''
+          - slug: sd_bank2
+            sd_card: 1
+            bank: 2
+            sd_content: sd
+    name: build ${{ matrix.slug }}
     env:
       BUILDER_IMAGE: ${{ inputs.builder_image || 'sylverb/retro-go-sd-builder:v1.5' }}
     steps:
       - name: Checkout web-builder-flash (recursive submodules)
         uses: actions/checkout@v4
         with:
-          ref: web-builder-flash
+          ref: ${{ github.sha }}
           submodules: recursive   # MUST be recursive — cores/MSX/etc. live in submodules
           # Full history + tags so scripts/update_gittag.sh's `git describe --tags`
           # resolves a real version instead of falling back to "NOTAG". The GIT_TAG is
           # baked into BOTH the firmware and every core header; retro-go refuses to load
           # a core whose tag doesn't byte-match the firmware (rg_emulators.c) — so a
-          # bogus/inconsistent tag silently breaks all internal emulators.
+          # bogus/inconsistent tag silently breaks all internal emulators. Every matrix
+          # job checks out the same commit, so they all bake an identical tag.
           fetch-depth: 0
           fetch-tags: true
 
-      - name: Build SD_CARD=0 sd_content + bank1/bank2 blobs (in builder image)
+      - name: Build SD_CARD=${{ matrix.sd_card }} bank${{ matrix.bank }} (in builder image)
         run: |
           set -euo pipefail
-          # Two linked blobs: bank 1 (overwrite stock) and bank 2 (keep stock in bank 1
-          # for dual-boot/recovery). The bank IS the intflash link address (0x08000000 /
-          # 0x08100000), so it can't be a runtime patch — hence two blobs. GNW_TARGET is
-          # omitted (LittleFS geometry is superblock-driven; docs/BINARY_PATCHING.md).
+          # The bank IS the intflash link address (0x08000000 / 0x08100000), so it can't
+          # be a runtime patch — hence separate blobs for bank 1 (overwrite stock) and
+          # bank 2 (keep stock in bank 1 for dual-boot/recovery). GNW_TARGET is omitted
+          # (LittleFS geometry is superblock-driven; docs/BINARY_PATCHING.md).
           # ALL capabilities baked ON — COVERFLOW, CHEAT_CODES, SHARED_HIBERNATE_SAVESTATE
           # (screenshots default on; splash off) — so one blob set serves every feature
           # (~246 KB, fits the single 256 KB bank); the browser adds covers/cheats CONTENT
-          # later. All 12 languages baked. NOTE: `make clean` wipes BUILD_DIR (build/)
-          # AND SD_FOLDER (sd_content/) — so (a) stash each blob in _blobs/ (outside the
-          # cleaned dirs) right after its build, and (b) run create_sd_data ONCE PER
-          # SD_CARD VALUE, stashing each to its own _sd_content_{flash,sd}/ dir. Cores
-          # ARE bank-independent (bank1 == bank2 within the same SD_CARD value, verified),
-          # but are NOT SD_CARD-independent: core/homebrew .bin files are objcopy'd out of
+          # later. All 12 languages baked. MAX_CHEAT_CODES=13 is passed on the command
+          # line (NOT a Makefile edit): the stock Makefile only defines it for SD_CARD=1,
+          # so CHEAT_CODES=1 SD_CARD=0 needs it supplied here — matches the SD value.
+          #
+          # sd_content is extracted once per SD_CARD value (the bank2 jobs). Cores ARE
+          # bank-independent (bank1 == bank2 within the same SD_CARD value, verified) but
+          # are NOT SD_CARD-independent: core/homebrew .bin files are objcopy'd out of
           # whichever ELF just built, and several overlay entry points (confirmed: NES,
           # PCE, MSX; likely more) land at different RAM addresses between SD_CARD=0 and
           # SD_CARD=1 builds. Reusing one SD_CARD's sd_content for the other variant loads
           # a core's compiled code at the address the OTHER build's linker chose — the
           # firmware jumps into it expecting its own address and corrupts execution
-          # immediately. Real bug, found via hardware debugging on this branch; the two
-          # variants must each get their own freshly-extracted sd_content. MAX_CHEAT_CODES=13
-          # is passed on the command line (NOT a Makefile edit): the stock Makefile only
-          # defines it for SD_CARD=1, so CHEAT_CODES=1 SD_CARD=0 needs it supplied here —
-          # matches the SD value.
-          FLAGS="SD_CARD=0 COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SCREENSHOTS=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
-          FLAGS_SD="SD_CARD=1 COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SCREENSHOTS=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
+          # immediately. Real bug, found via hardware debugging on this branch. Splitting
+          # the variants into separate jobs makes that mix-up structurally impossible.
+          FLAGS="SD_CARD=${{ matrix.sd_card }} COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SCREENSHOTS=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
+          # Only the bank2 jobs extract sd_content.
+          TARGETS="build/gw_retro_go_intflash.bin"
+          if [ -n "${{ matrix.sd_content }}" ]; then
+            TARGETS="create_sd_data $TARGETS"
+          fi
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
             "$BUILDER_IMAGE" \
             bash -l -c "set -e
-              mkdir -p _blobs
-              # ELF alongside each .bin (same clean-then-stash pattern) — attached to the
-              # release below so a debugger can be pointed at symbols that ACTUALLY match
-              # what's running on a given device, instead of whatever happens to be sitting
-              # in a dev's local build/ dir (a real mix-up during this branch's debugging).
-              make clean
-              make -j\$(nproc) INTFLASH_BANK=1 $FLAGS build/gw_retro_go_intflash.bin
-              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_bank1.bin
-              cp build/gw_retro_go.elf _blobs/gw_retro_go_bank1.elf
-              make clean
-              make -j\$(nproc) INTFLASH_BANK=2 $FLAGS create_sd_data build/gw_retro_go_intflash.bin
-              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_bank2.bin
-              cp build/gw_retro_go.elf _blobs/gw_retro_go_bank2.elf
-              cp -r sd_content _sd_content_flash
-              make clean
-              make -j\$(nproc) INTFLASH_BANK=1 $FLAGS_SD build/gw_retro_go_intflash.bin
-              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_sd_bank1.bin
-              cp build/gw_retro_go.elf _blobs/gw_retro_go_sd_bank1.elf
-              make clean
-              make -j\$(nproc) INTFLASH_BANK=2 $FLAGS_SD create_sd_data build/gw_retro_go_intflash.bin
-              cp build/gw_retro_go_intflash.bin _blobs/gw_retro_go_intflash_sd_bank2.bin
-              cp build/gw_retro_go.elf _blobs/gw_retro_go_sd_bank2.elf
-              cp -r sd_content _sd_content_sd"
+              make -j\$(nproc) INTFLASH_BANK=${{ matrix.bank }} $FLAGS $TARGETS"
+
+          # Stage under _out/ so the four jobs' artifacts merge into one tree. The ELF
+          # ships alongside each .bin so a debugger can be pointed at symbols that
+          # ACTUALLY match what's running on a given device, instead of whatever happens
+          # to be sitting in a dev's local build/ dir (a real mix-up while debugging
+          # this branch).
+          mkdir -p _out/blobs
+          cp build/gw_retro_go_intflash.bin _out/blobs/gw_retro_go_intflash_${{ matrix.slug }}.bin
+          cp build/gw_retro_go.elf          _out/blobs/gw_retro_go_${{ matrix.slug }}.elf
+          if [ -n "${{ matrix.sd_content }}" ]; then
+            cp -r sd_content _out/sd_content_${{ matrix.sd_content }}
+          fi
+
+      - name: Upload ${{ matrix.slug }} artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.slug }}
+          path: _out/
+          retention-days: 1   # intermediates; the prerelease asset is the real output
+          if-no-files-found: error
+
+  pack-and-publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to create the prerelease + upload assets
+    steps:
+      # Checkout is still needed here: pack_bundle.py, and `git describe` for the tag.
+      - name: Checkout web-builder-flash
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          # No submodules: this job only runs scripts/flasher/pack_bundle.py over
+          # artifacts the build jobs already produced.
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: build-*
+          merge-multiple: true   # merges the four _out/ trees into one _dl/
+          path: _dl
+
+      - name: Check every expected blob arrived
+        run: |
+          set -euo pipefail
+          # merge-multiple is silent about a job that uploaded nothing; a missing blob
+          # would otherwise surface as a confusing pack_bundle.py error.
+          for f in _dl/blobs/gw_retro_go_intflash_bank1.bin \
+                   _dl/blobs/gw_retro_go_intflash_bank2.bin \
+                   _dl/blobs/gw_retro_go_intflash_sd_bank1.bin \
+                   _dl/blobs/gw_retro_go_intflash_sd_bank2.bin \
+                   _dl/blobs/gw_retro_go_bank1.elf \
+                   _dl/blobs/gw_retro_go_bank2.elf \
+                   _dl/blobs/gw_retro_go_sd_bank1.elf \
+                   _dl/blobs/gw_retro_go_sd_bank2.elf; do
+            [ -f "$f" ] || { echo "missing artifact: $f"; exit 1; }
+          done
+          for d in _dl/sd_content_flash _dl/sd_content_sd; do
+            [ -d "$d" ] || { echo "missing sd_content dir: $d"; exit 1; }
+          done
 
       - name: Pack web-artifacts.zip + manifest.json
         id: pack
@@ -138,16 +210,16 @@ jobs:
             echo "tag=$GIT_DESCRIBE"
           } >> "$GITHUB_OUTPUT"
           python3 scripts/flasher/pack_bundle.py \
-            --sd-content-flash _sd_content_flash \
-            --sd-content-sd _sd_content_sd \
-            --blob-bank1 _blobs/gw_retro_go_intflash_bank1.bin \
-            --blob-bank2 _blobs/gw_retro_go_intflash_bank2.bin \
-            --blob-sd-bank1 _blobs/gw_retro_go_intflash_sd_bank1.bin \
-            --blob-sd-bank2 _blobs/gw_retro_go_intflash_sd_bank2.bin \
-            --elf-bank1 _blobs/gw_retro_go_bank1.elf \
-            --elf-bank2 _blobs/gw_retro_go_bank2.elf \
-            --elf-sd-bank1 _blobs/gw_retro_go_sd_bank1.elf \
-            --elf-sd-bank2 _blobs/gw_retro_go_sd_bank2.elf \
+            --sd-content-flash _dl/sd_content_flash \
+            --sd-content-sd _dl/sd_content_sd \
+            --blob-bank1 _dl/blobs/gw_retro_go_intflash_bank1.bin \
+            --blob-bank2 _dl/blobs/gw_retro_go_intflash_bank2.bin \
+            --blob-sd-bank1 _dl/blobs/gw_retro_go_intflash_sd_bank1.bin \
+            --blob-sd-bank2 _dl/blobs/gw_retro_go_intflash_sd_bank2.bin \
+            --elf-bank1 _dl/blobs/gw_retro_go_bank1.elf \
+            --elf-bank2 _dl/blobs/gw_retro_go_bank2.elf \
+            --elf-sd-bank1 _dl/blobs/gw_retro_go_sd_bank1.elf \
+            --elf-sd-bank2 _dl/blobs/gw_retro_go_sd_bank2.elf \
             --out _bundle --id "$ID" --ref web-builder-flash \
             --sha "$GITHUB_SHA" \
             --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
