@@ -1799,8 +1799,17 @@ void odroid_overlay_draw_progress_bar(const char *header, uint8_t progress)
 
 uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap)
 {
+    return odroid_overlay_cache_file_in_flash_relocate(file_path, file_size_p, byte_swap, NULL);
+}
+
+uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
+                                                     bool byte_swap, flash_relocate_cb_t relocate_cb)
+{
 #if SD_CARD == 0
     (void)byte_swap;
+    /* FrogFS maps the file where it already sits in the firmware image, so there
+     * is no copy to relocate. Callers that need one must not use this build. */
+    (void)relocate_cb;
     const uint8_t *data = NULL;
     uint32_t file_size = 0;
 
@@ -1827,7 +1836,7 @@ uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *fil
         lcd_swap();
     }
 
-    return store_file_in_flash(file_path, file_size_p, byte_swap, progress_cb);
+    return store_file_in_flash_relocate(file_path, file_size_p, byte_swap, progress_cb, relocate_cb);
 #endif
 }
 

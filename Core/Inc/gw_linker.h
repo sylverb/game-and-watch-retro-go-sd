@@ -102,6 +102,17 @@ extern uint8_t _OVERLAY_SMW_SIZE;
 extern void * _OVERLAY_SMW_BSS_START[];
 extern void * _OVERLAY_SMW_BSS_END[];
 extern uint8_t _OVERLAY_SMW_BSS_SIZE;
+extern uint8_t _OVERLAY_GBA_SIZE;
+extern void * _OVERLAY_GBA_BSS_START[];
+extern uint8_t _OVERLAY_GBA_BSS_SIZE;
+/* End of main_gba.o inside .overlay_gba: where the XIP sentinel pass starts, so
+ * that it does not walk over the constant it is built on (see main_gba.c). */
+extern void * _GBA_MAIN_CODE_END[];
+/* AHB-resident gpSP BSS (bios_rom / cheats / sound_buffer), outside
+ * the overlay pool. They are .bss but they are NOT inside .overlay_gba_bss, so
+ * run_internal_emu()'s memset never reaches them — main_gba.c zeroes this range. */
+extern uint8_t __gba_ahb_start__[];
+extern uint8_t __gba_ahb_end__[];
 extern void * _OVERLAY_VIDEOPAC_LOAD_START[];
 extern uint8_t _OVERLAY_VIDEOPAC_SIZE;
 extern void * _OVERLAY_VIDEOPAC_BSS_START[];

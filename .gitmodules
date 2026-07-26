@@ -69,3 +69,7 @@
 [submodule "external/handy-go"]
 	path = external/handy-go
 	url = https://github.com/jshsakura/handy-go.git
+[submodule "external/gpsp"]
+	path = external/gpsp
+	url = https://github.com/jshsakura/gpsp.git
+	branch = gnw-port

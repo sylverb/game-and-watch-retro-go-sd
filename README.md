@@ -265,6 +265,7 @@ renders it with the PICO-8 palette, and saves as a JPEG cover.
 - Atari 7800
 - ColecoVision
 - Gameboy / Gameboy Color
+- Game Boy Advance (experimental, SD card only — put `.gba` ROMs in `/roms/gba/`)
 - Game & Watch / LCD Games
 - MSX1/2/2+
 - Nintendo Entertainment System
