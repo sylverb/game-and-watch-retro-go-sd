@@ -286,6 +286,22 @@ renders it with the PICO-8 palette, and saves as a JPEG cover.
 ### Homebrew Ports
 - Celeste Classic 
 
+## Game Boy Advance Notes
+
+GBA support is currently **experimental** and available on **SD-card builds only**.
+
+- Put GBA ROMs in: `/roms/gba/`
+
+### Optional Official BIOS
+
+By default, the firmware uses the bundled open-source BIOS.
+If you provide the official BIOS file on SD, it will be used automatically:
+
+- Path: `/bios/gba/gba_bios.bin`
+- Required size: exactly `16 KiB` (`16384` bytes)
+
+If the file is missing or has the wrong size, the emulator falls back to the bundled open BIOS.
+
 ## Controls
 
 ### Button Mappings

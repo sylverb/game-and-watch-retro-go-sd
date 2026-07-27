@@ -243,6 +243,7 @@ static void __attribute__((noreturn)) gba_fatal(const char *line_1, const char *
  */
 #define GBA_CODE_BASE  0xDEC00000u
 #define GBA_XIP_PATH   "/cores/gba.xip"
+#define GBA_BIOS_PATH  "/bios/gba/gba_bios.bin"
 
 static uint8_t *g_xip_addr;
 static uint32_t g_xip_size;
@@ -308,6 +309,28 @@ static bool gba_cache_xip_to_flash(void)
                                 g_xip_offset, g_xip_size);
     printf("gba: patched %d sentinel refs in the overlay\n", n);
     return true;
+}
+
+/* Prefer the official BIOS from SD when present, otherwise fall back to the
+ * bundled open BIOS in gba.xip. A partial read is treated as invalid and we
+ * keep the open BIOS to avoid booting with garbage content. */
+static void gba_load_bios(void)
+{
+    FILE *f = fopen(GBA_BIOS_PATH, "rb");
+    if (f != NULL) {
+        size_t n = fread(bios_rom, 1, sizeof(bios_rom), f);
+        int extra = fgetc(f);
+        fclose(f);
+        if (n == sizeof(bios_rom) && extra == EOF) {
+            printf("gba: using official BIOS from %s\n", GBA_BIOS_PATH);
+            return;
+        }
+        printf("gba: ignoring %s (expected exactly %u bytes)\n",
+               GBA_BIOS_PATH, (unsigned)sizeof(bios_rom));
+    }
+
+    memcpy(bios_rom, gba_xip_ptr(open_gba_bios_rom), sizeof(bios_rom));
+    printf("gba: using bundled open BIOS\n");
 }
 
 /* ------------------------------------------------------------------- SRAM --- */
@@ -752,7 +775,7 @@ void app_main_gba(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     init_memory();
     init_sound();
 
-    memcpy(bios_rom, gba_xip_ptr(open_gba_bios_rom), sizeof(bios_rom));
+    gba_load_bios();
     memset(gamepak_backup, 0xFF, sizeof(gamepak_backup));
 
     /* The ROM is up to 32MB and stays in external flash, memory-mapped. Nothing
