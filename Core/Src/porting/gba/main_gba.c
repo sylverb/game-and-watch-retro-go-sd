@@ -224,7 +224,7 @@ static void __attribute__((noreturn)) gba_fatal(const char *line_1, const char *
 /* -------------------------------------------------------------------- XIP ---
  * gpSP is 853 KB of core against a 724 KB pool. The scanline renderer (video.o)
  * and the 16 KB BIOS image are linked at a sentinel address instead, shipped as
- * one file — /roms/homebrew/gba.xip — cached into QSPI flash, and executed and
+ * one file — /cores/gba.xip — cached into QSPI flash, and executed and
  * read straight out of it. Same trick as Super Metroid's sm.xip; the linker
  * script says which object goes where and why.
  *
@@ -242,7 +242,7 @@ static void __attribute__((noreturn)) gba_fatal(const char *line_1, const char *
  * copy in flash was relocated to that same address when it was first stored.
  */
 #define GBA_CODE_BASE  0xDEC00000u
-#define GBA_XIP_PATH   "/roms/homebrew/gba.xip"
+#define GBA_XIP_PATH   "/cores/gba.xip"
 
 static uint8_t *g_xip_addr;
 static uint32_t g_xip_size;
@@ -713,16 +713,8 @@ void app_main_gba(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     common_emu_state.frame_time_10us = (uint16_t)(100000.0f * GBA_FRAME_CYCLES / GBA_CPU_HZ + 0.5f);
     lcd_set_refresh_rate(60);
 
-    /* Level 2 (353MHz), the top of the launcher's own scale — the same one Virtual
-     * Boy and PC Engine CD take, and for the same reason: the interpreter IS the
-     * CPU here, and there is nothing else to trade.
-     *
-     * It started at level 1 (312MHz, WonderSwan's mild boost). Pokemon Ruby ran the
-     * emulator at 40 fps there. Level 2 is only +13% over that and cannot by itself
-     * buy the 1.5x that 40 -> 60 needs, so this is not the fix; it is the part of
-     * the fix that is free. Scoped and not persisted, and a user who has chosen
-     * more keeps it — common_emu_auto_oc() is a floor, not a setting. */
-    common_emu_auto_oc(2);
+    /* Level 3 (~353 MHz): force the old max PLL */
+    SystemClock_Config(3);
 
     /* The BIOS image, the cheat table and the sound ring live in AHB SRAM (see the
      * linker script), which puts them outside .overlay_gba_bss — so the memset in

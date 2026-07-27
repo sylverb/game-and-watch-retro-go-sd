@@ -20,7 +20,6 @@ void common_emu_sound_sync(bool use_nops);
 void common_emu_sound_sync_reset(void);
 bool common_emu_sound_loop_is_muted();
 uint8_t common_emu_sound_get_volume();
-void common_emu_auto_oc(uint8_t level);   /* per-system CPU boost floor, see common.c */
 
 /* DMA half-buffer pacing marker shared by common_emu_sound_sync and PCE. */
 extern uint32_t common_emu_sound_dma_marker;
