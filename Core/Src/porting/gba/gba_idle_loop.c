@@ -26,6 +26,7 @@ typedef struct {
 } gba_idle_entry_t;
 
 static const gba_idle_entry_t GBA_IDLE_LOOPS[] = {
+    { "BCLE", 0x8006ee8, 4493 },   // Super Collapse! II (USA)
     { "AYPP", 0x3005d18, 5679 },   // 세가 아케이드 갤러리
     { "ADKP", 0x8002f30, 5985 },   // 도날드덕 어드밴스
     { "BCKE", 0x80a0922, 8793 },   // 스타워즈 트릴로지 - 어프렌티스 오브 더 포스 (Star Wars Trilogy - Apprentice of the Force)
@@ -40,27 +41,34 @@ static const gba_idle_entry_t GBA_IDLE_LOOPS[] = {
     { "AGXJ", 0x8000332, 17480 },   // 길티기어X - 어드밴스 에디션t1]
     { "AYPE", 0x3005d18, 19150 },   // 세가 아케이드 갤러리 (SEGA Arcade Gallery)
     { "ADSJ", 0x80006c4, 19697 },   // Daisenryaku for Game Boy Advance (Korea-patch J-K v20141222 v.01)
+    { "BCKP", 0x80a08ca, 19871 },   // Star Wars Trilogy - Apprentice of the Force (Europe) (En,Fr,De,Es,It,Nl)
     { "A2DJ", 0x8001b0e, 21149 },   // 다리우스 R
     { "ASBJ", 0x8000252, 23995 },   // 역전재판
     { "AKOJ", 0x8000332, 25949 },   // 킹 오브 파이터즈 EX 네오 블러드 + 33 NES
     { "BKCS", 0x80006b8, 26692 },   // 짱구는 못말려 - 시네랜드의 모험 (Shin chan - Aventuras en Cineland)
     { "BTME", 0x80138a0, 26988 },   // 마리오 테니스 파워 투어 (Mario Tennis - Power Tour)
+    { "ABTP", 0x805964a, 27067 },   // Batman - Vengeance (Europe) (En,Fr,De,Es,It,Nl)
     { "ABTE", 0x80596ce, 27068 },   // 배트맨 - 벤전스 (Batman - Vengeance)
     { "A3JJ", 0x80003f0, 28089 },   // Gyakuten Saiban 3 (Korea-patch J-K v0.5)
     { "APHE", 0x801e40e, 30968 },   // 고인돌
     { "AWSE", 0x80027f4, 35606 },   // 타이니 툰 어드벤처 - 와키 스태커즈 (Tiny Toon Adventures - Wacky Stackers)
     { "ASWE", 0x80001da, 36014 },   // 스타워즈 - 제다이 파워 배틀 (Star Wars - Jedi Power Battles)
     { "AQ2J", 0x8000c14, 37276 },   // 쵸로Q어드밴스2 (Choro Q Advance 2)
+    { "AK3E", 0x801169c, 38061 },   // Turbo Turtle Adventure (USA)
     { "BEXE", 0x803b188, 41238 },   // TMNT (TMNT)
     { "AUTJ", 0x800f272, 42011 },   // 라라 크로프트 툼레이더 - The Prophecy
+    { "AN8P", 0x8055a5c, 43160 },   // Tales of Phantasia (Europe) (En,Fr,De,Es,It)
     { "AGBJ", 0x8001d2e, 46573 },   // 닌텐도 클라이언트 바이너리
+    { "B4ZP", 0x8000914, 46833 },   // Megaman Zero 4 (Europe)
     { "A3GJ", 0x8000262, 47188 },   // 역전재판 2 (Gyakuten Saiban 2)
     { "BDTE", 0x800065a, 49801 },   // 다운타운 열혈물어EX (한글패치)
     { "BATE", 0x80879f8, 53159 },   // 배트맨 - 라이즈 오브 신 츠
+    { "AR6P", 0x8005b36, 53442 },   // Tom Clancy's Rainbow Six - Rogue Spear (Europe) (En,Fr,De,Es,It)
     { "B4ZJ", 0x8000914, 53533 },   // 록맨 제로 4 (한글패치)
     { "AKRJ", 0x8000422, 54364 },   // 쿠루쿠루쿠루링
     { "AKRP", 0x8000422, 54570 },   // 쿠루 쿠루 쿠루린 (Kurukuru Kururin)
     { "AYWJ", 0x80896f2, 55395 },   // Yu-Gi-Oh! Duel Monsters International - Worldwide Edition (Korea-patch J-K v0.76)
+    { "ABDP", 0x805f274, 55829 },   // Boulder Dash EX (Europe) (En,Fr,De)
     { "AY6J", 0x807928e, 56353 },   // Yu-Gi-Oh! Duel Monsters 6 Expert 2 (Korea-patch J-K v0.65)
     { "A7KJ", 0x8000f92, 56392 },   // 별의 커비 - 꿈의 샘 디럭스 (Kirby - Nightmare in Dream Land) (2)
     { "AVLE", 0x80065a8, 58617 },   // 데어데블
@@ -71,17 +79,22 @@ static const gba_idle_entry_t GBA_IDLE_LOOPS[] = {
     { "ATOJ", 0x8000590, 61394 },   // 택틱스 오우거 외전 - 로디스의 기사
     { "ACJJ", 0x8000522, 61618 },   // 초마계촌R
     { "ABPE", 0x8047038, 62420 },   // 베이스볼 어드밴스 (Baseball Advance)
+    { "V49P", 0x80006d2, 63038 },   // Drill Dozer (Europe) (En,Fr,De,Es,It) (Virtual Console)
+    { "A3AP", 0x8002c48, 63516 },   // Super Mario Advance 3 - Yoshi's Island (Europe) (En,Fr,De,Es,It)
     { "BFZJ", 0x8000c32, 64359 },   // 에프제로 - 팔콘 전설 (F-Zero - Falcon Densetsu)
     { "BFZE", 0x8000c32, 64480 },   // 에프제로 GP 레전드 (F-Zero - GP Legend)
     { "APDE", 0x8000300, 64535 },   // 핀볼 오브 데드 (Pinball of the Dead, The)
     { "AIDJ", 0x802cea4, 64578 },   // 스페이스 인베이더EX
     { "BMGE", 0x8014e0a, 65567 },   // 마리오 골프 어드밴스 투어 (Mario Golf - Advance Tour)
     { "AR6E", 0x8005b36, 65659 },   // 레인보우 식스 - 로그 스피어 (Tom Clancy's Rainbow Six - Rogue Spear)
+    { "A7KP", 0x8000fae, 66226 },   // Kirby - Nightmare in Dream Land (Europe) (En,Fr,De,Es,It)
     { "A9SJ", 0x8000234, 66746 },   // 댄싱스워드 - 섬광
     { "BC2S", 0x8000934, 67175 },   // 짱구는 못말려 - 쇼크 가언의 인형들에 대항하여 (Shin chan contra los Munecos de Shock Gahn)
     { "A29J", 0x8006a9e, 67254 },   // 미키와 미니의 매지컬퀘스트2
+    { "AX4P", 0x8000732, 67931 },   // Super Mario Advance 4 - Super Mario Bros. 3 (Europe) (En,Fr,De,Es,It)
     { "A7KE", 0x8000fae, 68175 },   // 별의 커비 - 꿈의 샘 디럭스 (Kirby - Nightmare in Dream Land)
     { "APLP", 0x80075a6, 68413 },   // 핀볼 챌린지 디럭스 (Pinball Challenge Deluxe)
+    { "AW2P", 0x80371a0, 69145 },   // Advance Wars 2 - Black Hole Rising (Europe) (En,Fr,De,Es,It)
     { "AKYJ", 0x80042dc, 69325 },   // 캡틴 츠바사 - 영광의 기적 (Captain Tsubasa - Eikou no Kiseki)
     { "B2DJ", 0x80003d4, 69569 },   // 슈퍼 동키콩2 (Super Donkey Kong 2)
     { "B2DE", 0x80003d4, 69587 },   // 동키콩 컨트리 2 (Donkey Kong Country 2)
@@ -93,7 +106,10 @@ static const gba_idle_entry_t GBA_IDLE_LOOPS[] = {
     { "AFZC", 0x8000c82, 73351 },   // 지쑤 F-ZERO 웨이라이 사이체 (Jisu F-Zero Weilai Saiche)
     { "AFZE", 0x8000c2e, 74001 },   // F-제로 맥시멈 벨로시티 (F-Zero - Maximum Velocity)
     { "BM5J", 0x80355b8, 74248 },   // 마리오 vs. 동키콩 (Mario vs. Donkey Kong)
+    { "BPGF", 0x80008ae, 74779 },   // Pokemon - Version Vert Feuille (France)
+    { "BPEE", 0x80008ce, 75792 },   // 포켓몬스터 - 에메랄드 (Pokemon - Emerald Version)
     { "BPEK", 0x80008ce, 75909 },   // 포켓몬스터 에메랄드 (정식 한국판)
+    { "AFFP", 0x800b420, 76196 },   // Final Fight One (Europe)
     { "BDSE", 0x8010eb0, 76765 },   // Digimon - Battle Spirit 2 (Korea-patch J-K v20090901 v0.92)
     { "BU6J", 0x801da38, 77377 },   // 대결! 울트라 히어로 (Taiketsu! Ultra Hero)
     { "BRIJ", 0x80013d4, 78061 },   // 리듬세상 (한글패치)
@@ -109,19 +125,26 @@ static const gba_idle_entry_t GBA_IDLE_LOOPS[] = {
     { "BM5E", 0x8033eec, 85587 },   // 마리오 vs. 동키콩 (Mario vs. Donkey Kong)
     { "AVDJ", 0x800097e, 86052 },   // 다이나믹 전설 호성전 붕괴의 론도 (Legend of Dynamic - Goushouden - Houkai no Rondo)
     { "BC2J", 0x8000934, 86072 },   // 크레용신짱 - 전설을 부르는 부록의 고향 쇼크건
+    { "AZCE", 0x80004f6, 86847 },   // Megaman Zero (USA, Europe)
     { "BM3J", 0x80028fc, 87977 },   // 미키와 도날드의 매지컬 퀘스트3
     { "U32J", 0x8229e94, 88118 },   // 우리들의 태양2 - 속 우리들의 태양
+    { "BM5P", 0x8033f92, 88378 },   // Mario vs. Donkey Kong (Europe) (En,Fr,De,Es,It)
     { "BNJJ", 0x803622c, 89634 },   // 쟈쟈마루 쥬니어 전승기
     { "AMZE", 0x8001cfc, 89857 },   // 슈퍼마리오USA
     { "BFCJ", 0x80006b4, 89912 },   // 판타직 칠드런
+    { "AMAE", 0x8001cfc, 89918 },   // Super Mario Advance (USA, Europe) (Virtual Console)
     { "AGFJ", 0x8013542, 90148 },   // 황금의 태양 2 - 잃어버린 시대 (Ougon no Taiyou - Ushinawareshi Toki)
     { "AVRJ", 0x80abc64, 90801 },   // V랠리3 (V-Rally 3)
     { "BSME", 0x8000298, 92782 },   // 메탈슬러그 어드밴스 (Metal Slug Advance)
     { "ABUE", 0x8004cbe, 93471 },   // 얼티밋 브레인 게임즈 (Ultimate Brain Games)
+    { "BSMP", 0x8000298, 93806 },   // Metal Slug Advance (Europe)
+    { "AVRP", 0x80aa920, 96430 },   // V-Rally 3 (Europe) (En,Fr,De,Es,It)
     { "AXBJ", 0x8000372, 97778 },   // 블랙 매트리스 제로
     { "BPYP", 0x80900f2, 99351 },   // 페르시아의 왕자 - 시간의 모래
     { "A5DE", 0x8000434, 103765 },   // 디즈니 스포츠 - 스노보딩 (Disney Sports - Snowboarding)
+    { "A62P", 0x800066c, 104256 },   // Megaman Zero 2 (Europe)
     { "AREJ", 0x8000338, 106237 },   // 록맨 에그제
+    { "BHGP", 0x8000854, 106440 },   // Gunstar Future Heroes (Europe) (En,Ja,Fr,De,Es,It)
     { "BY6J", 0x80f4c4e, 106537 },   // Yu-Gi-Oh! Duel Monsters Expert 2006 (Korea-patch J-K v20110731 v0.93)
     { "BY3J", 0x80831da, 106583 },   // 유희왕! 듀얼 몬스터즈 익스퍼트 3 (Yu-Gi-Oh! Duel Monsters Expert 3)
     { "ANCJ", 0x8007ee8, 106976 },   // 주큐브 (ZooCube)
@@ -132,13 +155,17 @@ static const gba_idle_entry_t GBA_IDLE_LOOPS[] = {
     { "BYIJ", 0x8118882, 115052 },   // 유희왕! - 듀얼 몬스터즈 인터네셔널2
     { "BH2J", 0x801d84c, 119100 },   // 강철의 연금술사 - 추억의 주명곡 (Hagane no Renkinjutsushi - Omoide no Sonata)
     { "AGOJ", 0x802a7da, 120415 },   // 검은수염의 골프합시다 (Kurohige no Golf Shiyouyo)
+    { "AAME", 0x80057d4, 121371 },   // Castlevania - Circle of the Moon (USA)
     { "A6DP", 0x8000424, 121504 },   // 디즈니 스포츠 - 풋볼 (Disney Sports - Football)
     { "A6DE", 0x8000424, 122019 },   // 디즈니 스포츠 - 축구 (Disney Sports - Soccer)
     { "AAMJ", 0x80003ce, 122757 },   // 캐슬바니아 - 서클 오브 더 문 (한글패치)
+    { "AFXP", 0x800045c, 124197 },   // Final Fantasy Tactics Advance (Europe) (En,Fr,De,Es,It)
     { "ATKJ", 0x800074a, 126045 },   // 철권 어드밴스
     { "ASRJ", 0x80003ec, 128676 },   // 슈퍼로봇대전 OG (Super Robot Taisen - Original Generation)
     { "A9TJ", 0x80671e0, 130041 },   // 메탈맥스 2 카이 (Metal Max 2 Kai)
+    { "AZ8P", 0x8002b5e, 130116 },   // Super Puzzle Fighter II (Europe)
     { "AEMJ", 0x8002df2, 131969 },   // 에그 매니아 (Egg Mania - Tsukande! Mawashite! Dossun Puzzle!!)
+    { "BZ3P", 0x80019c4, 132197 },   // Megaman Zero 3 (Europe)
     { "AEMP", 0x80031b6, 132729 },   // 에고 매니아 (Eggomania)
     { "BSMJ", 0x8000298, 133714 },   // 메탈슬러그 어드밴스 (Metal Slug Advance) (2)
     { "B3MJ", 0x8000a20, 135133 },   // 인어공주 멜로디 피치피치피치 피치피칫 라이브 스타트 (Mermaid Melody - Pichi Pichi Pitch - Pichi Pichitto Live Start!)
@@ -148,8 +175,10 @@ static const gba_idle_entry_t GBA_IDLE_LOOPS[] = {
     { "AX4J", 0x8000732, 139692 },   // 슈퍼마리오 브라더스3 (Super Mario Advance 4 - Super Mario 3 + Mario Brothers)
     { "A62J", 0x800066c, 140290 },   // 록맨 제로 2 (Megaman Zero 2)
     { "AZWJ", 0x8000f5e, 140911 },   // 메이드 인 와리오 (한글패치)
+    { "AZWP", 0x8000faa, 144479 },   // WarioWare, Inc. - Minigame Mania (Europe) (En,Fr,De,Es,It)
     { "AVZE", 0x8013cb4, 148559 },   // 슈퍼 버블 팝 (Super Bubble Pop)
     { "AZ8E", 0x8002b5e, 148774 },   // 슈퍼 퍼즐파이터II Turbo터보
+    { "AWRP", 0x8038c7c, 156960 },   // Advance Wars (Europe) (En,Fr,De,Es)
     { "BSAJ", 0x8003540, 163242 },   // 슈퍼 차이니즈 1+2 어드밴스 (Super Chinese 1, 2 Advance)
     { "BMAJ", 0x80007fc, 164366 },   // 인어공주 멜로디 피치피치피치 (Mermaid Melody - Pichi Pichi Pitch)
     { "A3AJ", 0x8002ba4, 173660 },   // 슈퍼마리오 요시아일랜드 (Super Mario Advance 3 - Yoshi's Island + Mario Brothers)
