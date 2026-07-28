@@ -1733,6 +1733,72 @@ flash_saves_restore:
 	@echo "Restore from \"backup/\" complete."
 .PHONY: flash_saves_restore
 
+gwemu_release: $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
+	@if [ ! -f $(BUILD_DIR)/sdcard.img ]; then \
+		echo "Preparing QEMU Bank 1 and Bank 2 images..."; \
+		if [ "$(INTFLASH_BANK)" = "1" ]; then \
+			dd if=$(BUILD_DIR)/$(TARGET)_intflash.bin of=$(BUILD_DIR)/qemu_bank1.bin bs=256k count=1 conv=sync 2>/dev/null; \
+			dd if=/dev/zero of=$(BUILD_DIR)/qemu_bank2.bin bs=256k count=1 2>/dev/null; \
+		else \
+			if [ -f backup/internal_flash_backup_mario.bin ]; then \
+				dd if=backup/internal_flash_backup_mario.bin of=$(BUILD_DIR)/qemu_bank1.bin bs=256k count=1 conv=sync 2>/dev/null; \
+			elif [ -f backup/internal_flash_backup_zelda.bin ]; then \
+				dd if=backup/internal_flash_backup_zelda.bin of=$(BUILD_DIR)/qemu_bank1.bin bs=256k count=1 conv=sync 2>/dev/null; \
+			else \
+				echo "WARNING: Bank 2 build without backup firmware. Bank 1 will be empty."; \
+				dd if=/dev/zero of=$(BUILD_DIR)/qemu_bank1.bin bs=256k count=1 2>/dev/null; \
+			fi; \
+			dd if=$(BUILD_DIR)/$(TARGET)_intflash.bin of=$(BUILD_DIR)/qemu_bank2.bin bs=256k count=1 conv=sync 2>/dev/null; \
+		fi; \
+		echo "Creating 64MB empty extflash image..."; \
+		dd if=/dev/zero of=$(BUILD_DIR)/extflash.bin bs=1M count=64 2>/dev/null; \
+		echo "Creating 256MB SD card image with FAT32 partition..."; \
+		dd if=/dev/zero of=$(BUILD_DIR)/sdcard.img bs=1M count=256 2>/dev/null; \
+		parted -s $(BUILD_DIR)/sdcard.img mklabel msdos mkpart primary fat32 1MiB 100%; \
+		mformat -i $(BUILD_DIR)/sdcard.img@@1M -F -v RETROGO ::; \
+		mcopy -i $(BUILD_DIR)/sdcard.img@@1M -s sd_content/* ::/; \
+	else \
+		echo "QEMU images already exist (skipping prep). Pass --reset to wipe state."; \
+	fi
+
+gwemu_download:
+	@if [ ! -f $(BUILD_DIR)/gwemu_bin ]; then \
+		echo "Fetching latest gwemu release..."; \
+		LATEST_TAG=$$(curl -s https://api.github.com/repos/slash-proc/gwemu/releases | grep -o '"tag_name": "[^"]*"' | head -n 1 | cut -d '"' -f 4); \
+		VERSION=$${LATEST_TAG#v}; \
+		OS=$$(uname -s); \
+		ARCH=$$(uname -m); \
+		if [ "$$OS" = "Darwin" ]; then \
+			if [ "$$ARCH" = "arm64" ]; then \
+				DL="gwemu-macos-arm64-app.zip"; \
+			else \
+				DL="gwemu-macos-x86_64-app.zip"; \
+			fi; \
+			wget -qO $(BUILD_DIR)/gwemu.zip https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
+			unzip -q -o $(BUILD_DIR)/gwemu.zip -d $(BUILD_DIR)/gwemu_mac; \
+			rm $(BUILD_DIR)/gwemu.zip; \
+			cp $(BUILD_DIR)/gwemu_mac/gwemu.app/Contents/MacOS/gwemu $(BUILD_DIR)/gwemu_bin; \
+			chmod +x $(BUILD_DIR)/gwemu_bin; \
+		else \
+			if [ "$$ARCH" = "aarch64" ]; then \
+				DL="gwemu-$$VERSION-aarch64.AppImage"; \
+			else \
+				DL="gwemu-$$VERSION-x86_64.AppImage"; \
+			fi; \
+			wget -qO $(BUILD_DIR)/gwemu_bin https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
+			chmod +x $(BUILD_DIR)/gwemu_bin; \
+		fi; \
+	fi
+
+gwemu_interactive: gwemu_release gwemu_download
+	@echo "Starting interactive gwemu session..."
+ifeq ($(DOCKER),1)
+	$(V)GDB=$(GDB) ./scripts/run_gwemu.sh --docker
+else
+	$(V)GDB=$(GDB) ./scripts/run_gwemu.sh
+endif
+.PHONY: gwemu_interactive
+
 size: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET)_intflash.bin 
 	$(V)printf "Internal Flash Usage (for developers): $(shell cat $(BUILD_DIR)/$(TARGET)_intflash.bin | wc -c) B\n"
 	$(V)./scripts/size.sh $<
@@ -1741,6 +1807,15 @@ size: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET)_intflash.bin
 gdb: $(BUILD_DIR)/$(TARGET).elf
 	$(GDB) $< -ex "target extended-remote :3333"
 .PHONY: gdb
+
+gwemu_interactive_gdb: gwemu_release gwemu_download
+	@echo "Starting interactive gwemu session with GDB..."
+ifeq ($(DOCKER),1)
+	$(V)GDB=$(GDB) ./scripts/run_gwemu.sh --docker --gdb
+else
+	$(V)GDB=$(GDB) ./scripts/run_gwemu.sh --gdb
+endif
+.PHONY: gwemu_interactive_gdb
 
 # Flashes intflash *only* and launches gdb afterwards
 gdb_intflash: $(BUILD_DIR)/$(TARGET)_intflash.bin
