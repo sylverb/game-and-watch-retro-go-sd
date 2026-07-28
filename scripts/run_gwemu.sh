@@ -1,5 +1,25 @@
 #!/usr/bin/env bash
 set -e
+
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    echo "Usage: ./scripts/run_gwemu.sh [OPTIONS] [QEMU_ARGS]"
+    echo ""
+    echo "A wrapper script to launch gwemu (Game & Watch QEMU) with retro-go."
+    echo ""
+    echo "Options:"
+    echo "  --docker                   Run QEMU inside a headless Docker container."
+    echo "                             (Downloads and builds 'slashproc/gwemu-headless' image)"
+    echo "  --gdb                      Start QEMU suspended (-S) and attach an interactive GDB session."
+    echo "                             (Without this flag, a batch GDB connects to forward logs to stdout)."
+    echo "  --record <file.tl>         Record a sub-frame accurate input timeline to the specified file."
+    echo "                             (Fails if --docker is used since recording requires a local SDL GUI)."
+    echo "  --timeline <file.tl>       Playback an existing timeline file."
+    echo "  --video <file.mp4>         Export a synced MP4 video (Requires --docker and --timeline)."
+    echo "  --qmp <port>               Expose QMP (QEMU Monitor Protocol) on the given port."
+    echo "  --help, -h                 Show this help message."
+    echo ""
+    exit 0
+fi
 cd "$(dirname "$0")/.."
 
 GWEMU_PID=""
@@ -53,6 +73,10 @@ if [ "$USE_GDB" = "1" ]; then
 fi
 
 if [ "$USE_DOCKER" = "1" ]; then
+    if [ -n "$RECORD_FILE" ]; then
+        echo "Error: Recording timelines in Docker is not supported because it runs headless. Please record locally without --docker."
+        exit 1
+    fi
     mkdir -p out
     LATEST_TAG=$(curl -s https://api.github.com/repos/slash-proc/gwemu/releases | grep -o '"tag_name": "[^"]*"' | head -n 1 | cut -d '"' -f 4)
     VERSION=${LATEST_TAG#v}
