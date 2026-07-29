@@ -51,3 +51,7 @@ build-error.log
 gwemu_bin
 gwemu_bin.version
 .gwemu_tmp/
+
+# Session logs from scripts/run_gwemu.sh. The default (build/gwemu.log) is already
+# covered by build/, but --log-file can point anywhere. No .log files are tracked.
+*.log

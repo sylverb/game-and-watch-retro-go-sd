@@ -9,11 +9,13 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "Options:"
     echo "  --docker                   Run QEMU inside a headless Docker container."
     echo "                             (Downloads and builds 'slashproc/gwemu-headless' image)"
-    echo "  --gdb                      Start QEMU suspended (-S) and attach an interactive GDB session."
-    echo "                             (Without this flag, a batch GDB connects to forward logs to stdout)."
-    echo "  --gdb-script <file.gdb>    Start QEMU suspended (-S) and run <file.gdb> under batch GDB."
-    echo "                             Use for one-off diagnostics instead of hand-rolling a QEMU"
-    echo "                             invocation; output goes to stdout like the default log mode."
+    echo "  --gdb                      Attach an interactive GDB session instead of the default"
+    echo "                             batch log/fault forwarder."
+    echo "  --gdb-script <file.gdb>    Run <file.gdb> under batch GDB instead of the default"
+    echo "                             forwarder. For one-off diagnostics only -- the default"
+    echo "                             already forwards logs and traps exceptions."
+    echo "  --log-file <path>          Write the session log here (default: ./gwemu.log,"
+    echo "                             overwritten each run). Output still goes to stdout."
     echo "  --record <file.tl>         Record a sub-frame accurate input timeline to the specified file."
     echo "                             (Fails if --docker is used since recording requires a local SDL GUI)."
     echo "  --timeline <file.tl>       Playback an existing timeline file."
@@ -47,6 +49,7 @@ RECORD_FILE=""
 VIDEO_FILE=""
 QMP_PORT=""
 GDB_SCRIPT=""
+LOG_FILE=""
 PASSTHROUGH_ARGS=()
 
 while [[ "$#" -gt 0 ]]; do
@@ -54,6 +57,7 @@ while [[ "$#" -gt 0 ]]; do
         --docker) USE_DOCKER=1; shift ;;
         --gdb) USE_GDB=1; shift ;;
         --gdb-script) GDB_SCRIPT="$2"; shift 2 ;;
+        --log-file) LOG_FILE="$2"; shift 2 ;;
         --reset) USE_RESET=1; shift ;;
         --update) USE_UPDATE=1; shift ;;
         --timeline) TIMELINE_FILE="$2"; shift 2 ;;
@@ -69,6 +73,15 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
+# Every run is logged. The whole script's output -- emulator stderr, forwarded
+# retro-go log buffer, and any fault report -- goes to both stdout and the file.
+# Kept at the repo root, NOT under build/, so `make clean` does not wipe the log of
+# the run you are trying to read. Gitignored via *.log.
+LOG_FILE="${LOG_FILE:-gwemu.log}"
+mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee "$LOG_FILE") 2>&1
+echo "[run_gwemu] logging to $LOG_FILE"
+
 if [ "$USE_UPDATE" = "1" ]; then
     # gwemu is still moving fast; --update pulls the newest release before running.
     make gwemu_download GWEMU_UPDATE=1
@@ -80,15 +93,12 @@ if [ "$USE_RESET" = "1" ]; then
     make gwemu_release
 fi
 
-# Start QEMU suspended (-S) whenever a GDB session will attach, so the target
-# is halted at reset before it runs. Without this the batch log-forwarder
-# attaches a second or two into the boot and silently misses everything
-# retro-go printed on the way up -- which reads as "logging is broken".
-# Headless Docker runs without an attached GDB, so it must NOT be suspended.
-EXTRA_ARGS="-s"
-if [ "$USE_GDB" = "1" ] || [ -n "$GDB_SCRIPT" ] || [ "$USE_DOCKER" = "0" ]; then
-    EXTRA_ARGS="-s -S"
-fi
+# Always start suspended. A GDB session always attaches -- forwarding the log
+# buffer and trapping exceptions is the entire point of running under emulation,
+# so it is not optional and not mode-dependent. Without -S the forwarder attaches
+# a second or two into the boot and silently misses everything retro-go printed
+# on the way up, which reads as "logging is broken".
+EXTRA_ARGS="-s -S"
 
 if [ "$USE_DOCKER" = "1" ]; then
     if [ -n "$RECORD_FILE" ]; then
@@ -124,9 +134,8 @@ if [ "$USE_DOCKER" = "1" ]; then
         ENTRY_ARGS+=("--qmp-port" "$QMP_PORT")
     fi
 
-    if [ "$USE_GDB" = "1" ]; then
-        DOCKER_ARGS+=("-p" "1234:1234")
-    fi
+    # GDB always attaches, so the port is always needed.
+    DOCKER_ARGS+=("-p" "1234:1234")
 
     DOCKER_CONTAINER="gwemu-run-$$"
     docker run --rm --name "$DOCKER_CONTAINER" \
@@ -184,17 +193,21 @@ fi
 # Fallback to gdb-multiarch if arm-none-eabi-gdb isn't found in env
 GDB_CMD=${GDB:-arm-none-eabi-gdb}
 
-if [ -n "$GDB_SCRIPT" ]; then
-    $GDB_CMD build/gw_retro_go.elf -batch -x "$GDB_SCRIPT"
-elif [ "$USE_GDB" = "1" ]; then
-    $GDB_CMD build/gw_retro_go.elf -ex "target extended-remote :1234"
-elif [ "$USE_DOCKER" = "0" ]; then
-    $GDB_CMD build/gw_retro_go.elf -batch -x scripts/gwemu_log.gdb
+# A GDB session ALWAYS attaches, in every mode including headless Docker. Live
+# log-buffer forwarding and exception capture are the reason for running under
+# emulation at all, so they are never skipped. scripts/gwemu_log.gdb is the
+# default; --gdb-script only replaces it for one-off diagnostics, and --gdb
+# swaps the batch forwarder for an interactive session.
+GDB_RC=0
+if [ "$USE_GDB" = "1" ]; then
+    $GDB_CMD build/gw_retro_go.elf -ex "target extended-remote :1234" || GDB_RC=$?
 else
-    # Headless docker container handles execution; wait for background container to finish
+    $GDB_CMD build/gw_retro_go.elf -batch -x "${GDB_SCRIPT:-scripts/gwemu_log.gdb}" || GDB_RC=$?
+fi
+
+if [ "$USE_DOCKER" = "1" ]; then
+    # Let the container finish (timeline playback / ffmpeg), then collect artifacts.
     wait $GWEMU_PID 2>/dev/null || true
-    
-    # Copy artifacts out after container exits and ffmpeg finishes
     if [ -n "$RECORD_FILE" ]; then
         cp -f "out/$(basename "$RECORD_FILE")" "$RECORD_FILE" 2>/dev/null || true
     fi
@@ -202,3 +215,10 @@ else
         cp -f "out/$(basename "$VIDEO_FILE")" "$VIDEO_FILE" 2>/dev/null || true
     fi
 fi
+
+# gwemu_log.gdb exits non-zero when it trapped a fault or a failed assertion, so
+# a caller (or CI) can detect a crashed run without parsing the log.
+if [ "$GDB_RC" -ne 0 ]; then
+    echo "[run_gwemu] session ended with an exception (see $LOG_FILE)"
+fi
+exit $GDB_RC

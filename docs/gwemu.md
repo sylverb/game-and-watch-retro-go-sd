@@ -73,29 +73,52 @@ The `run_gwemu.sh` script is the primary entry point for launching the emulator.
 Run the emulator natively with the custom SDL3 display driver (`-display gwemu`):
 `./scripts/run_gwemu.sh`
 
-### GDB Behavior and Logging
-By default, `run_gwemu.sh` runs QEMU in the background and attaches GDB in batch mode via `scripts/gwemu_log.gdb`. This acts as a log-forwarder and an exception trap, both writing to your terminal's stdout.
+### Logging and exception capture (always on)
 
-**QEMU is always started suspended (`-S`) whenever a GDB session will attach** — including the default batch log mode, not just `--gdb`. This matters: without it, GDB attaches a second or two into the boot and silently misses everything retro-go printed on the way up, which looks exactly like "logging is broken".
-The one exception is headless Docker, which runs without an attached GDB and therefore must not be suspended.
+Every run forwards retro-go's log buffer live to stdout and traps exceptions. This is not
+optional and not mode-dependent -- it applies to native runs, `--docker`, and timeline
+playback alike. Without it there is little point running the firmware under emulation.
+
+Output also goes to a log file: `./gwemu.log` by default, overwritten each run. Use
+`--log-file <path>` to write elsewhere. It sits at the repo root rather than under `build/`
+so that `make clean` does not delete the log of the run you are trying to read; `*.log` is
+gitignored.
+
+If a fault or failed assertion is trapped, the run **exits non-zero**, so CI (or a caller)
+can detect a crashed session without parsing the log.
+
+QEMU is always started suspended (`-S`) and GDB attaches before the firmware runs. Without
+this the forwarder attaches a second or two into the boot and silently misses everything
+retro-go printed on the way up -- which reads as "logging is broken".
 
 `scripts/gwemu_log.gdb` does two things:
 
-- **Log forwarding** — breaks on `_write()` in `Core/Src/syscalls.c`, where retro-go's `stdout`/`stderr` funnel through, prints the exact bytes handed to it, and resumes. Every write is observed once, in order, with no dependence on wall-clock timing.
-  *Do not replace this with a loop that polls `log_idx`/`logbuf`.* Two such designs have been tried and both failed: a blocking `continue` followed by a `while` loop never reaches the loop at all, and an `interrupt`-every-second async variant races the target and drops output.
-- **Fault trapping** — breaks on `common_fault_handler_c()` in `Core/Src/stm32h7xx_it.c`, the single choke point every hard/bus/usage/mem fault funnels through before `BSOD()` paints the screen. It dumps the stacked exception frame, `CFSR`/`HFSR`/`MMFAR`/`BFAR`/`ABFSR`, the faulting PC resolved to a symbol, a backtrace, and all registers, then exits non-zero. `__assert_func` is trapped the same way.
-  This puts the whole fault report on stdout, so you never have to read a BSOD off the emulated LCD.
+- **Log forwarding** -- breaks on `_write()` in `Core/Src/syscalls.c`, where retro-go's
+  `stdout`/`stderr` funnel through, prints the exact bytes, and resumes. Every write is
+  observed once, in order, with no dependence on wall-clock timing.
+  *Do not replace this with a loop that polls `log_idx`/`logbuf`.* Two such designs have
+  been tried and both failed: a blocking `continue` followed by a `while` loop never
+  reaches the loop at all, and an `interrupt`-every-second async variant races the target
+  and drops output.
+- **Exception trapping** -- breaks on `common_fault_handler_c()` in
+  `Core/Src/stm32h7xx_it.c`, the choke point every hard/bus/usage/mem fault passes through
+  before `BSOD()` paints the screen. It dumps the stacked exception frame,
+  `CFSR`/`HFSR`/`MMFAR`/`BFAR`/`ABFSR`, the symbolized faulting PC, a backtrace and all
+  registers, then exits non-zero. `__assert_func` is trapped the same way. You never have
+  to read a BSOD off the emulated LCD.
 
-If you need to interactively debug:
-`./scripts/run_gwemu.sh --gdb`
-This drops you into a fully interactive GDB session connected to QEMU's gdbstub on port 1234.
+Overrides, for the rare cases they are wanted:
 
-For a one-off diagnostic (probing a variable, dumping MPU registers, breaking somewhere specific), write a small `.gdb` file and run it through the harness rather than hand-rolling a QEMU invocation:
-`./scripts/run_gwemu.sh --gdb-script scripts/my_probe.gdb`
+- `--gdb` -- interactive GDB session instead of the batch forwarder.
+- `--gdb-script <file.gdb>` -- run your own script instead of the default forwarder, for
+  one-off diagnostics (probing a variable, dumping MPU registers). Note the default
+  already covers logs and exceptions, so this is not needed for ordinary runs.
 
-Two gotchas when writing these scripts:
-- GDB's `printf` does **not** support `%.*s`. To print a counted, non-NUL-terminated buffer, loop and emit `%c` per byte.
-- Always run the emulator with a real display (the native path uses `-display gwemu`). `-display none` is only appropriate for Docker and for tight iteration on a known issue where the fault report alone is sufficient and visual inspection adds nothing.
+Two gotchas when writing such scripts:
+- GDB's `printf` does **not** support `%.*s`. To print a counted, non-NUL-terminated
+  buffer, loop and emit `%c` per byte.
+- Use `hbreak`, not `break`, for flash addresses when debugging **real hardware**; under
+  emulation either works.
 
 ### Timeline Recording
 Record your exact keypresses (sub-frame accurate) into a `.tl` (timeline) file.
