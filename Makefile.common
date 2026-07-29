@@ -1761,34 +1761,62 @@ gwemu_release: $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
 		echo "QEMU images already exist (skipping prep). Pass --reset to wipe state."; \
 	fi
 
+# The gwemu binary lives at the repo root, NOT under build/. It is a large
+# download that has nothing to do with build output, and `make clean` wiping it
+# forced a re-download on every clean build. Gitignored.
+GWEMU_BIN ?= gwemu_bin
+GWEMU_VERSION_FILE = $(GWEMU_BIN).version
+
+# Downloads gwemu if missing. Pass GWEMU_UPDATE=1 (or use the gwemu_update
+# target / run_gwemu.sh --update) to force a check against the latest release
+# and re-download when a newer tag is available. gwemu is still moving fast, so
+# we track latest for now; pin GWEMU_TAG once things settle.
 gwemu_download:
-	@if [ ! -f $(BUILD_DIR)/gwemu_bin ]; then \
-		echo "Fetching latest gwemu release..."; \
-		LATEST_TAG=$$(curl -s https://api.github.com/repos/slash-proc/gwemu/releases | grep -o '"tag_name": "[^"]*"' | head -n 1 | cut -d '"' -f 4); \
-		VERSION=$${LATEST_TAG#v}; \
-		OS=$$(uname -s); \
-		ARCH=$$(uname -m); \
-		if [ "$$OS" = "Darwin" ]; then \
-			if [ "$$ARCH" = "arm64" ]; then \
-				DL="gwemu-macos-arm64-app.zip"; \
-			else \
-				DL="gwemu-macos-x86_64-app.zip"; \
-			fi; \
-			wget -qO $(BUILD_DIR)/gwemu.zip https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
-			unzip -q -o $(BUILD_DIR)/gwemu.zip -d $(BUILD_DIR)/gwemu_mac; \
-			rm $(BUILD_DIR)/gwemu.zip; \
-			cp $(BUILD_DIR)/gwemu_mac/gwemu.app/Contents/MacOS/gwemu $(BUILD_DIR)/gwemu_bin; \
-			chmod +x $(BUILD_DIR)/gwemu_bin; \
+	@if [ ! -f $(GWEMU_BIN) ] || [ "$(GWEMU_UPDATE)" = "1" ]; then \
+		LATEST_TAG=$${GWEMU_TAG:-$$(curl -s https://api.github.com/repos/slash-proc/gwemu/releases | grep -o '"tag_name": "[^"]*"' | head -n 1 | cut -d '"' -f 4)}; \
+		if [ -z "$$LATEST_TAG" ]; then \
+			echo "ERROR: could not determine latest gwemu release (network?)."; \
+			[ -f $(GWEMU_BIN) ] || exit 1; \
 		else \
-			if [ "$$ARCH" = "aarch64" ]; then \
-				DL="gwemu-$$VERSION-aarch64.AppImage"; \
+			CURRENT=$$(cat $(GWEMU_VERSION_FILE) 2>/dev/null || echo ""); \
+			if [ -f $(GWEMU_BIN) ] && [ "$$CURRENT" = "$$LATEST_TAG" ]; then \
+				echo "gwemu already at $$LATEST_TAG"; \
 			else \
-				DL="gwemu-$$VERSION-x86_64.AppImage"; \
+				echo "Fetching gwemu $$LATEST_TAG (have: $${CURRENT:-none})..."; \
+				VERSION=$${LATEST_TAG#v}; \
+				OS=$$(uname -s); \
+				ARCH=$$(uname -m); \
+				if [ "$$OS" = "Darwin" ]; then \
+					if [ "$$ARCH" = "arm64" ]; then \
+						DL="gwemu-macos-arm64-app.zip"; \
+					else \
+						DL="gwemu-macos-x86_64-app.zip"; \
+					fi; \
+					rm -rf .gwemu_tmp && mkdir -p .gwemu_tmp; \
+					wget -qO .gwemu_tmp/gwemu.zip https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
+					unzip -q -o .gwemu_tmp/gwemu.zip -d .gwemu_tmp/app; \
+					cp .gwemu_tmp/app/gwemu.app/Contents/MacOS/gwemu $(GWEMU_BIN); \
+					rm -rf .gwemu_tmp; \
+				else \
+					if [ "$$ARCH" = "aarch64" ]; then \
+						DL="gwemu-$$VERSION-aarch64.AppImage"; \
+					else \
+						DL="gwemu-$$VERSION-x86_64.AppImage"; \
+					fi; \
+					wget -qO $(GWEMU_BIN) https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
+				fi; \
+				chmod +x $(GWEMU_BIN); \
+				echo "$$LATEST_TAG" > $(GWEMU_VERSION_FILE); \
+				echo "gwemu now at $$LATEST_TAG"; \
 			fi; \
-			wget -qO $(BUILD_DIR)/gwemu_bin https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
-			chmod +x $(BUILD_DIR)/gwemu_bin; \
 		fi; \
 	fi
+.PHONY: gwemu_download
+
+# Force an update check even when a binary is already present.
+gwemu_update:
+	@$(MAKE) --no-print-directory gwemu_download GWEMU_UPDATE=1
+.PHONY: gwemu_update
 
 gwemu_interactive: gwemu_release gwemu_download
 	@echo "Starting interactive gwemu session..."

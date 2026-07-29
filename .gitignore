@@ -46,3 +46,8 @@ choices.yaml
 build-error.log
 .bash_history
 *.sfc
+
+# gwemu emulator binary (downloaded, lives at repo root so make clean does not wipe it)
+gwemu_bin
+gwemu_bin.version
+.gwemu_tmp/

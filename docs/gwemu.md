@@ -37,11 +37,21 @@ brew install \
 The `game-and-watch-retro-go-sd` repository integrates with `gwemu` via several targets in `Makefile.common`:
 
 - `make gwemu_release`: Compiles the retro-go firmware into the expected `qemu_bank1.bin`, `qemu_bank2.bin`, and `extflash.bin` images, and prepares an SD card image (`sdcard.img`).
-- `make gwemu_download`: Automatically queries GitHub for the latest `slash-proc/gwemu` release and downloads the appropriate native binary (macOS `.app` or Linux `.AppImage`) into `build/gwemu_bin`.
+- `make gwemu_download`: Downloads the appropriate native gwemu binary (macOS `.app` or Linux `.AppImage`) to `./gwemu_bin` in the repo root. It is a no-op when the binary is already present, so it costs nothing on repeat invocations.
+- `make gwemu_update`: Forces a check against the latest `slash-proc/gwemu` release and re-downloads if a newer tag is available. Equivalent to `run_gwemu.sh --update`.
 - `make gwemu_interactive`: Calls `gwemu_release` and `gwemu_download`, then launches the emulator via `./scripts/run_gwemu.sh`.
 - `make gwemu_interactive_gdb`: Same as above, but passes `--gdb` to open an interactive debugging session.
 
-Note that `gwemu_release` skips image preparation entirely if `build/sdcard.img` already exists. After changing anything that lands on the SD card, or any flash-layout variable (`INTFLASH_BANK`, `EXTFLASH_*`, `GNW_TARGET`), pass `--reset` to `run_gwemu.sh` (or delete `build/sdcard.img`) so the images are rebuilt. `make clean` also removes `build/gwemu_bin`, so a clean build must be followed by `make gwemu_download` again.
+Note that `gwemu_release` skips image preparation entirely if `build/sdcard.img` already exists. After changing anything that lands on the SD card, or any flash-layout variable (`INTFLASH_BANK`, `EXTFLASH_*`, `GNW_TARGET`), pass `--reset` to `run_gwemu.sh` (or delete `build/sdcard.img`) so the images are rebuilt.
+
+### The gwemu binary
+`gwemu_bin` lives in the **repo root**, not under `build/`, and is gitignored. It is a ~16 MB download unrelated to build output, and keeping it in `build/` meant every `make clean` threw it away and forced a re-download.
+
+The installed version is recorded in `gwemu_bin.version`. gwemu is still moving quickly, so the tooling tracks the latest release rather than a pin:
+
+- `./scripts/run_gwemu.sh --update` (or `make gwemu_update`) checks for and installs a newer release before running.
+- `GWEMU_TAG=v0.0.18 make gwemu_download` pins a specific tag — use this once things stabilise.
+- If the network is unreachable but a binary is already present, the download step warns and continues rather than failing the run.
 
 ## Usage: `run_gwemu.sh`
 

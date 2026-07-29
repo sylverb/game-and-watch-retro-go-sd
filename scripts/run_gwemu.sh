@@ -18,6 +18,7 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "                             (Fails if --docker is used since recording requires a local SDL GUI)."
     echo "  --timeline <file.tl>       Playback an existing timeline file."
     echo "  --video <file.mp4>         Export a synced MP4 video (Requires --docker and --timeline)."
+    echo "  --update                   Check for and download the latest gwemu release before running."
     echo "  --qmp <port>               Expose QMP (QEMU Monitor Protocol) on the given port."
     echo "  --help, -h                 Show this help message."
     echo ""
@@ -40,6 +41,7 @@ trap cleanup EXIT INT TERM
 USE_DOCKER=0
 USE_GDB=0
 USE_RESET=0
+USE_UPDATE=0
 TIMELINE_FILE=""
 RECORD_FILE=""
 VIDEO_FILE=""
@@ -53,6 +55,7 @@ while [[ "$#" -gt 0 ]]; do
         --gdb) USE_GDB=1; shift ;;
         --gdb-script) GDB_SCRIPT="$2"; shift 2 ;;
         --reset) USE_RESET=1; shift ;;
+        --update) USE_UPDATE=1; shift ;;
         --timeline) TIMELINE_FILE="$2"; shift 2 ;;
         --record) RECORD_FILE="$2"; shift 2 ;;
         --video) VIDEO_FILE="$2"; shift 2 ;;
@@ -65,6 +68,11 @@ while [[ "$#" -gt 0 ]]; do
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
 done
+
+if [ "$USE_UPDATE" = "1" ]; then
+    # gwemu is still moving fast; --update pulls the newest release before running.
+    make gwemu_download GWEMU_UPDATE=1
+fi
 
 if [ "$USE_RESET" = "1" ]; then
     echo "Resetting emulator state..."
@@ -151,7 +159,7 @@ else
         export GNW_TIMELINE="$PWD/$TIMELINE_FILE"
     fi
 
-    build/gwemu_bin -M gnw-h7b0 \
+    ./gwemu_bin -M gnw-h7b0 \
         -global gnw-h7b0-soc.bank1-image=build/qemu_bank1.bin \
         -global gnw-h7b0-soc.bank2-image=build/qemu_bank2.bin \
         -global gnw-h7b0-soc.extflash-image=build/extflash.bin \
