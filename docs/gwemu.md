@@ -41,6 +41,8 @@ The `game-and-watch-retro-go-sd` repository integrates with `gwemu` via several 
 - `make gwemu_interactive`: Calls `gwemu_release` and `gwemu_download`, then launches the emulator via `./scripts/run_gwemu.sh`.
 - `make gwemu_interactive_gdb`: Same as above, but passes `--gdb` to open an interactive debugging session.
 
+Note that `gwemu_release` skips image preparation entirely if `build/sdcard.img` already exists. After changing anything that lands on the SD card, or any flash-layout variable (`INTFLASH_BANK`, `EXTFLASH_*`, `GNW_TARGET`), pass `--reset` to `run_gwemu.sh` (or delete `build/sdcard.img`) so the images are rebuilt. `make clean` also removes `build/gwemu_bin`, so a clean build must be followed by `make gwemu_download` again.
+
 ## Usage: `run_gwemu.sh`
 
 The `run_gwemu.sh` script is the primary entry point for launching the emulator. It manages the QEMU binary execution, binds SD card and Flash images, and handles the debugging/GDB lifecycle.
@@ -50,11 +52,28 @@ Run the emulator natively with the custom SDL3 display driver (`-display gwemu`)
 `./scripts/run_gwemu.sh`
 
 ### GDB Behavior and Logging
-By default, `run_gwemu.sh` runs QEMU in the background and attaches GDB in batch mode via `scripts/gwemu_log.gdb`. This acts as a log-forwarder. Specifically, it uses GDB to attach to QEMU, set a breakpoint or watchpoint on retro-go's internal log buffer, and reads out retro-go's log buffer directly to your terminal's stdout by default.
+By default, `run_gwemu.sh` runs QEMU in the background and attaches GDB in batch mode via `scripts/gwemu_log.gdb`. This acts as a log-forwarder and an exception trap, both writing to your terminal's stdout.
+
+**QEMU is always started suspended (`-S`) whenever a GDB session will attach** — including the default batch log mode, not just `--gdb`. This matters: without it, GDB attaches a second or two into the boot and silently misses everything retro-go printed on the way up, which looks exactly like "logging is broken".
+The one exception is headless Docker, which runs without an attached GDB and therefore must not be suspended.
+
+`scripts/gwemu_log.gdb` does two things:
+
+- **Log forwarding** — breaks on `_write()` in `Core/Src/syscalls.c`, where retro-go's `stdout`/`stderr` funnel through, prints the exact bytes handed to it, and resumes. Every write is observed once, in order, with no dependence on wall-clock timing.
+  *Do not replace this with a loop that polls `log_idx`/`logbuf`.* Two such designs have been tried and both failed: a blocking `continue` followed by a `while` loop never reaches the loop at all, and an `interrupt`-every-second async variant races the target and drops output.
+- **Fault trapping** — breaks on `common_fault_handler_c()` in `Core/Src/stm32h7xx_it.c`, the single choke point every hard/bus/usage/mem fault funnels through before `BSOD()` paints the screen. It dumps the stacked exception frame, `CFSR`/`HFSR`/`MMFAR`/`BFAR`/`ABFSR`, the faulting PC resolved to a symbol, a backtrace, and all registers, then exits non-zero. `__assert_func` is trapped the same way.
+  This puts the whole fault report on stdout, so you never have to read a BSOD off the emulated LCD.
 
 If you need to interactively debug:
 `./scripts/run_gwemu.sh --gdb`
-This passes `-S` to QEMU (suspending execution on launch) and drops you into a fully interactive GDB session connected to QEMU's gdbstub on port 1234.
+This drops you into a fully interactive GDB session connected to QEMU's gdbstub on port 1234.
+
+For a one-off diagnostic (probing a variable, dumping MPU registers, breaking somewhere specific), write a small `.gdb` file and run it through the harness rather than hand-rolling a QEMU invocation:
+`./scripts/run_gwemu.sh --gdb-script scripts/my_probe.gdb`
+
+Two gotchas when writing these scripts:
+- GDB's `printf` does **not** support `%.*s`. To print a counted, non-NUL-terminated buffer, loop and emit `%c` per byte.
+- Always run the emulator with a real display (the native path uses `-display gwemu`). `-display none` is only appropriate for Docker and for tight iteration on a known issue where the fault report alone is sufficient and visual inspection adds nothing.
 
 ### Timeline Recording
 Record your exact keypresses (sub-frame accurate) into a `.tl` (timeline) file.

@@ -11,6 +11,9 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     echo "                             (Downloads and builds 'slashproc/gwemu-headless' image)"
     echo "  --gdb                      Start QEMU suspended (-S) and attach an interactive GDB session."
     echo "                             (Without this flag, a batch GDB connects to forward logs to stdout)."
+    echo "  --gdb-script <file.gdb>    Start QEMU suspended (-S) and run <file.gdb> under batch GDB."
+    echo "                             Use for one-off diagnostics instead of hand-rolling a QEMU"
+    echo "                             invocation; output goes to stdout like the default log mode."
     echo "  --record <file.tl>         Record a sub-frame accurate input timeline to the specified file."
     echo "                             (Fails if --docker is used since recording requires a local SDL GUI)."
     echo "  --timeline <file.tl>       Playback an existing timeline file."
@@ -41,12 +44,14 @@ TIMELINE_FILE=""
 RECORD_FILE=""
 VIDEO_FILE=""
 QMP_PORT=""
+GDB_SCRIPT=""
 PASSTHROUGH_ARGS=()
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --docker) USE_DOCKER=1; shift ;;
         --gdb) USE_GDB=1; shift ;;
+        --gdb-script) GDB_SCRIPT="$2"; shift 2 ;;
         --reset) USE_RESET=1; shift ;;
         --timeline) TIMELINE_FILE="$2"; shift 2 ;;
         --record) RECORD_FILE="$2"; shift 2 ;;
@@ -67,8 +72,13 @@ if [ "$USE_RESET" = "1" ]; then
     make gwemu_release
 fi
 
+# Start QEMU suspended (-S) whenever a GDB session will attach, so the target
+# is halted at reset before it runs. Without this the batch log-forwarder
+# attaches a second or two into the boot and silently misses everything
+# retro-go printed on the way up -- which reads as "logging is broken".
+# Headless Docker runs without an attached GDB, so it must NOT be suspended.
 EXTRA_ARGS="-s"
-if [ "$USE_GDB" = "1" ]; then
+if [ "$USE_GDB" = "1" ] || [ -n "$GDB_SCRIPT" ] || [ "$USE_DOCKER" = "0" ]; then
     EXTRA_ARGS="-s -S"
 fi
 
@@ -157,7 +167,9 @@ fi
 # Fallback to gdb-multiarch if arm-none-eabi-gdb isn't found in env
 GDB_CMD=${GDB:-arm-none-eabi-gdb}
 
-if [ "$USE_GDB" = "1" ]; then
+if [ -n "$GDB_SCRIPT" ]; then
+    $GDB_CMD build/gw_retro_go.elf -batch -x "$GDB_SCRIPT"
+elif [ "$USE_GDB" = "1" ]; then
     $GDB_CMD build/gw_retro_go.elf -ex "target extended-remote :1234"
 elif [ "$USE_DOCKER" = "0" ]; then
     $GDB_CMD build/gw_retro_go.elf -batch -x scripts/gwemu_log.gdb
