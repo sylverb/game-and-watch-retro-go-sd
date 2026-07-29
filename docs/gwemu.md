@@ -43,6 +43,68 @@ and if the firmware faults you get a full exception report instead of a frozen s
 > **Do not use `make all`.** It builds `gw_retro_go_extflash.bin`, which neither the release
 > path nor the flash path uses, and which is not a meaningful artifact for either variant.
 
+## The two build variants
+
+`SD_CARD` is not a feature toggle — it selects a different firmware layout, a different
+linker script, and a different place for the filesystem to live. Almost everything else in
+this document branches on it, so establish which one you are building first.
+
+| | `SD_CARD=1` (SD card) | `SD_CARD=0` (flash-only, FrogFS) |
+|---|---|---|
+| Linker script | `STM32H7B0VBTx_SDCARD.ld` | `STM32H7B0VBTx_FLASH.ld` |
+| Filesystem lives in | the SD card | external flash (FrogFS read-only + LittleFS read/write) |
+| Emulator cores | streamed from `/cores/` on the card | packed into the LittleFS partition |
+| External flash at runtime | unused | holds everything |
+| Distributable release | yes (`make release`) | no — needs proprietary blobs, `release` errors |
+| Build for gwemu | `release gwemu_release` | `frogfs_image littlefs_image gwemu_release` |
+| Flash to hardware | `make flash_sd` (internal flash + `sdpush` of each core) | `make flash` (internal flash + `frogfs.bin` and `littlefs.bin` at their offsets) |
+
+To compare emulator against hardware, use the matching pair from the last two rows — built
+from one invocation with one set of variables. Anything else is comparing two different
+firmwares.
+
+### Variables that only matter for `SD_CARD=0`
+
+FrogFS builds place the filesystem in external flash, so they need to know the chip layout:
+
+- **`EXTFLASH_OFFSET`** — byte offset where retro-go's partition begins. Non-zero when
+  something else (typically original firmware) occupies the start of the chip.
+- **`EXTFLASH_SIZE_MB`** — size of retro-go's partition **after** the offset. Not the chip
+  size. This trips people up: on a 64 MB chip with a 24 MB offset you want `40`, not `64`.
+- `EXTFLASH_OFFSET + EXTFLASH_SIZE` **must land on a power-of-two boundary**, which the
+  build enforces with a hard error. It is how the layout is expected to end at the chip
+  boundary.
+- **`FILESYSTEM_SIZE`** defaults to 10% of the partition, rounded down to 4096, and the
+  LittleFS partition sits at the end of it. `FILESYSTEM_FLASH_OFFSET` is derived; you do not
+  set it, but it is recorded in the build info and is where `littlefs.bin` gets written.
+
+A worked example, for a 64 MB chip with 24 MB reserved at the start:
+
+```bash
+make -j$(nproc) SD_CARD=0 INTFLASH_BANK=1 \
+     EXTFLASH_OFFSET=25165824 EXTFLASH_SIZE_MB=40 \
+     frogfs_image littlefs_image gwemu_release
+```
+
+### `INTFLASH_BANK` and what gwemu needs
+
+`INTFLASH_BANK=1` links retro-go for `0x08000000`; `INTFLASH_BANK=2` links it for
+`0x08100000`, which is the dual-boot arrangement where patched original firmware occupies
+bank 1.
+
+For the emulator this matters: a bank 2 build needs *something* in bank 1 or the machine has
+nothing to boot. `gwemu_release` looks for `backup/internal_flash_backup_mario.bin` or
+`backup/internal_flash_backup_zelda.bin` and uses it for `qemu_bank1.bin`. Without one it
+warns and leaves bank 1 empty, which will not boot the way hardware does. If you are
+testing a bank 2 build, put your OFW backup there first.
+
+### Changing layout variables
+
+`SD_CARD`, `INTFLASH_BANK`, `EXTFLASH_*` and `GNW_TARGET` change the binary layout, not just
+behaviour. **Run `make clean` when you change any of them.** Stale objects from a previous
+layout link into a firmware that looks fine and behaves strangely — and the resulting
+debugging session will not be about the thing you changed.
+
 ## How the pieces fit together
 
 ### `make gwemu_release` — building the media
@@ -162,9 +224,10 @@ of it, which looks exactly like "logging is broken".
 
 ### The emulator binary and release lookups
 
-`gwemu_bin` lives at the **repo root**, not under `build/`, so `make clean` does not throw
-away a ~16 MB download. The installed tag is recorded in `gwemu_bin.version`. Both are
-gitignored.
+`gwemu_bin` is a ~16 MB download and has nothing to do with build output, so it is kept at
+the **repo root** and therefore **survives `make clean`** — you do not need to re-fetch it
+after a clean build. The installed tag is recorded in `gwemu_bin.version`. Both files are
+gitignored, as is `gwemu.log`.
 
 gwemu moves quickly, so the tooling tracks the latest release rather than pinning:
 
