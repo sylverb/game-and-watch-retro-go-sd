@@ -36,7 +36,19 @@ brew install \
 
 The `game-and-watch-retro-go-sd` repository integrates with `gwemu` via several targets in `Makefile.common`:
 
-- `make gwemu_release`: Compiles the retro-go firmware into the expected `qemu_bank1.bin`, `qemu_bank2.bin`, and `extflash.bin` images, and prepares an SD card image (`sdcard.img`).
+- `make gwemu_release`: Builds the QEMU media images (`qemu_bank1.bin`, `qemu_bank2.bin`, `extflash.bin`, and for SD builds `sdcard.img`) from the compiled firmware. It honours `SD_CARD`:
+  - **`SD_CARD=1`** — bank images plus a FAT32 `sdcard.img` populated from `sd_content/`. External flash is unused at runtime (cores stream from the card), so `extflash.bin` is a blank 64 MB blob.
+  - **`SD_CARD=0`** (FrogFS) — no SD image. The firmware reads its filesystem out of external flash, so `extflash.bin` is built to the **full chip size** (`EXTFLASH_OFFSET + EXTFLASH_SIZE`, which the Makefile already forces to a power of two) with `frogfs.bin` written at `EXTFLASH_OFFSET` and `littlefs.bin` at `FILESYSTEM_FLASH_OFFSET` — the same layout `make flash` writes to hardware via gnwmanager. A blank blob would boot the firmware against an external flash containing no filesystem, which is not what runs on the device.
+
+  Build the right targets for your variant:
+  ```bash
+  # SD card build
+  make -j$(nproc) <params> release gwemu_release
+
+  # Flash-only (FrogFS) build
+  make -j$(nproc) <params> frogfs_image littlefs_image gwemu_release
+  ```
+  Note `all` is not the right target for either: it builds `gw_retro_go_extflash.bin`, which the release/flash paths do not use.
 - `make gwemu_download`: Downloads the appropriate native gwemu binary (macOS `.app` or Linux `.AppImage`) to `./gwemu_bin` in the repo root. It is a no-op when the binary is already present, so it costs nothing on repeat invocations.
 - `make gwemu_update`: Forces a check against the latest `slash-proc/gwemu` release and re-downloads if a newer tag is available. Equivalent to `run_gwemu.sh --update`.
 - `make gwemu_interactive`: Calls `gwemu_release` and `gwemu_download`, then launches the emulator via `./scripts/run_gwemu.sh`.

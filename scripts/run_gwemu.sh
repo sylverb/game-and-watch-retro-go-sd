@@ -137,7 +137,7 @@ if [ "$USE_DOCKER" = "1" ]; then
         --bank1 /images/qemu_bank1.bin \
         --bank2 /images/qemu_bank2.bin \
         --extflash /images/extflash.bin \
-        --sd /images/sdcard.img \
+        $([ -f build/sdcard.img ] && echo "--sd /images/sdcard.img") \
         "${ENTRY_ARGS[@]}" \
         -- $EXTRA_ARGS "${PASSTHROUGH_ARGS[@]}" &
     GWEMU_PID=$!
@@ -159,11 +159,20 @@ else
         export GNW_TIMELINE="$PWD/$TIMELINE_FILE"
     fi
 
+    # SD_CARD=0 (FrogFS) builds have no SD image - the filesystem lives in
+    # external flash. Only attach a card when one was actually produced.
+    SD_ARGS=()
+    if [ -f build/sdcard.img ]; then
+        SD_ARGS=("-drive" "if=sd,file=build/sdcard.img")
+    else
+        echo "No build/sdcard.img - running without an SD card (SD_CARD=0 build)."
+    fi
+
     ./gwemu_bin -M gnw-h7b0 \
         -global gnw-h7b0-soc.bank1-image=build/qemu_bank1.bin \
         -global gnw-h7b0-soc.bank2-image=build/qemu_bank2.bin \
         -global gnw-h7b0-soc.extflash-image=build/extflash.bin \
-        -drive if=sd,file=build/sdcard.img \
+        "${SD_ARGS[@]}" \
         -audiodev sdl3,id=snd0 -global gnw-h7b0-sai1.audiodev=snd0 \
         -display gwemu \
         "${NATIVE_ARGS[@]}" \

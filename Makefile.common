@@ -1733,8 +1733,53 @@ flash_saves_restore:
 	@echo "Restore from \"backup/\" complete."
 .PHONY: flash_saves_restore
 
-gwemu_release: $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
-	@if [ ! -f $(BUILD_DIR)/sdcard.img ]; then \
+# gwemu needs an image of the WHOLE external flash chip, laid out exactly as
+# gnwmanager writes it to hardware (see the `flash` target above).
+#
+# SD_CARD=0 (FrogFS): the firmware reads its filesystem out of external flash, so
+# the image must actually contain it -- frogfs.bin at EXTFLASH_OFFSET and
+# littlefs.bin at FILESYSTEM_FLASH_OFFSET. Handing the emulator a blank blob would
+# boot against an external flash with no filesystem, which is not what runs on the
+# device and therefore not a valid comparison.
+#
+# SD_CARD=1: cores stream from the SD card and external flash is unused at
+# runtime, so a blank blob is fine. That path is unchanged.
+#
+# The chip size is EXTFLASH_END (offset + partition), which the guard above
+# already forces to a power of two -- no separate knob needed.
+
+ifeq ($(SD_CARD),0)
+GWEMU_PREREQS := $(BUILD_DIR)/$(TARGET)_intflash.bin $(FROGFS_IMAGE) $(LITTLEFS_IMAGE)
+GWEMU_STAMP   := $(BUILD_DIR)/extflash.bin
+define GWEMU_MEDIA_PREP
+if [ $$(( $(EXTFLASH_OFFSET) % 4096 )) -ne 0 ] || [ $$(( $(FILESYSTEM_FLASH_OFFSET) % 4096 )) -ne 0 ]; then \
+	echo "ERROR: EXTFLASH_OFFSET ($(EXTFLASH_OFFSET)) and FILESYSTEM_FLASH_OFFSET ($(FILESYSTEM_FLASH_OFFSET)) must be 4096-aligned"; \
+	exit 1; \
+fi; \
+echo "Creating $$(( $(EXTFLASH_END) / 1048576 ))MB external flash image (matching hardware layout)..."; \
+dd if=/dev/zero of=$(BUILD_DIR)/extflash.bin bs=1M count=$$(( $(EXTFLASH_END) / 1048576 )) 2>/dev/null; \
+echo "  FrogFS   -> offset $(EXTFLASH_OFFSET)"; \
+dd if=$(FROGFS_IMAGE) of=$(BUILD_DIR)/extflash.bin bs=4096 seek=$$(( $(EXTFLASH_OFFSET) / 4096 )) conv=notrunc 2>/dev/null; \
+echo "  LittleFS -> offset $(FILESYSTEM_FLASH_OFFSET)"; \
+dd if=$(LITTLEFS_IMAGE) of=$(BUILD_DIR)/extflash.bin bs=4096 seek=$$(( $(FILESYSTEM_FLASH_OFFSET) / 4096 )) conv=notrunc 2>/dev/null; \
+echo "SD_CARD=0: no SD card image required."
+endef
+else
+GWEMU_PREREQS := $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
+GWEMU_STAMP   := $(BUILD_DIR)/sdcard.img
+define GWEMU_MEDIA_PREP
+echo "Creating 64MB empty extflash image..."; \
+dd if=/dev/zero of=$(BUILD_DIR)/extflash.bin bs=1M count=64 2>/dev/null; \
+echo "Creating 256MB SD card image with FAT32 partition..."; \
+dd if=/dev/zero of=$(BUILD_DIR)/sdcard.img bs=1M count=256 2>/dev/null; \
+parted -s $(BUILD_DIR)/sdcard.img mklabel msdos mkpart primary fat32 1MiB 100%; \
+mformat -i $(BUILD_DIR)/sdcard.img@@1M -F -v RETROGO ::; \
+mcopy -i $(BUILD_DIR)/sdcard.img@@1M -s sd_content/* ::/
+endef
+endif
+
+gwemu_release: $(GWEMU_PREREQS)
+	@if [ ! -f $(GWEMU_STAMP) ]; then \
 		echo "Preparing QEMU Bank 1 and Bank 2 images..."; \
 		if [ "$(INTFLASH_BANK)" = "1" ]; then \
 			dd if=$(BUILD_DIR)/$(TARGET)_intflash.bin of=$(BUILD_DIR)/qemu_bank1.bin bs=256k count=1 conv=sync 2>/dev/null; \
@@ -1750,16 +1795,11 @@ gwemu_release: $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
 			fi; \
 			dd if=$(BUILD_DIR)/$(TARGET)_intflash.bin of=$(BUILD_DIR)/qemu_bank2.bin bs=256k count=1 conv=sync 2>/dev/null; \
 		fi; \
-		echo "Creating 64MB empty extflash image..."; \
-		dd if=/dev/zero of=$(BUILD_DIR)/extflash.bin bs=1M count=64 2>/dev/null; \
-		echo "Creating 256MB SD card image with FAT32 partition..."; \
-		dd if=/dev/zero of=$(BUILD_DIR)/sdcard.img bs=1M count=256 2>/dev/null; \
-		parted -s $(BUILD_DIR)/sdcard.img mklabel msdos mkpart primary fat32 1MiB 100%; \
-		mformat -i $(BUILD_DIR)/sdcard.img@@1M -F -v RETROGO ::; \
-		mcopy -i $(BUILD_DIR)/sdcard.img@@1M -s sd_content/* ::/; \
+		$(GWEMU_MEDIA_PREP); \
 	else \
 		echo "QEMU images already exist (skipping prep). Pass --reset to wipe state."; \
 	fi
+.PHONY: gwemu_release
 
 # The gwemu binary lives at the repo root, NOT under build/. It is a large
 # download that has nothing to do with build output, and `make clean` wiping it
