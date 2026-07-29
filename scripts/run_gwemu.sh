@@ -88,9 +88,31 @@ if [ "$USE_UPDATE" = "1" ]; then
 fi
 
 if [ "$USE_RESET" = "1" ]; then
-    echo "Resetting emulator state..."
+    # The emulated flash and SD card are writable and persist between runs, exactly like
+    # the real device's storage -- the guest mutates them, so state accumulates across
+    # boots. --reset wipes that back to freshly built media.
+    #
+    # Rebuild with the SAME variables the media was originally built with. A bare
+    # `make gwemu_release` falls back to defaults (SD_CARD=1, EXTFLASH_OFFSET=0) and would
+    # quietly hand you media for a different configuration than your tree.
+    INFO="build/gwemu_build_info.txt"
+    if [ ! -f "$INFO" ]; then
+        echo "Error: $INFO not found, so --reset cannot know how the media was built."
+        echo "Re-run your build command instead, e.g.:"
+        echo "  make -j\$(nproc) <your params> release gwemu_release"
+        exit 1
+    fi
+    RESET_VARS=()
+    while IFS= read -r kv; do
+        [ -n "$kv" ] && RESET_VARS+=("$kv")
+    done < <(awk -F'=' '
+        $1 ~ /^(GNW_TARGET|SD_CARD|INTFLASH_BANK|EXTFLASH_OFFSET|EXTFLASH_SIZE_MB|COVERFLOW|CHEAT_CODES|SHARED_HIBERNATE_SAVESTATE|DISABLE_SPLASH_SCREEN) *$/ {
+            gsub(/ /, "", $1); gsub(/^ +| +$/, "", $2);
+            if ($2 != "") print $1 "=" $2
+        }' "$INFO")
+    echo "Resetting emulator state (rebuilding with: ${RESET_VARS[*]})"
     rm -f build/sdcard.img build/extflash.bin build/qemu_bank1.bin build/qemu_bank2.bin
-    make gwemu_release
+    make gwemu_release "${RESET_VARS[@]}"
 fi
 
 # Always start suspended. A GDB session always attaches -- forwarding the log

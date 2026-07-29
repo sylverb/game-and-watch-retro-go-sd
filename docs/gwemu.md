@@ -91,9 +91,24 @@ When the emulator and the device behave differently, the first question is alway
 even the same firmware?" Compare that md5 with what gnwmanager flashed and you have the
 answer immediately instead of inferring it.
 
-`gwemu_release` skips regenerating media that already exists. Pass `--reset` to
-`run_gwemu.sh` to wipe and rebuild — necessary after changing anything that lands on the SD
-card, or any flash-layout variable.
+### The emulated storage is writable and persists
+
+`extflash.bin` and `sdcard.img` are the device's storage, and the firmware writes to them —
+config, the LittleFS `/cores` partition, save data. Those writes survive between runs, just
+as they do on real hardware. **Runs are therefore not idempotent**, and accumulated state
+can change behaviour: a tree whose emulator list was full can come up with fewer entries
+because a previous boot rewrote the filesystem.
+
+If a run looks wrong, check `build/gwemu_build_info.txt` first. If the firmware md5 still
+matches but `extflash.bin` or `sdcard.img` no longer do, the guest mutated its storage and
+you are looking at accumulated state rather than a code change.
+
+`./scripts/run_gwemu.sh --reset` wipes the media and rebuilds it, reusing the variables
+recorded in `build/gwemu_build_info.txt` so the configuration cannot drift. Use it after
+changing anything that lands on the SD card or any flash-layout variable, and whenever you
+want a clean slate.
+
+`gwemu_release` otherwise skips regenerating media that already exists.
 
 ### `run_gwemu.sh` — running it
 
