@@ -67,7 +67,10 @@ _Min_Stack_Size = 24 * 1024; /* required amount of stack */
 __NULLPTR_LENGTH__  = 0x0;
 __ITCMRAM_LENGTH__  = 64K;
 __DTCMRAM_LENGTH__  = 128K;
-__REMOTE_INPUT_RESERVE__ = DEFINED(REMOTE_INPUT) ? REMOTE_INPUT * 12 : 0;
+/* Rounded up to 256 so the top-of-DTCM stack block stays 256-byte aligned.
+ * This mask is evaluated OUTSIDE any output section, where '&' operates on a
+ * true absolute value -- see the _heap_limit comment below for why that matters. */
+__REMOTE_INPUT_RESERVE__ = DEFINED(REMOTE_INPUT) ? ((REMOTE_INPUT * 12 + 255) & ~255) : 0;
 __RAM_UC_LENGTH__   = 300K; /* framebuffer : 2 x 320 x 240 x 16 bits */
 __RAM_EMU_LENGTH__  = 1024K - __RAM_UC_LENGTH__;
 __AHBRAM_LENGTH__   = 128K;
@@ -1116,11 +1119,25 @@ INCLUDE build/fceumm_mappers.ld
     /* Alias for scripts/size.sh — "padding" is now the whole flexible heap. */
     __dtc_padding_start__ = .;
 
-    /* Align down so . = _heap_limit never steps into the stack. */
-    _heap_limit = (ORIGIN(DTCMRAM) + LENGTH(DTCMRAM)
+    /* NO masking here. Symbol assignments inside an output section are evaluated
+     * SECTION-RELATIVE by ld, so a '& ~15' would silently become
+     *     base + ((target - base) & ~15)
+     * where base is wherever .bss happened to end. That only equals the intended
+     * constant when ._user_heap starts 16-byte aligned, so any change to DTCM
+     * .bss size could shift _stack_redzone off its required alignment. A
+     * misaligned redzone sets bit4 of the value written to MPU_RBAR, which is the
+     * VALID flag -- the region number is then taken from bits[3:0], goes out of
+     * range on an 8-region M7, and the write is DISCARDED. MPU region 2 then keeps
+     * its reset base of 0 while the RASR write lands, turning 0x0-0xFF into a
+     * no-access trap and faulting the first itc_malloc() allocation.
+     *
+     * Plain +/- is transparent to the relative rebasing, so this stays a true
+     * constant. All three terms are multiples of 256, so it is 256-byte aligned
+     * by construction -- asserted after ._user_stack below. */
+    _heap_limit = ORIGIN(DTCMRAM) + LENGTH(DTCMRAM)
                 - __REMOTE_INPUT_RESERVE__
                 - _Min_Stack_Size
-                - _Stack_Redzone_Size) & ~15;
+                - _Stack_Redzone_Size;
     ASSERT(_heap_start <= _heap_limit,
            "DTCM overflow: .data/.bss leave no room for stack");
 
@@ -1139,6 +1156,13 @@ INCLUDE build/fceumm_mappers.ld
     . = . + __REMOTE_INPUT_RESERVE__;
     __dtcram_end__ = .;
   } >DTCMRAM
+
+  /* _stack_redzone is an MPU region base (MPU_Config() in Core/Src/main.c) and the
+   * region is _Stack_Redzone_Size bytes, so it MUST be aligned to that size. If this
+   * fires, something made _heap_limit non-constant again -- do not "fix" it by
+   * nudging .bss; fix the expression. */
+  _stack_redzone_align_check = ASSERT((_stack_redzone & (_Stack_Redzone_Size - 1)) == 0,
+         "_stack_redzone must be _Stack_Redzone_Size-aligned: it is an MPU region base");
 
   /* Remove information from the standard libraries */
   /DISCARD/ :
