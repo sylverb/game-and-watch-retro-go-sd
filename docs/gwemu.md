@@ -49,6 +49,22 @@ The `game-and-watch-retro-go-sd` repository integrates with `gwemu` via several 
   make -j$(nproc) <params> frogfs_image littlefs_image gwemu_release
   ```
   Note `all` is not the right target for either: it builds `gw_retro_go_extflash.bin`, which the release/flash paths do not use.
+
+**The emulator images are built from a real release.** For `SD_CARD=1`, `gwemu_release` depends on the `release` target itself, so `make gwemu_release` alone produces `firmware_update.bin`, `gw_update.tar` and the release package, and the images gwemu boots come out of exactly those steps. This is deliberate: gwemu and hardware must be built from **one invocation with one set of variables**. Building `release` with one set of flags and `gwemu_release` with another would have the emulator quietly running different firmware than the device, making any comparison between them worthless. (`SD_CARD=0` cannot produce a distributable release — it needs proprietary blobs — so it depends on `frogfs_image` / `littlefs_image`, which is what `make flash` writes to hardware.)
+
+Every run writes `build/gwemu_build_info.txt` recording the parameters used and the md5 of each image:
+
+```
+GNW_TARGET                = mario
+SD_CARD                   = 1
+INTFLASH_BANK             = 1
+EXTFLASH_OFFSET           = 0
+...
+intflash.bin md5          = 48a0efbea0bc289b8c272067e3a2c8a5
+qemu_bank1.bin md5 = a014363987ee8e18a6712e82deb3065b
+```
+
+When the emulator and the device disagree, the first question is always "was it actually the same firmware?" — compare that md5 with what gnwmanager flashed and the question is settled immediately.
 - `make gwemu_download`: Downloads the appropriate native gwemu binary (macOS `.app` or Linux `.AppImage`) to `./gwemu_bin` in the repo root. It is a no-op when the binary is already present, so it costs nothing on repeat invocations.
 - `make gwemu_update`: Forces a check against the latest `slash-proc/gwemu` release and re-downloads if a newer tag is available. Equivalent to `run_gwemu.sh --update`.
 - `make gwemu_interactive`: Calls `gwemu_release` and `gwemu_download`, then launches the emulator via `./scripts/run_gwemu.sh`.
