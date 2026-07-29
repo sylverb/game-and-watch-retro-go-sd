@@ -106,7 +106,8 @@ if [ "$USE_DOCKER" = "1" ]; then
         exit 1
     fi
     mkdir -p out
-    LATEST_TAG=$(curl -s https://api.github.com/repos/slash-proc/gwemu/releases | grep -o '"tag_name": "[^"]*"' | head -n 1 | cut -d '"' -f 4)
+    # Cached for an hour -- this used to hit the GitHub API on every single run.
+    LATEST_TAG=$(./scripts/gwemu_latest_tag.sh)
     VERSION=${LATEST_TAG#v}
     IMAGE_NAME="${DOCKER_IMAGE:-slashproc/gwemu-headless:$VERSION}"
 

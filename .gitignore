@@ -55,3 +55,4 @@ gwemu_bin.version
 # Session logs from scripts/run_gwemu.sh. The default (build/gwemu.log) is already
 # covered by build/, but --log-file can point anywhere. No .log files are tracked.
 *.log
+.gwemu_release_cache

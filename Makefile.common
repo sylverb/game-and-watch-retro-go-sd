@@ -1813,7 +1813,7 @@ GWEMU_VERSION_FILE = $(GWEMU_BIN).version
 # we track latest for now; pin GWEMU_TAG once things settle.
 gwemu_download:
 	@if [ ! -f $(GWEMU_BIN) ] || [ "$(GWEMU_UPDATE)" = "1" ]; then \
-		LATEST_TAG=$${GWEMU_TAG:-$$(curl -s https://api.github.com/repos/slash-proc/gwemu/releases | grep -o '"tag_name": "[^"]*"' | head -n 1 | cut -d '"' -f 4)}; \
+		LATEST_TAG=$$(./scripts/gwemu_latest_tag.sh $(if $(filter 1,$(GWEMU_FORCE_CHECK)),--force,) || true); \
 		if [ -z "$$LATEST_TAG" ]; then \
 			echo "ERROR: could not determine latest gwemu release (network?)."; \
 			[ -f $(GWEMU_BIN) ] || exit 1; \

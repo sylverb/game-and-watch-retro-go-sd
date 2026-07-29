@@ -62,7 +62,12 @@ Note that `gwemu_release` skips image preparation entirely if `build/sdcard.img`
 The installed version is recorded in `gwemu_bin.version`. gwemu is still moving quickly, so the tooling tracks the latest release rather than a pin:
 
 - `./scripts/run_gwemu.sh --update` (or `make gwemu_update`) checks for and installs a newer release before running.
-- `GWEMU_TAG=v0.0.18 make gwemu_download` pins a specific tag — use this once things stabilise.
+- `GWEMU_TAG=v0.0.18 make gwemu_download` pins a specific tag — use this once things stabilise. A pin never touches the network.
+
+**Release lookups are cached for an hour.** GitHub rate-limits unauthenticated API calls to 60/hour/IP, and the Docker path used to ask for the latest tag on every single run, so a handful of iterations could exhaust the budget — which surfaces as an empty tag rather than an obvious error. All lookups now go through `scripts/gwemu_latest_tag.sh`, which caches the answer in `.gwemu_release_cache` (gitignored) and reuses it for 60 minutes. If a lookup fails while a stale cache exists, the stale tag is used and a warning goes to stderr rather than silently returning nothing.
+
+- `scripts/gwemu_latest_tag.sh --force` (or `make gwemu_update GWEMU_FORCE_CHECK=1`) bypasses the cache — use it right after a new release lands.
+- `GWEMU_RELEASE_TTL=<minutes>` changes the lifetime; `0` disables caching.
 - If the network is unreachable but a binary is already present, the download step warns and continues rather than failing the run.
 
 ## Usage: `run_gwemu.sh`
