@@ -261,6 +261,12 @@ the **repo root** and therefore **survives `make clean`** — you do not need to
 after a clean build. The installed tag is recorded in `gwemu_bin.version`. Both files are
 gitignored, as is `gwemu.log`.
 
+On Linux `gwemu_bin` is the downloaded AppImage itself. On macOS the release is an
+`.app` bundle whose executable loads its dylibs from a sibling `Frameworks/` directory,
+so the bundle is unpacked to `gwemu.app/` at the repo root and `gwemu_bin` is a symlink
+into it. Either way `./gwemu_bin` is the thing you run, and `gwemu.app/` is gitignored
+too — just do not move `gwemu_bin` away from the bundle on macOS, or it will not load.
+
 gwemu moves quickly, so the tooling tracks the latest release rather than pinning:
 
 ```bash
