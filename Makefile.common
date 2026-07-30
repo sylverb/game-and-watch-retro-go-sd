@@ -1878,11 +1878,25 @@ gwemu_download:
 					else \
 						DL="gwemu-macos-x86_64-app.zip"; \
 					fi; \
+					set -e; \
 					rm -rf .gwemu_tmp && mkdir -p .gwemu_tmp; \
 					wget -qO .gwemu_tmp/gwemu.zip https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
 					unzip -q -o .gwemu_tmp/gwemu.zip -d .gwemu_tmp/app; \
-					cp .gwemu_tmp/app/gwemu.app/Contents/MacOS/gwemu $(GWEMU_BIN); \
+					: 'The zip nests gwemu.app under a release-named directory, so locate'; \
+					: 'it rather than assuming a fixed depth.'; \
+					APP=$$(find .gwemu_tmp/app -maxdepth 3 -name gwemu.app -type d | head -n 1); \
+					if [ -z "$$APP" ]; then \
+						echo "ERROR: no gwemu.app inside $$DL"; exit 1; \
+					fi; \
+					: 'The whole bundle has to survive: the executable links its dylibs'; \
+					: 'through @executable_path/../Frameworks, so a lone copy of'; \
+					: 'Contents/MacOS/gwemu cannot load. Keep gwemu.app and point'; \
+					: 'gwemu_bin at it with a symlink -- dyld resolves @executable_path'; \
+					: 'through the symlink, so ./gwemu_bin works exactly as on Linux.'; \
+					rm -rf gwemu.app && mv "$$APP" gwemu.app; \
 					rm -rf .gwemu_tmp; \
+					chmod +x gwemu.app/Contents/MacOS/gwemu; \
+					ln -sfn gwemu.app/Contents/MacOS/gwemu $(GWEMU_BIN); \
 				else \
 					if [ "$$ARCH" = "aarch64" ]; then \
 						DL="gwemu-$$VERSION-aarch64.AppImage"; \
@@ -1890,8 +1904,16 @@ gwemu_download:
 						DL="gwemu-$$VERSION-x86_64.AppImage"; \
 					fi; \
 					wget -qO $(GWEMU_BIN) https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
+					chmod +x $(GWEMU_BIN); \
 				fi; \
-				chmod +x $(GWEMU_BIN); \
+				: 'Record the version only once a working binary is actually in place.'; \
+				: 'This used to run unconditionally, so a failed extraction still wrote'; \
+				: 'the version file and exited 0 -- every later run then reported'; \
+				: '"gwemu already at <tag>" with no binary on disk.'; \
+				if [ ! -x $(GWEMU_BIN) ]; then \
+					echo "ERROR: gwemu download did not produce an executable $(GWEMU_BIN)"; \
+					exit 1; \
+				fi; \
 				echo "$$LATEST_TAG" > $(GWEMU_VERSION_FILE); \
 				echo "gwemu now at $$LATEST_TAG"; \
 			fi; \

@@ -51,6 +51,9 @@ build-error.log
 gwemu_bin
 gwemu_bin.version
 .gwemu_tmp/
+# On macOS gwemu ships as an .app bundle whose executable loads its dylibs from
+# a sibling Frameworks/ dir, so the bundle is kept and gwemu_bin symlinks into it.
+gwemu.app/
 
 # Session logs from scripts/run_gwemu.sh. The default (build/gwemu.log) is already
 # covered by build/, but --log-file can point anywhere. No .log files are tracked.
