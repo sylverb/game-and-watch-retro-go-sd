@@ -1689,10 +1689,10 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		$(RESET_DBGMCU_CMD)
 endif
 
+# This used to read -j$(nproc): a *make* expansion of a function that does not
+# exist, so it silently expanded to nothing and left a bare -j (unbounded
+# parallelism) on every host. $(NPROC) resolves the CPU count portably.
 firmware_update: create_sd_folders
-	# $(nproc) was a make expansion, not a shell one, so it silently expanded to
-	# nothing and left a bare -j (unbounded parallelism) on every host. $(NPROC)
-	# resolves the CPU count portably.
 	@$(MAKE) -j$(NPROC) -C external/firmware_update
 	@cp external/firmware_update/build/firmware_update.bin $(RELEASE_FOLDER)/
 
