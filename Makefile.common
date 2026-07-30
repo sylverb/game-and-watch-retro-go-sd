@@ -246,6 +246,20 @@ INTERNAL_CORE_BIN_HEADER_VERSION ?= 0
 BUILD_DIR ?= build
 
 #######################################
+# Host tool portability (Linux / macOS)
+#######################################
+# Image building and the wrapper scripts run on the *host*, so they have to work
+# against both GNU coreutils and the BSD userland macOS ships. Where a portable
+# spelling exists we just use it; these cover the tools that genuinely differ.
+
+# md5sum(1) is GNU-only; macOS ships md5(1). `md5 -r` prints "<hash> <file>" --
+# the same field order as md5sum -- so one `cut -d' ' -f1` works on both.
+MD5SUM ?= $(shell command -v md5sum >/dev/null 2>&1 && echo md5sum || echo 'md5 -r')
+
+# nproc(1) is GNU-only; macOS reports its CPU count through sysctl.
+NPROC ?= $(shell command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+
+#######################################
 # i18n Codepage
 #######################################
 CODEPAGE ?= 1252
@@ -1676,7 +1690,10 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 endif
 
 firmware_update: create_sd_folders
-	@$(MAKE) -j$(nproc) -C external/firmware_update
+	# $(nproc) was a make expansion, not a shell one, so it silently expanded to
+	# nothing and left a bare -j (unbounded parallelism) on every host. $(NPROC)
+	# resolves the CPU count portably.
+	@$(MAKE) -j$(NPROC) -C external/firmware_update
 	@cp external/firmware_update/build/firmware_update.bin $(RELEASE_FOLDER)/
 
 # Release is SD_CARD=1 only; SD_CARD=0 builds require proprietary blobs and
@@ -1776,9 +1793,7 @@ GWEMU_STAMP   := $(BUILD_DIR)/sdcard.img
 define GWEMU_MEDIA_PREP
 echo "Creating 64MB empty extflash image..."; \
 dd if=/dev/zero of=$(BUILD_DIR)/extflash.bin bs=1M count=64 2>/dev/null; \
-echo "Creating 256MB SD card image with FAT32 partition..."; \
-dd if=/dev/zero of=$(BUILD_DIR)/sdcard.img bs=1M count=256 2>/dev/null; \
-parted -s $(BUILD_DIR)/sdcard.img mklabel msdos mkpart primary fat32 1MiB 100%; \
+$(PYTHON3) scripts/make_sdcard_image.py $(BUILD_DIR)/sdcard.img --size-mb 256; \
 mformat -i $(BUILD_DIR)/sdcard.img@@1M -F -v RETROGO ::; \
 mcopy -i $(BUILD_DIR)/sdcard.img@@1M -s sd_content/* ::/
 endef
@@ -1824,9 +1839,9 @@ define GWEMU_WRITE_BUILDINFO
 	echo "CHEAT_CODES               = $(CHEAT_CODES)"; \
 	echo "SHARED_HIBERNATE_SAVESTATE= $(SHARED_HIBERNATE_SAVESTATE)"; \
 	echo "DISABLE_SPLASH_SCREEN     = $(DISABLE_SPLASH_SCREEN)"; \
-	echo "intflash.bin md5          = $$(md5sum $(BUILD_DIR)/$(TARGET)_intflash.bin 2>/dev/null | cut -d' ' -f1)"; \
+	echo "intflash.bin md5          = $$($(MD5SUM) $(BUILD_DIR)/$(TARGET)_intflash.bin 2>/dev/null | cut -d' ' -f1)"; \
 	for f in qemu_bank1.bin qemu_bank2.bin extflash.bin sdcard.img; do \
-		[ -f $(BUILD_DIR)/$$f ] && echo "$$f md5 = $$(md5sum $(BUILD_DIR)/$$f | cut -d' ' -f1)"; \
+		[ -f $(BUILD_DIR)/$$f ] && echo "$$f md5 = $$($(MD5SUM) $(BUILD_DIR)/$$f | cut -d' ' -f1)"; \
 	done; \
 } > $(BUILD_DIR)/gwemu_build_info.txt; \
 echo "[gwemu_release] parameters recorded in $(BUILD_DIR)/gwemu_build_info.txt"
