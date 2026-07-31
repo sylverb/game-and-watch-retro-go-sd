@@ -38,15 +38,34 @@ brew install --cask gcc-arm-embedded
 or the tarball, which needs no admin rights:
 
 ```bash
+VER=15.2.rel1                    # must match ARM_COMPILER_VERSION in Dockerfile
+ARCH=darwin-arm64                # see the Intel note below
 mkdir -p ~/opt && cd ~/opt
-curl -fSLO https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-darwin-x86_64-arm-none-eabi.tar.xz
-tar xf arm-gnu-toolchain-14.2.rel1-darwin-x86_64-arm-none-eabi.tar.xz
-export PATH="$HOME/opt/arm-gnu-toolchain-14.2.rel1-darwin-x86_64-arm-none-eabi/bin:$PATH"
+curl -fSLO "https://developer.arm.com/-/media/Files/downloads/gnu/$VER/binrel/arm-gnu-toolchain-$VER-$ARCH-arm-none-eabi.tar.xz"
+tar xf "arm-gnu-toolchain-$VER-$ARCH-arm-none-eabi.tar.xz"
+export PATH="$HOME/opt/arm-gnu-toolchain-$VER-$ARCH-arm-none-eabi/bin:$PATH"
 ```
 
-(Swap `darwin-x86_64` for `darwin-arm64` on Apple Silicon. Alternatively, leave
-it off `PATH` and pass `GCC_PATH=<...>/bin` on the make command line.) The
-bundled `arm-none-eabi-gdb` works as-is, so `gdb-multiarch` is not needed.
+**Match `ARM_COMPILER_VERSION` in `Dockerfile` (15.2.rel1), not merely "v10+".**
+Codegen differences between toolchain versions are not academic here: `CLAUDE.md`
+documents a 15.2 argument-marshalling bug in `memmove` that reproduces only on
+that compiler. A local build on a different version is not the firmware CI
+produces, which undercuts the whole point of comparing emulator against hardware.
+
+> **Intel Macs cannot match CI.** Arm's last `darwin-x86_64` build is
+> **14.2.rel1**; 14.3.rel1 and 15.x are Apple Silicon only (verified — the
+> `darwin-x86_64` URLs 404). On an Intel Mac you therefore have a choice:
+> 14.2.rel1 locally and accept that your codegen differs from CI, or **`make
+> docker`**, which pulls the pinned 15.2.rel1 toolchain regardless of host
+> architecture. Use Docker for anything where codegen fidelity matters —
+> chasing a fault, or comparing against hardware. 14.2 is fine for
+> "does it build and boot".
+
+(Alternatively, leave it off `PATH` and pass `GCC_PATH=<...>/bin` on the make
+command line.) The bundled `arm-none-eabi-gdb` works as-is, so `gdb-multiarch`
+is not needed. The `gcc-arm-embedded` cask tracks whatever Arm ships as current
+— check `arm-none-eabi-gcc --version` and prefer the tarball if it does not
+match the pin.
 
 `parted` is deliberately absent from both lists: it is Linux-only and has no
 Homebrew formula, so the SD image is built by `scripts/make_sdcard_image.py`
