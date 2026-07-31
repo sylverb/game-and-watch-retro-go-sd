@@ -35,7 +35,15 @@ instead — either the cask (needs an admin password for its `.pkg`):
 brew install --cask gcc-arm-embedded
 ```
 
-or the tarball, which needs no admin rights:
+or, preferably, let the repo fetch the right one for your host — it reads the
+pin straight out of `Dockerfile`, picks the correct architecture, verifies the
+download, and prints the `PATH` line to use:
+
+```bash
+./scripts/get_toolchain.sh          # installs into ~/opt
+```
+
+It works on Linux too, and needs no admin rights. Equivalent by hand:
 
 ```bash
 VER=15.2.rel1                    # must match ARM_COMPILER_VERSION in Dockerfile
@@ -45,6 +53,11 @@ curl -fSLO "https://developer.arm.com/-/media/Files/downloads/gnu/$VER/binrel/ar
 tar xf "arm-gnu-toolchain-$VER-$ARCH-arm-none-eabi.tar.xz"
 export PATH="$HOME/opt/arm-gnu-toolchain-$VER-$ARCH-arm-none-eabi/bin:$PATH"
 ```
+
+> If you verify a download by hand, note that **Arm's checksum files are
+> misnamed**: `.sha256asc` holds the real SHA-256, while `.sha256` and `.asc`
+> both hold an MD5. `get_toolchain.sh` picks the algorithm by digest length
+> rather than trusting the extension.
 
 **Match `ARM_COMPILER_VERSION` in `Dockerfile` (15.2.rel1), not merely "v10+".**
 Codegen differences between toolchain versions are not academic here: `CLAUDE.md`
