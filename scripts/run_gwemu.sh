@@ -133,6 +133,20 @@ if [ "$USE_DOCKER" = "1" ]; then
     VERSION=${LATEST_TAG#v}
     IMAGE_NAME="${DOCKER_IMAGE:-slashproc/gwemu-headless:$VERSION}"
 
+    # Pull up front rather than letting `docker run` do it implicitly.
+    #
+    # The GDB attach below used to race a first-run image pull: `docker run`
+    # spends minutes fetching ~100 MB while the script sleeps a couple of
+    # seconds and then connects to :1234, which fails with
+    #   scripts/gwemu_log.gdb:5: could not connect: Operation timed out
+    # and the run dies before the firmware has printed anything. It is only
+    # hidden on a machine that already has the image cached, which is why it
+    # shows up on macOS (fresh Docker VM) far more readily than on Linux.
+    if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+        echo "[run_gwemu] pulling $IMAGE_NAME (first run; this can take a few minutes)..."
+        docker pull "$IMAGE_NAME"
+    fi
+
     DOCKER_ARGS=()
     ENTRY_ARGS=()
     
@@ -173,8 +187,20 @@ if [ "$USE_DOCKER" = "1" ]; then
         "${ENTRY_ARGS[@]}" \
         -- $EXTRA_ARGS "${PASSTHROUGH_ARGS[@]}" &
     GWEMU_PID=$!
+
+    # Wait for the container to actually be up instead of assuming 2 seconds is
+    # enough. On macOS the Docker daemon is a VM, so container start and port
+    # publishing are noticeably slower than on native Linux and a fixed sleep
+    # is a coin toss. Deliberately does NOT probe :1234 itself: connecting to
+    # QEMU's gdbstub and dropping the connection can resume the guest, which
+    # would lose exactly the early boot output `-S` exists to preserve.
+    for _ in $(seq 1 60); do
+        [ "$(docker inspect -f '{{.State.Running}}' "$DOCKER_CONTAINER" 2>/dev/null)" = "true" ] && break
+        sleep 1
+    done
+    # Small settle so QEMU inside the container has its gdbstub listening.
     sleep 2
-    
+
 
 else
     NATIVE_ARGS=()
