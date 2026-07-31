@@ -246,6 +246,20 @@ INTERNAL_CORE_BIN_HEADER_VERSION ?= 0
 BUILD_DIR ?= build
 
 #######################################
+# Host tool portability (Linux / macOS)
+#######################################
+# Image building and the wrapper scripts run on the *host*, so they have to work
+# against both GNU coreutils and the BSD userland macOS ships. Where a portable
+# spelling exists we just use it; these cover the tools that genuinely differ.
+
+# md5sum(1) is GNU-only; macOS ships md5(1). `md5 -r` prints "<hash> <file>" --
+# the same field order as md5sum -- so one `cut -d' ' -f1` works on both.
+MD5SUM ?= $(shell command -v md5sum >/dev/null 2>&1 && echo md5sum || echo 'md5 -r')
+
+# nproc(1) is GNU-only; macOS reports its CPU count through sysctl.
+NPROC ?= $(shell command -v nproc >/dev/null 2>&1 && nproc || sysctl -n hw.ncpu 2>/dev/null || echo 1)
+
+#######################################
 # i18n Codepage
 #######################################
 CODEPAGE ?= 1252
@@ -721,6 +735,7 @@ C_INCLUDES +=  \
 -ICore/Inc/porting/amstrad \
 -ICore/Inc/porting/zelda3 \
 -ICore/Inc/porting/smw \
+-ICore/Inc/porting/gba \
 -ICore/Inc/porting/videopac \
 -ICore/Inc/porting/celeste \
 -ICore/Inc/porting/pico8 \
@@ -830,6 +845,15 @@ A7800_OBJECTS = $(addprefix $(BUILD_DIR)/a7800/,$(notdir $(A7800_C_SOURCES:.c=.o
 AMSTRAD_OBJECTS = $(addprefix $(BUILD_DIR)/amstrad/,$(notdir $(AMSTRAD_C_SOURCES:.c=.o)))
 ZELDA3_OBJECTS = $(addprefix $(BUILD_DIR)/zelda3/,$(notdir $(ZELDA3_C_SOURCES:.c=.o)))
 SMW_OBJECTS = $(addprefix $(BUILD_DIR)/smw/,$(notdir $(SMW_C_SOURCES:.c=.o)))
+# GBA is SD-card only: a FrogFS build can neither cache and relocate gba.xip
+# nor hold the up-to-32 MB cart the core reads straight out of flash.
+ifeq ($(SD_CARD),1)
+GBA_OBJECTS = $(addprefix $(BUILD_DIR)/gba/,$(notdir $(GBA_C_SOURCES:.c=.o))) \
+              $(addprefix $(BUILD_DIR)/gba/,$(notdir $(GBA_CXX_SOURCES:.cc=.o))) \
+              $(addprefix $(BUILD_DIR)/gba/,$(notdir $(GBA_ASM_SOURCES:.S=.o)))
+else
+GBA_OBJECTS =
+endif
 VIDEOPAC_OBJECTS = $(addprefix $(BUILD_DIR)/videopac/,$(notdir $(VIDEOPAC_C_SOURCES:.c=.o)))
 CELESTE_OBJECTS = $(addprefix $(BUILD_DIR)/celeste/,$(notdir $(CELESTE_C_SOURCES:.c=.o)))
 PICO8_ALL_SOURCES = $(PICO8_C_SOURCES) $(PICO8_CXX_SOURCES) $(PICO8_CXX_STUBS)
@@ -962,9 +986,9 @@ $(BUILD_DIR)/memcpy-armv7m.o: Core/Src/memcpy-armv7m.s Makefile.common Makefile 
 	$(V)$(ECHO) [ AS ] $(notdir $<)
 	$(V)$(AS) -c $(CFLAGS) $< -o $@
 
-$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
+$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(GBA_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
 	$(V)$(ECHO) [ LD ] $(notdir $@)
-	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
+	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(GBA_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
 
 $(BUILD_DIR)/core/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC core ] $(notdir $<)
@@ -1193,6 +1217,67 @@ endef
 
 # generate all smw object prerequisite rules
 $(eval $(foreach obj,$(SMW_C_SOURCES),$(call smw_obj_prereq_gen,$(obj))))
+
+# ------------------------------------------------------------------- GBA (gpSP)
+# ROM_BUFFER_SIZE=0    the cart is not buffered in RAM — XIP from QSPI flash.
+# OBJ_PER_LINE_MAX=32  gpSP default sizes for 128 sprites/line (153.6 KB BSS);
+#                      GBA hardware cannot fetch that many; 32 keeps games and
+#                      drops ~120 KB.
+# BUFFER_SIZE=4096     audio ring (gpSP default is 128 KB).
+# GBA_SOUND_FREQUENCY  matches the SAI rate — no resample.
+C_DEFS_GBA = \
+-DROM_BUFFER_SIZE=0 \
+-DOBJ_PER_LINE_MAX=32 \
+-DBUFFER_SIZE=4096 \
+-DGBA_SOUND_FREQUENCY=48000 \
+-DGBA_M4A_HLE \
+-DGBA_BIOS_HLE
+
+GBA_C_INCLUDES = $(C_INCLUDES) -Iexternal/gpsp -Iexternal/gpsp/libretro/libretro-common/include -Itools/gba_m4a -I./
+
+GBA_WARN_OFF = -Wno-parentheses -Wno-unknown-pragmas -Wno-strict-aliasing -Wno-comment \
+               -Wno-unused-function -Wno-stack-usage -Wno-unused-variable \
+               -Wno-unused-but-set-variable -Wno-sign-compare -Wno-format
+
+# gpSP filenames are generic (main.c, sound.c, input.c). Built by explicit rule
+# and kept OUT of vpath so they cannot shadow another core's same-named file.
+gba_is_hot = $(findstring gba_memory.c,$1)
+
+define gba_obj_prereq_gen
+$$(BUILD_DIR)/gba/$(patsubst %.c,%.o,$(notdir $1)): $1 Makefile.common Makefile $$(SDK_HEADERS) | $$(BUILD_DIR)/gba
+	$$(V)$$(ECHO) [ CC gba ] $$(notdir $$<)
+	$$(V)$$(CC) -c $(if $(call gba_is_hot,$1),$$(subst -O2,-O3,$$(CFLAGS)),$$(CFLAGS)) $$(C_DEFS_GBA) $$(GBA_C_INCLUDES) $$(GBA_WARN_OFF) $$< -o $$@
+	$$(V)$$(CP) --redefine-syms=gba_redefines $$@
+
+endef
+
+gba_is_interp = $(findstring cpu.cc,$1)
+
+define gba_cxx_obj_prereq_gen
+$$(BUILD_DIR)/gba/$(patsubst %.cc,%.o,$(notdir $1)): $1 Makefile.common Makefile $$(SDK_HEADERS) | $$(BUILD_DIR)/gba
+	$$(V)$$(ECHO) [ CXX gba ] $$(notdir $$<)
+	$$(V)$$(CXX) -c $(if $(call gba_is_interp,$1),$$(subst -O2,-O3,$$(CXXFLAGS)),$$(CXXFLAGS)) $$(C_DEFS_GBA) $$(GBA_C_INCLUDES) $$(GBA_WARN_OFF) -fno-rtti -fno-exceptions $$< -o $$@
+	$$(V)$$(CP) --redefine-syms=gba_redefines $$@
+
+endef
+
+define gba_asm_obj_prereq_gen
+$$(BUILD_DIR)/gba/$(patsubst %.S,%.o,$(notdir $1)): $1 Makefile.common Makefile | $$(BUILD_DIR)/gba
+	$$(V)$$(ECHO) [ AS gba ] $$(notdir $$<)
+	$$(V)$$(CC) -c $$(ASFLAGS) $$< -o $$@
+	$$(V)$$(CP) --redefine-syms=gba_redefines $$@
+
+endef
+
+# Separate from $(BUILD_DIR)'s mkdir list: GBA objects use an order-only dep on
+# this target, and a parallel -j build would race a plain `mkdir $@/gba` there.
+$(BUILD_DIR)/gba: | $(BUILD_DIR)
+	$(V)mkdir -p $@
+
+$(eval $(foreach obj,$(GBA_C_SOURCES),$(call gba_obj_prereq_gen,$(obj))))
+$(eval $(foreach obj,$(GBA_CXX_SOURCES),$(call gba_cxx_obj_prereq_gen,$(obj))))
+$(eval $(foreach obj,$(GBA_ASM_SOURCES),$(call gba_asm_obj_prereq_gen,$(obj))))
+
 
 external/smw/smw_assets.dat: roms/smw/smw.sfc | $(BUILD_DIR)
 	cp $< external/smw/assets/smw.sfc
@@ -1494,6 +1579,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_tgb,$(CORES_DIR)/tgb.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_sms,$(CORES_DIR)/sms.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_pce --only-section=.overlay_pce_itc,$(CORES_DIR)/pce.bin)
+	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_gba --only-section=.overlay_gba_itc,$(CORES_DIR)/gba.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_msx,$(CORES_DIR)/msx.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_wsv,$(CORES_DIR)/wsv.bin)
 	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_gw,$(CORES_DIR)/gw.bin)
@@ -1510,6 +1596,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
 	@$(CP) -O binary --only-section=.overlay_zelda3 $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/Zelda 3.bin"
 	@$(CP) -O binary --only-section=.rodata_zelda3 $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/zelda3.ro"
 	@$(CP) -O binary --only-section=.overlay_smw $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/Super Mario World.bin"
+	@$(CP) -O binary --only-section=.xip_gba --only-section=.rodata_gba $(BUILD_DIR)/$(TARGET).elf "$(CORES_DIR)/gba.xip"
 	@$(CP) -O binary --only-section=.coleco_bios_data $(BUILD_DIR)/$(TARGET).elf $(SD_FOLDER)/bios/coleco/coleco.bin
 	@$(CP) -O binary --only-section=.overlay_graphics $(BUILD_DIR)/$(TARGET).elf $(SD_FOLDER)/bios/logo.bin
 	@rm -f $(FONTS_DIR)/cp1251_*.bin $(FONTS_DIR)/cp1252_*.bin $(FONTS_DIR)/unicode_*.bin
@@ -1587,6 +1674,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/tgb.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/sms.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/pce.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/gba.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/msx.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/wsv.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/gw.bin --dest-path "/cores/" \
@@ -1602,6 +1690,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(SD_FOLDER)/bios/logo.bin --dest-path "/bios/" \
 		-- sdpush --file $(HOMEBREWS_FOLDER)/celeste.bin --dest-path "/roms/homebrew/" \
 		-- sdpush --file "$(HOMEBREWS_FOLDER)/Super Mario World.bin" --dest-path "/roms/homebrew/" \
+		-- sdpush --file "$(CORES_DIR)/gba.xip" --dest-path "/cores/" \
 		-- sdpush --file "$(HOMEBREWS_FOLDER)/Zelda 3.bin" --dest-path "/roms/homebrew/" \
 		-- sdpush --file "$(HOMEBREWS_FOLDER)/zelda3.ro" --dest-path "/roms/homebrew/" \
 		-- sdpush --file $(MAPPERS_PACK) --dest-path "/cores/mappers/" \
@@ -1613,8 +1702,11 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		$(RESET_DBGMCU_CMD)
 endif
 
+# This used to read -j$(nproc): a *make* expansion of a function that does not
+# exist, so it silently expanded to nothing and left a bare -j (unbounded
+# parallelism) on every host. $(NPROC) resolves the CPU count portably.
 firmware_update: create_sd_folders
-	@$(MAKE) -j$(nproc) -C external/firmware_update
+	@$(MAKE) -j$(NPROC) -C external/firmware_update
 	@cp external/firmware_update/build/firmware_update.bin $(RELEASE_FOLDER)/
 
 # Release is SD_CARD=1 only; SD_CARD=0 builds require proprietary blobs and
@@ -1671,6 +1763,191 @@ flash_saves_restore:
 	@echo "Restore from \"backup/\" complete."
 .PHONY: flash_saves_restore
 
+# gwemu needs an image of the WHOLE external flash chip, laid out exactly as
+# gnwmanager writes it to hardware (see the `flash` target above).
+#
+# SD_CARD=0 (FrogFS): the firmware reads its filesystem out of external flash, so
+# the image must actually contain it -- frogfs.bin at EXTFLASH_OFFSET and
+# littlefs.bin at FILESYSTEM_FLASH_OFFSET. Handing the emulator a blank blob would
+# boot against an external flash with no filesystem, which is not what runs on the
+# device and therefore not a valid comparison.
+#
+# SD_CARD=1: cores stream from the SD card and external flash is unused at
+# runtime, so a blank blob is fine. That path is unchanged.
+#
+# The chip size is EXTFLASH_END (offset + partition), which the guard above
+# already forces to a power of two -- no separate knob needed.
+
+ifeq ($(SD_CARD),0)
+GWEMU_PREREQS := $(BUILD_DIR)/$(TARGET)_intflash.bin $(FROGFS_IMAGE) $(LITTLEFS_IMAGE)
+GWEMU_STAMP   := $(BUILD_DIR)/extflash.bin
+define GWEMU_MEDIA_PREP
+if [ $$(( $(EXTFLASH_OFFSET) % 4096 )) -ne 0 ] || [ $$(( $(FILESYSTEM_FLASH_OFFSET) % 4096 )) -ne 0 ]; then \
+	echo "ERROR: EXTFLASH_OFFSET ($(EXTFLASH_OFFSET)) and FILESYSTEM_FLASH_OFFSET ($(FILESYSTEM_FLASH_OFFSET)) must be 4096-aligned"; \
+	exit 1; \
+fi; \
+echo "Creating $$(( $(EXTFLASH_END) / 1048576 ))MB external flash image (matching hardware layout)..."; \
+dd if=/dev/zero of=$(BUILD_DIR)/extflash.bin bs=1M count=$$(( $(EXTFLASH_END) / 1048576 )) 2>/dev/null; \
+echo "  FrogFS   -> offset $(EXTFLASH_OFFSET)"; \
+dd if=$(FROGFS_IMAGE) of=$(BUILD_DIR)/extflash.bin bs=4096 seek=$$(( $(EXTFLASH_OFFSET) / 4096 )) conv=notrunc 2>/dev/null; \
+echo "  LittleFS -> offset $(FILESYSTEM_FLASH_OFFSET)"; \
+dd if=$(LITTLEFS_IMAGE) of=$(BUILD_DIR)/extflash.bin bs=4096 seek=$$(( $(FILESYSTEM_FLASH_OFFSET) / 4096 )) conv=notrunc 2>/dev/null; \
+echo "SD_CARD=0: no SD card image required."
+endef
+else
+# Depend on the real `release` target rather than re-listing its inputs. gwemu and
+# hardware must be built from ONE invocation with ONE set of variables -- if a dev runs
+# `make release COVERFLOW=1` and later `make gwemu_release` with different flags, the
+# emulator silently boots a different firmware than the device and any comparison between
+# them is worthless. Making release a prerequisite means the parameters cannot diverge,
+# and any future step added to `release` is picked up automatically.
+GWEMU_PREREQS := release
+GWEMU_STAMP   := $(BUILD_DIR)/sdcard.img
+define GWEMU_MEDIA_PREP
+echo "Creating 64MB empty extflash image..."; \
+dd if=/dev/zero of=$(BUILD_DIR)/extflash.bin bs=1M count=64 2>/dev/null; \
+$(PYTHON3) scripts/make_sdcard_image.py $(BUILD_DIR)/sdcard.img --size-mb 256; \
+mformat -i $(BUILD_DIR)/sdcard.img@@1M -F -v RETROGO ::; \
+mcopy -i $(BUILD_DIR)/sdcard.img@@1M -s sd_content/* ::/
+endef
+endif
+
+gwemu_release: $(GWEMU_PREREQS)
+	@if [ ! -f $(GWEMU_STAMP) ]; then \
+		echo "Preparing QEMU Bank 1 and Bank 2 images..."; \
+		if [ "$(INTFLASH_BANK)" = "1" ]; then \
+			dd if=$(BUILD_DIR)/$(TARGET)_intflash.bin of=$(BUILD_DIR)/qemu_bank1.bin bs=256k count=1 conv=sync 2>/dev/null; \
+			dd if=/dev/zero of=$(BUILD_DIR)/qemu_bank2.bin bs=256k count=1 2>/dev/null; \
+		else \
+			if [ -f backup/internal_flash_backup_mario.bin ]; then \
+				dd if=backup/internal_flash_backup_mario.bin of=$(BUILD_DIR)/qemu_bank1.bin bs=256k count=1 conv=sync 2>/dev/null; \
+			elif [ -f backup/internal_flash_backup_zelda.bin ]; then \
+				dd if=backup/internal_flash_backup_zelda.bin of=$(BUILD_DIR)/qemu_bank1.bin bs=256k count=1 conv=sync 2>/dev/null; \
+			else \
+				echo "WARNING: Bank 2 build without backup firmware. Bank 1 will be empty."; \
+				dd if=/dev/zero of=$(BUILD_DIR)/qemu_bank1.bin bs=256k count=1 2>/dev/null; \
+			fi; \
+			dd if=$(BUILD_DIR)/$(TARGET)_intflash.bin of=$(BUILD_DIR)/qemu_bank2.bin bs=256k count=1 conv=sync 2>/dev/null; \
+		fi; \
+		$(GWEMU_MEDIA_PREP); \
+	else \
+		echo "QEMU images already exist (skipping prep). Pass --reset to wipe state."; \
+	fi; \
+	$(GWEMU_WRITE_BUILDINFO)
+.PHONY: gwemu_release
+
+# Record the parameters and image checksums every run. When gwemu and hardware disagree,
+# the first question is always "was it actually the same firmware?" -- this answers it
+# without re-deriving anything. Compare against the md5 gnwmanager flashed.
+define GWEMU_WRITE_BUILDINFO
+{ \
+	echo "# generated by 'make gwemu_release' -- parameters used to build these images"; \
+	echo "GNW_TARGET                = $(GNW_TARGET)"; \
+	echo "SD_CARD                   = $(SD_CARD)"; \
+	echo "INTFLASH_BANK             = $(INTFLASH_BANK)"; \
+	echo "EXTFLASH_OFFSET           = $(EXTFLASH_OFFSET)"; \
+	echo "EXTFLASH_SIZE_MB          = $(EXTFLASH_SIZE_MB)"; \
+	echo "FILESYSTEM_FLASH_OFFSET   = $(FILESYSTEM_FLASH_OFFSET)"; \
+	echo "COVERFLOW                 = $(COVERFLOW)"; \
+	echo "CHEAT_CODES               = $(CHEAT_CODES)"; \
+	echo "SHARED_HIBERNATE_SAVESTATE= $(SHARED_HIBERNATE_SAVESTATE)"; \
+	echo "DISABLE_SPLASH_SCREEN     = $(DISABLE_SPLASH_SCREEN)"; \
+	echo "intflash.bin md5          = $$($(MD5SUM) $(BUILD_DIR)/$(TARGET)_intflash.bin 2>/dev/null | cut -d' ' -f1)"; \
+	for f in qemu_bank1.bin qemu_bank2.bin extflash.bin sdcard.img; do \
+		[ -f $(BUILD_DIR)/$$f ] && echo "$$f md5 = $$($(MD5SUM) $(BUILD_DIR)/$$f | cut -d' ' -f1)"; \
+	done; \
+} > $(BUILD_DIR)/gwemu_build_info.txt; \
+echo "[gwemu_release] parameters recorded in $(BUILD_DIR)/gwemu_build_info.txt"
+endef
+
+# The gwemu binary lives at the repo root, NOT under build/. It is a large
+# download that has nothing to do with build output, and `make clean` wiping it
+# forced a re-download on every clean build. Gitignored.
+GWEMU_BIN ?= gwemu_bin
+GWEMU_VERSION_FILE = $(GWEMU_BIN).version
+
+# Downloads gwemu if missing. Pass GWEMU_UPDATE=1 (or use the gwemu_update
+# target / run_gwemu.sh --update) to force a check against the latest release
+# and re-download when a newer tag is available. gwemu is still moving fast, so
+# we track latest for now; pin GWEMU_TAG once things settle.
+gwemu_download:
+	@if [ ! -f $(GWEMU_BIN) ] || [ "$(GWEMU_UPDATE)" = "1" ]; then \
+		LATEST_TAG=$$(./scripts/gwemu_latest_tag.sh $(if $(filter 1,$(GWEMU_FORCE_CHECK)),--force,) || true); \
+		if [ -z "$$LATEST_TAG" ]; then \
+			echo "ERROR: could not determine latest gwemu release (network?)."; \
+			[ -f $(GWEMU_BIN) ] || exit 1; \
+		else \
+			CURRENT=$$(cat $(GWEMU_VERSION_FILE) 2>/dev/null || echo ""); \
+			if [ -f $(GWEMU_BIN) ] && [ "$$CURRENT" = "$$LATEST_TAG" ]; then \
+				echo "gwemu already at $$LATEST_TAG"; \
+			else \
+				echo "Fetching gwemu $$LATEST_TAG (have: $${CURRENT:-none})..."; \
+				VERSION=$${LATEST_TAG#v}; \
+				OS=$$(uname -s); \
+				ARCH=$$(uname -m); \
+				if [ "$$OS" = "Darwin" ]; then \
+					if [ "$$ARCH" = "arm64" ]; then \
+						DL="gwemu-macos-arm64-app.zip"; \
+					else \
+						DL="gwemu-macos-x86_64-app.zip"; \
+					fi; \
+					set -e; \
+					rm -rf .gwemu_tmp && mkdir -p .gwemu_tmp; \
+					wget -qO .gwemu_tmp/gwemu.zip https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
+					unzip -q -o .gwemu_tmp/gwemu.zip -d .gwemu_tmp/app; \
+					: 'The zip nests gwemu.app under a release-named directory, so locate'; \
+					: 'it rather than assuming a fixed depth.'; \
+					APP=$$(find .gwemu_tmp/app -maxdepth 3 -name gwemu.app -type d | head -n 1); \
+					if [ -z "$$APP" ]; then \
+						echo "ERROR: no gwemu.app inside $$DL"; exit 1; \
+					fi; \
+					: 'The whole bundle has to survive: the executable links its dylibs'; \
+					: 'through @executable_path/../Frameworks, so a lone copy of'; \
+					: 'Contents/MacOS/gwemu cannot load. Keep gwemu.app and point'; \
+					: 'gwemu_bin at it with a symlink -- dyld resolves @executable_path'; \
+					: 'through the symlink, so ./gwemu_bin works exactly as on Linux.'; \
+					rm -rf gwemu.app && mv "$$APP" gwemu.app; \
+					rm -rf .gwemu_tmp; \
+					chmod +x gwemu.app/Contents/MacOS/gwemu; \
+					ln -sfn gwemu.app/Contents/MacOS/gwemu $(GWEMU_BIN); \
+				else \
+					if [ "$$ARCH" = "aarch64" ]; then \
+						DL="gwemu-$$VERSION-aarch64.AppImage"; \
+					else \
+						DL="gwemu-$$VERSION-x86_64.AppImage"; \
+					fi; \
+					wget -qO $(GWEMU_BIN) https://github.com/slash-proc/gwemu/releases/download/$$LATEST_TAG/$$DL; \
+					chmod +x $(GWEMU_BIN); \
+				fi; \
+				: 'Record the version only once a working binary is actually in place.'; \
+				: 'This used to run unconditionally, so a failed extraction still wrote'; \
+				: 'the version file and exited 0 -- every later run then reported'; \
+				: '"gwemu already at <tag>" with no binary on disk.'; \
+				if [ ! -x $(GWEMU_BIN) ]; then \
+					echo "ERROR: gwemu download did not produce an executable $(GWEMU_BIN)"; \
+					exit 1; \
+				fi; \
+				echo "$$LATEST_TAG" > $(GWEMU_VERSION_FILE); \
+				echo "gwemu now at $$LATEST_TAG"; \
+			fi; \
+		fi; \
+	fi
+.PHONY: gwemu_download
+
+# Force an update check even when a binary is already present.
+gwemu_update:
+	@$(MAKE) --no-print-directory gwemu_download GWEMU_UPDATE=1
+.PHONY: gwemu_update
+
+gwemu_interactive: gwemu_release gwemu_download
+	@echo "Starting interactive gwemu session..."
+ifeq ($(DOCKER),1)
+	$(V)GDB=$(GDB) ./scripts/run_gwemu.sh --docker
+else
+	$(V)GDB=$(GDB) ./scripts/run_gwemu.sh
+endif
+.PHONY: gwemu_interactive
+
 size: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET)_intflash.bin 
 	$(V)printf "Internal Flash Usage (for developers): $(shell cat $(BUILD_DIR)/$(TARGET)_intflash.bin | wc -c) B\n"
 	$(V)./scripts/size.sh $<
@@ -1679,6 +1956,15 @@ size: $(BUILD_DIR)/$(TARGET).elf $(BUILD_DIR)/$(TARGET)_intflash.bin
 gdb: $(BUILD_DIR)/$(TARGET).elf
 	$(GDB) $< -ex "target extended-remote :3333"
 .PHONY: gdb
+
+gwemu_interactive_gdb: gwemu_release gwemu_download
+	@echo "Starting interactive gwemu session with GDB..."
+ifeq ($(DOCKER),1)
+	$(V)GDB=$(GDB) ./scripts/run_gwemu.sh --docker --gdb
+else
+	$(V)GDB=$(GDB) ./scripts/run_gwemu.sh --gdb
+endif
+.PHONY: gwemu_interactive_gdb
 
 # Flashes intflash *only* and launches gdb afterwards
 gdb_intflash: $(BUILD_DIR)/$(TARGET)_intflash.bin

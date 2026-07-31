@@ -1,0 +1,121 @@
+# Linux desktop debug build for gpSP (GBA) — SDL2
+# Usage:
+#   make -f Makefile.gba
+#   ./build-gba/retro-go-gba.elf <rom.gba>
+# Embedded ROM (optional): ./update_gba_rom.sh game.gba && make -f Makefile.gba
+
+TARGET = retro-go-gba
+BUILD_DIR = build-gba
+OPT = -O2 -g
+
+CORE_GBA = ../external/gpsp
+
+C_SOURCES = \
+gba/gba_main.c \
+gba/gba_bios_linux.c \
+loaded_gba_rom.c \
+../Core/Src/porting/gba/gba_frontend.c \
+../Core/Src/porting/gba/gba_idle_loop.c \
+../tools/gba_m4a/m4a_hle.c \
+../tools/gba_m4a/m4a_gpsp.c \
+../Core/Src/porting/gba/gba_bios_hle.c \
+$(CORE_GBA)/gba_memory.c \
+$(CORE_GBA)/sound.c \
+$(CORE_GBA)/savestate.c \
+$(CORE_GBA)/input.c \
+$(CORE_GBA)/cheats.c \
+$(CORE_GBA)/serial.c \
+$(CORE_GBA)/serial_proto.c \
+$(CORE_GBA)/gbp.c \
+$(CORE_GBA)/rfu.c \
+odroid_input.c \
+odroid_netplay.c \
+odroid_overlay.c \
+odroid_sdcard.c \
+odroid_system.c \
+odroid_display.c \
+odroid_audio.c \
+porting.c \
+crc32.c \
+
+# gpsp's main.c collides with gba/main.c → explicit object name
+GPSP_MAIN = $(CORE_GBA)/main.c
+
+CXX_SOURCES = \
+$(CORE_GBA)/cpu.cc \
+$(CORE_GBA)/video.cc
+
+PREFIX =
+CC = $(PREFIX)gcc
+CXX = $(PREFIX)g++
+SZ = $(PREFIX)size
+
+C_DEFS = \
+-DLINUX_EMU \
+-DIS_LITTLE_ENDIAN \
+-DROM_BUFFER_SIZE=0 \
+-DOBJ_PER_LINE_MAX=32 \
+-DBUFFER_SIZE=8192 \
+-DGBA_SOUND_FREQUENCY=48000 \
+-DGBA_M4A_HLE \
+-DGBA_BIOS_HLE \
+-DCHEAT_CODES=1
+
+C_INCLUDES = \
+-I. \
+-Igba \
+-I../Core/Inc \
+-I../Core/Inc/retro-go \
+-I../Core/Inc/porting/gba \
+-I../Core/Src/porting/lib \
+-I../retro-go-stm32/components/odroid \
+-I$(CORE_GBA) \
+-I$(CORE_GBA)/libretro/libretro-common/include \
+-I../tools/gba_m4a \
+-I/opt/homebrew/include
+
+WARN_OFF = \
+-Wno-parentheses -Wno-unknown-pragmas -Wno-strict-aliasing -Wno-comment \
+-Wno-unused-function -Wno-unused-variable -Wno-unused-but-set-variable \
+-Wno-sign-compare -Wno-format
+
+CFLAGS = $(C_DEFS) $(C_INCLUDES) `sdl2-config --cflags` $(OPT) -Wall \
+	-fdata-sections -ffunction-sections $(WARN_OFF)
+CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
+
+CXXFLAGS = $(CFLAGS) -fno-rtti -fno-exceptions
+
+LIBS = -lm `sdl2-config --libs`
+LDFLAGS = $(LIBS) -lstdc++
+
+all: $(BUILD_DIR)/$(TARGET).elf
+
+OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
+OBJECTS += $(BUILD_DIR)/gpsp_main.o
+CXX_OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(CXX_SOURCES:.cc=.o)))
+
+vpath %.c $(sort $(dir $(C_SOURCES)))
+vpath %.cc $(sort $(dir $(CXX_SOURCES)))
+
+$(BUILD_DIR)/gpsp_main.o: $(GPSP_MAIN) Makefile.gba | $(BUILD_DIR)
+	$(CC) -c $(CFLAGS) $< -o $@
+
+$(BUILD_DIR)/%.o: %.c Makefile.gba | $(BUILD_DIR)
+	$(CC) -c $(CFLAGS) $< -o $@
+
+$(BUILD_DIR)/%.o: %.cc Makefile.gba | $(BUILD_DIR)
+	$(CXX) -c $(CXXFLAGS) $< -o $@
+
+$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(CXX_OBJECTS) Makefile.gba
+	$(CXX) $(OBJECTS) $(CXX_OBJECTS) $(LDFLAGS) -o $@
+	$(SZ) $@
+
+$(BUILD_DIR):
+	mkdir -p $@
+
+clean:
+	-rm -fR $(BUILD_DIR)
+
+-include $(wildcard $(BUILD_DIR)/*.d)
+
+.PHONY: all clean

@@ -77,4 +77,11 @@ size_t rg_storage_copy_file_to_ram(char *file_path, uint8_t *ram_dest, file_prog
 size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_dest, uint32_t offset, file_progress_cb_t file_progress_cb);
 size_t rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest, uint32_t offset, uint32_t length, file_progress_cb_t file_progress_cb);
 
+/* Same as rg_storage_copy_file_to_ram_with_offset, but refuses (returns 0,
+ * copies nothing) if the file's size-after-offset exceeds max_len. Used by
+ * loaders that write into a fixed-size RAM region (e.g. RAM_EMU) fed by a
+ * runtime-supplied file, where the destination buffer's capacity is not
+ * implied by any compile-time overlay symbol. */
+size_t rg_storage_copy_file_to_ram_bounded(char *file_path, uint8_t *ram_dest, uint32_t offset, uint32_t max_len, file_progress_cb_t file_progress_cb);
+
 bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next_path);

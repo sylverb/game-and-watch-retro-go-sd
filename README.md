@@ -29,6 +29,10 @@ If you are looking for the mod without SD Card (Flash mod only), check https://g
     - [Emulators](#emulators)
     - [SNES Ports](#snes-ports)
     - [Homebrew Ports](#homebrew-ports)
+  - [Notes for specific systems](#notes-for-specific-systems)
+    - [Game Boy Advance](#game-boy-advance)
+    - [PC Engine CD / TurboGrafx-CD](#pc-engine-cd--turbografx-cd)
+    - [Atari Lynx](#atari-lynx)
   - [Controls](#controls)
     - [Button Mappings](#button-mappings)
     - [Macros](#macros)
@@ -263,13 +267,16 @@ renders it with the PICO-8 palette, and saves as a JPEG cover.
 - Amstrad CPC6128 (beta)
 - Atari 2600
 - Atari 7800
+- Atari Lynx (experimental)
 - ColecoVision
 - Gameboy / Gameboy Color
+- Game Boy Advance (experimental, SD card only)
 - Game & Watch / LCD Games
 - MSX1/2/2+
 - Nintendo Entertainment System
 - Pico-8
 - PC Engine / TurboGrafx-16
+- PC Engine CD / TurboGrafx-CD (beta, SD card only)
 - Pokémon Mini
 - Sega Game Gear
 - Sega Genesis / Megadrive
@@ -284,6 +291,46 @@ renders it with the PICO-8 palette, and saves as a JPEG cover.
 
 ### Homebrew Ports
 - Celeste Classic 
+
+## Notes for specific systems
+
+### Game Boy Advance
+
+GBA support is currently **experimental** and available on **SD-card builds only**. It has choppy sound randomly and every 15s.
+
+- Put GBA ROMs in: `/roms/gba/`
+
+By default, the firmware uses the bundled open-source BIOS.
+If you provide the official BIOS file on SD, it will be used automatically:
+
+- Path: `/bios/gba/gba_bios.bin`
+- Required size: exactly `16 KiB` (`16384` bytes)
+
+If the file is missing or has the wrong size, the emulator falls back to the bundled open BIOS.
+(The open BIOS works for many titles, but some games are more reliable with the official one.)
+
+### PC Engine CD / TurboGrafx-CD
+
+PC Engine CD support is currently **beta** and available on **SD-card builds only** (not on flash-only builds).
+
+- Put disc images under: `/roms/pcecd/`
+  - Flat layout: `.cue` (+ referenced tracks) directly in `/roms/pcecd/`
+  - Or one folder per game: `/roms/pcecd/<game>/…`
+- HuCard games stay in `/roms/pce/` as usual
+
+A Super System Card 3.0 dump is **required**:
+
+- Path: `/bios/pce/syscard3.pce` (or `/bios/pce/syscard3.bin`)
+- Expected MD5: `38179df8f4ac870017db21ebcbf53114`
+
+Without this BIOS file, CD games will not boot.
+
+### Atari Lynx
+
+Lynx support is currently **experimental**.
+
+- Put ROMs in: `/roms/lynx/` (extensions: `.lnx`, `.lyx`)
+- No external BIOS file is required (the port uses an internal HLE BIOS)
 
 ## Controls
 

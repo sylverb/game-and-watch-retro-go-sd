@@ -2,22 +2,13 @@
 
 ## What's New
 
-### Version 1.3.2
+### Version 1.4.1
 
-- Better CJK fonts by using Fusion font
-- Genesis emulator various improvements :
-  - Add support for 50Hz Megadrive (with region autodetection or manual selection) : fix non US region locked games
-  - Various fixes for bad gfx in Top Gear 3, True Lies, Populous, Viewpoint, Bonanza Bros, ...
-  - Fixes crash for Shadow of the Beast 1 & 2, Red Zone, Twinkle Tale, Formula One, European Club Soccer, ...
-  - Fix Monster World 4 music/sounds
-  - Games using EEPROM instead of SRAM aren't supported because there is not enough available space to add EEPROM support logic. Most of these games are still playable by using a SRAM patch to the roms.
-  - Compatibility sheet is available here : https://docs.google.com/spreadsheets/d/1v_ysHuK0QrVxto2aKH_08LzrP1QkL8WBJvO4ootC8P0/edit?usp=sharing it gives some information about games patches to use for games using EEPROM
-- NES Fceumm emulator : fix for some games not working
-- GB emulator : fix for screen transitions showing white instead of correct palette color
-- MSX : Add support for YJK graphics (Screen 10-12 MSX2+ modes), due to memory constraints, 256KB YJK table has be reduced to 64KB table which is introducing a small loss of quality compared to original system.
-- Add Norvegian translation (Thanks to Idar Lund)
-- Various updates needed to improve Pico-8 support, be sure to use https://github.com/Macs75/pico8_gnw_distro/releases/download/v.0.1.6/pico8_cores-2026-06-07.zip or later package
-- Preliminar support for flash only systems : compile this project with SD_CARD=0 to be able to install the code from this repository in your G&W without SD Card mod. Documentation will be added soon.
+- GBA :
+  - Corrected inverted L/R keys
+  - Correct overclocking is applied after a sleep/wake up
+  - Improved performances for some games by using bios HLE
+  - Fixed Shantae Advance - Risky Revolution rebooting issue (and maybe some other games)
 
 ## Prerequisites
 To install this version, make sure you have:

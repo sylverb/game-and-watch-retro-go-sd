@@ -15,6 +15,16 @@
 
 static void set_ingame_overlay(ingame_overlay_t type);
 
+/* Per-system automatic CPU boost. A core that needs more headroom than stock
+ * 280MHz calls this once at app start. Levels 0/1/2 match the launcher menu;
+ * level 3 is core-private (~353 MHz) and must not be exposed in settings.
+ * NOT persisted: leaving an emulator resets the system, restoring the user's
+ * configured clock. Same OSPI1-hardware guard as the launcher menu.
+ *
+ * It is a FLOOR, not a setting: if the user already chose a higher OC, keep it.
+ */
+uint8_t odroid_settings_cpu_oc_level_get(void);
+
 cpumon_stats_t cpumon_stats = {0};
 
 const uint8_t volume_tbl[ODROID_AUDIO_VOLUME_MAX + 1] = {
@@ -51,6 +61,7 @@ common_emu_state_t common_emu_state = {
 };
 
 static int32_t frame_integrator = 0;
+static uint8_t skip_streak = 0;
 
 /* Shared with PCE's prefetch sound-sync so pause/resume can't desync the two. */
 uint32_t common_emu_sound_dma_marker = 0;
@@ -72,14 +83,23 @@ void common_emu_frame_loop_reset(void){
     common_emu_state.startup_frames=0;
     common_emu_state.clear_frames=0;
     frame_integrator = 0;
+    skip_streak = 0;
     common_emu_sound_sync_reset();
 }
 
 bool common_emu_frame_loop(void){
     rg_app_desc_t *app = odroid_system_get_app();
     int16_t frame_time_10us = common_emu_state.frame_time_10us;
-    int16_t elapsed_10us = 100 * get_elapsed_time_since(common_emu_state.last_sync_time);
+    /* int32_t: a long stall must not overflow a 16-bit elapsed_10us into
+     * negative space (which would randomly "credit" pacing error). */
+    int32_t elapsed_10us = 100 * (int32_t)get_elapsed_time_since(common_emu_state.last_sync_time);
     bool draw_frame = common_emu_state.skip_frames < 2;
+
+    /* Overload guard: under sustained slowdown, skip_frames can stay >=2
+     * long enough to leave the screen visually frozen. Force one drawn
+     * frame in every 4 worst-case so the user always sees something. */
+    if (!draw_frame && ++skip_streak >= 4) { draw_frame = true; skip_streak = 0; }
+    else if (draw_frame) skip_streak = 0;
 
     if( !cpumon_stats.busy_ms ) cpumon_busy();
     odroid_system_tick(!draw_frame, 0, cpumon_stats.busy_ms);
@@ -119,6 +139,17 @@ bool common_emu_frame_loop(void){
             break;
     }
     frame_integrator += (elapsed_10us - frame_time_10us);
+
+    /* Clamp: short-term pacing error, not a debt ledger.
+     * One long stall would otherwise make the integrator saturate and
+     * keep drawFrame disabled for too long. */
+    {
+        const int32_t debt_cap   = ((int32_t)frame_time_10us << 1) + (frame_time_10us >> 1);
+        const int32_t credit_cap = -(int32_t)frame_time_10us - (frame_time_10us >> 1);
+        if (frame_integrator > debt_cap)        frame_integrator = debt_cap;
+        else if (frame_integrator < credit_cap) frame_integrator = credit_cap;
+    }
+
     if(frame_integrator > frame_time_10us << 1) common_emu_state.skip_frames = 2;
     else if(frame_integrator > frame_time_10us) common_emu_state.skip_frames = 1;
     else if(frame_integrator < -frame_time_10us) common_emu_state.pause_frames = 1;
