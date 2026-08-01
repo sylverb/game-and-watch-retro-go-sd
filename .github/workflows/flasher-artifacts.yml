@@ -59,25 +59,21 @@ jobs:
       fail-fast: true   # one bad blob makes the bundle unpublishable anyway
       matrix:
         include:
-          # slug feeds the artifact filenames the pack step expects.
-          # sd_content is extracted ONCE PER SD_CARD VALUE — see the comment on the
-          # build step below; only the bank2 jobs do it (cores are bank-independent).
+          # slug feeds the artifact filenames the pack step expects, AND names this
+          # job's own sd_content tree. EVERY job extracts its own — content is
+          # specific to BOTH SD_CARD and INTFLASH_BANK; see the build step comment.
           - slug: bank1
             sd_card: 0
             bank: 1
-            sd_content: ''
           - slug: bank2
             sd_card: 0
             bank: 2
-            sd_content: flash
           - slug: sd_bank1
             sd_card: 1
             bank: 1
-            sd_content: ''
           - slug: sd_bank2
             sd_card: 1
             bank: 2
-            sd_content: sd
     name: build ${{ matrix.slug }}
     env:
       BUILDER_IMAGE: ${{ inputs.builder_image || 'sylverb/retro-go-sd-builder:v1.5' }}
@@ -110,22 +106,32 @@ jobs:
           # line (NOT a Makefile edit): the stock Makefile only defines it for SD_CARD=1,
           # so CHEAT_CODES=1 SD_CARD=0 needs it supplied here — matches the SD value.
           #
-          # sd_content is extracted once per SD_CARD value (the bank2 jobs). Cores ARE
-          # bank-independent (bank1 == bank2 within the same SD_CARD value, verified) but
-          # are NOT SD_CARD-independent: core/homebrew .bin files are objcopy'd out of
-          # whichever ELF just built, and several overlay entry points (confirmed: NES,
-          # PCE, MSX; likely more) land at different RAM addresses between SD_CARD=0 and
-          # SD_CARD=1 builds. Reusing one SD_CARD's sd_content for the other variant loads
-          # a core's compiled code at the address the OTHER build's linker chose — the
-          # firmware jumps into it expecting its own address and corrupts execution
-          # immediately. Real bug, found via hardware debugging on this branch. Splitting
-          # the variants into separate jobs makes that mix-up structurally impossible.
+          # sd_content is extracted by EVERY job — it is specific to BOTH SD_CARD and
+          # INTFLASH_BANK. core/homebrew .bin files are objcopy'd out of whichever ELF
+          # just built, so they carry that build's absolute addresses baked in:
+          #
+          #  - SD_CARD axis: several overlay entry points (confirmed: NES, PCE, MSX;
+          #    likely more) land at different RAM addresses between SD_CARD=0 and
+          #    SD_CARD=1 builds, so a core's code gets loaded at the address the OTHER
+          #    build's linker chose and execution corrupts on jump.
+          #  - INTFLASH_BANK axis: cores call back into firmware through ABSOLUTE
+          #    pointers, which differ per bank (0x080xxxxx vs 0x081xxxxx). This axis was
+          #    previously asserted here to be safe ("cores ARE bank-independent, bank1 ==
+          #    bank2, verified") and extraction was done only on the bank2 jobs. That was
+          #    WRONG, and it shipped: bank2-built cores contain the literal Thumb pointer
+          #    0x0810cdcd (odroid_system_init at its BANK2 address) — present in all 18
+          #    core/homebrew .bin files of the v1.4.1-43-gff74121c bundle. Install those
+          #    alongside a bank1 firmware and the first core callback jumps into bank2.
+          #    With a stale retro-go still in bank2 it half-works; with bank2 erased it
+          #    hardfaults instantly at PC=0x0810cdcc. Diagnosed on real hardware.
+          #
+          # Both axes are now handled the same way: one job per (SD_CARD, bank) pair,
+          # each keeping its OWN content, which makes the mix-up structurally impossible.
+          # Do not "optimise" this back into shared content without re-checking the
+          # cores for foreign-bank pointers first.
           FLAGS="SD_CARD=${{ matrix.sd_card }} COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SCREENSHOTS=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
-          # Only the bank2 jobs extract sd_content.
-          TARGETS="build/gw_retro_go_intflash.bin"
-          if [ -n "${{ matrix.sd_content }}" ]; then
-            TARGETS="create_sd_data $TARGETS"
-          fi
+          # Every job extracts its own sd_content (see above).
+          TARGETS="create_sd_data build/gw_retro_go_intflash.bin"
           docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
             "$BUILDER_IMAGE" \
             bash -l -c "set -e
@@ -139,9 +145,7 @@ jobs:
           mkdir -p _out/blobs
           cp build/gw_retro_go_intflash.bin _out/blobs/gw_retro_go_intflash_${{ matrix.slug }}.bin
           cp build/gw_retro_go.elf          _out/blobs/gw_retro_go_${{ matrix.slug }}.elf
-          if [ -n "${{ matrix.sd_content }}" ]; then
-            cp -r sd_content _out/sd_content_${{ matrix.sd_content }}
-          fi
+          cp -r sd_content _out/sd_content_${{ matrix.slug }}
 
       - name: Upload ${{ matrix.slug }} artifacts
         uses: actions/upload-artifact@v4
@@ -189,7 +193,9 @@ jobs:
                    _dl/blobs/gw_retro_go_sd_bank2.elf; do
             [ -f "$f" ] || { echo "missing artifact: $f"; exit 1; }
           done
-          for d in _dl/sd_content_flash _dl/sd_content_sd; do
+          # One content tree per (SD_CARD, bank) pair — all four are required.
+          for d in _dl/sd_content_bank1 _dl/sd_content_bank2 \
+                   _dl/sd_content_sd_bank1 _dl/sd_content_sd_bank2; do
             [ -d "$d" ] || { echo "missing sd_content dir: $d"; exit 1; }
           done
 
@@ -210,8 +216,10 @@ jobs:
             echo "tag=$GIT_DESCRIBE"
           } >> "$GITHUB_OUTPUT"
           python3 scripts/flasher/pack_bundle.py \
-            --sd-content-flash _dl/sd_content_flash \
-            --sd-content-sd _dl/sd_content_sd \
+            --sd-content-bank1 _dl/sd_content_bank1 \
+            --sd-content-bank2 _dl/sd_content_bank2 \
+            --sd-content-sd-bank1 _dl/sd_content_sd_bank1 \
+            --sd-content-sd-bank2 _dl/sd_content_sd_bank2 \
             --blob-bank1 _dl/blobs/gw_retro_go_intflash_bank1.bin \
             --blob-bank2 _dl/blobs/gw_retro_go_intflash_bank2.bin \
             --blob-sd-bank1 _dl/blobs/gw_retro_go_intflash_sd_bank1.bin \

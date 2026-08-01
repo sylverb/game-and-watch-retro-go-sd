@@ -5,23 +5,33 @@ Release asset (NOT for end users — end users want retro-go_update.bin).
 Outputs into <out>/:
   web-artifacts.zip  - gw_retro_go_intflash_bank{1,2}.bin (two superblock blobs, one
                        per intflash bank — bank is the link address, not a runtime
-                       patch) + sd_content/ AND sd_content_sd/ (cores, bios, fonts,
-                       lang, logo, homebrew; covers/ and cheats/ EXCLUDED for now) +
-                       manifest.json.
+                       patch) + one sd_content_<bank>/ tree PER BLOB (cores, bios,
+                       fonts, lang, logo, homebrew; covers/ and cheats/ EXCLUDED for
+                       now) + manifest.json.
   manifest.json      - standalone copy, uploaded as its own release asset so the
                        web-flasher's version picker can read metadata without
                        downloading the whole zip.
 
-TWO separate content trees, not one: every core/homebrew .bin is an objcopy slice
-of whichever ELF was built, and several overlay entry points land at different RAM
-addresses between an SD_CARD=0 (flash) and SD_CARD=1 (SD) build of the identical
-source — confirmed on real hardware for NES/PCE/MSX, likely more. Loading a core
-built for one variant's memory layout into the other corrupts execution on launch.
-sd_content/ is extracted from (and only valid for) the SD_CARD=0 build; sd_content_sd/
-from the SD_CARD=1 build. gnw-web-builder must use sd_content/ for flash-mode FrogFS
-building and sd_content_sd/ only when actually syncing an SD card.
+FOUR separate content trees, one per (SD_CARD, INTFLASH_BANK) pair. Every core and
+homebrew .bin is an objcopy slice of whichever ELF was built, so it carries that
+build's absolute addresses. Both axes matter:
 
-Layout (flat): gw_retro_go_intflash.bin, sd_content/..., sd_content_sd/..., manifest.json
+  SD_CARD axis - several overlay entry points land at different RAM addresses between
+    an SD_CARD=0 (flash) and SD_CARD=1 (SD) build of identical source (confirmed on
+    hardware: NES/PCE/MSX, likely more), so the core's code is loaded where the OTHER
+    build's linker put it and execution corrupts on launch.
+  INTFLASH_BANK axis - cores call back into firmware through ABSOLUTE pointers, which
+    differ per bank. Bank2-built cores contain the literal Thumb pointer 0x0810cdcd
+    (odroid_system_init at its bank2 address). Paired with a bank1 firmware, the first
+    core callback jumps into bank 2: subtly broken if a stale image happens to sit
+    there, an instant hardfault at PC=0x0810cdcc once bank 2 is erased. This axis was
+    previously assumed safe and content was shared across banks — that assumption was
+    wrong and shipped in v1.4.1-43-gff74121c.
+
+Consumers MUST take core binaries from manifest.blobs[<bank>].content, which names the
+tree built alongside that exact blob. Never share a tree between blobs.
+
+Layout (flat): gw_retro_go_intflash_<bank>.bin, sd_content_<bank>/..., manifest.json
 """
 import argparse
 import hashlib
@@ -53,8 +63,13 @@ def sha256(path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sd-content-flash", required=True)  # from the SD_CARD=0 build
-    ap.add_argument("--sd-content-sd", required=True)     # from the SD_CARD=1 build
+    # One content tree per (SD_CARD, bank) pair. Content is specific to BOTH axes:
+    # cores embed this build's absolute addresses, including callbacks into firmware
+    # at bank-specific addresses (0x080xxxxx vs 0x081xxxxx). Never share across banks.
+    ap.add_argument("--sd-content-bank1", required=True)     # SD_CARD=0, BANK=1
+    ap.add_argument("--sd-content-bank2", required=True)     # SD_CARD=0, BANK=2
+    ap.add_argument("--sd-content-sd-bank1", required=True)  # SD_CARD=1, BANK=1
+    ap.add_argument("--sd-content-sd-bank2", required=True)  # SD_CARD=1, BANK=2
     ap.add_argument("--blob-bank1", required=True)  # INTFLASH_BANK=1 link (0x08000000)
     ap.add_argument("--blob-bank2", required=True)  # INTFLASH_BANK=2 link (0x08100000)
     ap.add_argument("--blob-sd-bank1", required=True)     # SD_CARD=1 link (0x08000000)
@@ -102,19 +117,26 @@ def main():
                 found_members.append((full, arc.replace(os.sep, "/")))
         return found_members, found_cores
 
-    members, cores = collect_content(args.sd_content_flash, "sd_content")
-    members_sd, cores_sd = collect_content(args.sd_content_sd, "sd_content_sd")
-    members += members_sd
-
-    # Two linked blobs per configuration — bank is the intflash address, not a runtime patch.
+    # Two linked blobs per configuration — bank is the intflash address, not a runtime
+    # patch — and one content tree per blob, since cores bake in bank-specific pointers.
     banks = [
-        ("bank1", "gw_retro_go_intflash_bank1.bin", args.blob_bank1, "0x08000000", args.elf_bank1),
-        ("bank2", "gw_retro_go_intflash_bank2.bin", args.blob_bank2, "0x08100000", args.elf_bank2),
-        ("sd_bank1", "gw_retro_go_intflash_sd_bank1.bin", args.blob_sd_bank1, "0x08000000", args.elf_sd_bank1),
-        ("sd_bank2", "gw_retro_go_intflash_sd_bank2.bin", args.blob_sd_bank2, "0x08100000", args.elf_sd_bank2),
+        ("bank1", "gw_retro_go_intflash_bank1.bin", args.blob_bank1, "0x08000000", args.elf_bank1, args.sd_content_bank1),
+        ("bank2", "gw_retro_go_intflash_bank2.bin", args.blob_bank2, "0x08100000", args.elf_bank2, args.sd_content_bank2),
+        ("sd_bank1", "gw_retro_go_intflash_sd_bank1.bin", args.blob_sd_bank1, "0x08000000", args.elf_sd_bank1, args.sd_content_sd_bank1),
+        ("sd_bank2", "gw_retro_go_intflash_sd_bank2.bin", args.blob_sd_bank2, "0x08100000", args.elf_sd_bank2, args.sd_content_sd_bank2),
     ]
+
+    members = []
+    content_prefix = {}  # bank -> zip prefix
+    bank_cores = {}      # bank -> core name list
+    for bank, _f, _p, _a, _e, content_dir in banks:
+        prefix = f"sd_content_{bank}"
+        bank_members, bank_core_list = collect_content(content_dir, prefix)
+        members += bank_members
+        content_prefix[bank] = prefix
+        bank_cores[bank] = bank_core_list
     elf_arcnames = {}  # bank -> arcname, only for banks with an ELF actually supplied
-    for bank, _fname, _path, _addr, elf_path in banks:
+    for bank, _fname, _path, _addr, elf_path, _content in banks:
         if elf_path and os.path.isfile(elf_path):
             elf_arcnames[bank] = f"elf/gw_retro_go_{bank}.elf"
 
@@ -126,23 +148,28 @@ def main():
         "superblock": True,
         "builtAt": args.built_at,
         "asset": ZIP_NAME,
+        # Each blob names the ONE content tree built alongside it. The consumer must
+        # take content from here, never from a global/shared key — pairing a blob with
+        # another bank's cores is the 0x0810cdcd hardfault (see module docstring).
         "blobs": {
             bank: {
                 "file": fname,
                 "intflashAddr": addr,
                 "bytes": os.path.getsize(path),
+                "content": content_prefix[bank],
+                "cores": bank_cores[bank],
                 **({"elf": elf_arcnames[bank]} if bank in elf_arcnames else {}),
             }
-            for bank, fname, path, addr, _elf_path in banks
+            for bank, fname, path, addr, _elf_path, _content in banks
         },
         # Capabilities baked into the blobs (content like covers/cheats is added later
         # by the browser into the FrogFS; these flags just enable the firmware paths).
         "capabilities": ["coverflow", "cheatCodes", "screenshot", "sharedHibernateSavestate"],
-        # cores: extracted from the SD_CARD=0 (flash) build, valid ONLY for flash-mode
-        # FrogFS/LittleFS building. coresSd: extracted from the SD_CARD=1 build, valid
-        # ONLY for writing to an actual SD card. NOT interchangeable — see module docstring.
-        "cores": cores,
-        "coresSd": cores_sd,
+        # Convenience NAME lists only (which cores exist in a flash- vs SD-mode build).
+        # Safe to share across banks because these are names, not code. The actual core
+        # BINARIES must always come from blobs[<bank>].content — see above.
+        "cores": bank_cores["bank1"],
+        "coresSd": bank_cores["sd_bank1"],
         "fileCount": len(members),
     }
 
@@ -177,7 +204,7 @@ def main():
                         restool_members.append((full, arc))
 
     with zipfile.ZipFile(zip_path, "w") as zf:
-        for bank, fname, path, _addr, elf_path in banks:
+        for bank, fname, path, _addr, elf_path, _content in banks:
             add_file(zf, path, fname)
             if bank in elf_arcnames:
                 add_file(zf, elf_path, elf_arcnames[bank])
@@ -193,7 +220,8 @@ def main():
         json.dump(manifest, f, indent=2)
 
     print(f"{ZIP_NAME}: {manifest['assetBytes']} B ({manifest['fileCount']} content files)")
-    print(f"cores: {', '.join(cores)}")
+    for bank, _f, _p, _a, _e, _c in banks:
+        print(f"  {bank}: content={content_prefix[bank]} cores={len(bank_cores[bank])}")
     return 0
 
 
