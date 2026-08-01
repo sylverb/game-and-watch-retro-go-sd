@@ -31,9 +31,14 @@
 #include "gwenesis_sram.h"
 #include "gwenesis_sn76489.h"
 #include "gwenesis_vdp.h"
+#include "gwenesis_savestate.h"
 #include "m68k.h"
 #include "ym2612.h"
 #include "z80inst.h"
+
+/* Savestate request flags set by the SDL input handler (odroid_input.c). */
+extern int linux_savestate_req;
+extern int linux_loadstate_req;
 
 unsigned char *gwenesis_linux_rom;
 size_t gwenesis_linux_rom_size;
@@ -216,6 +221,47 @@ static void gwenesis_sound_submit(void)
     odroid_audio_submit(sound_buffer, sound_buffer_length);
 }
 
+static void gwenesis_state_path(char *out, size_t out_size)
+{
+    snprintf(out, out_size, "%s.state", gwenesis_linux_rom_path);
+}
+
+static void gwenesis_linux_save_state(void)
+{
+    char path[1024];
+    gwenesis_state_path(path, sizeof(path));
+    FILE *file = fopen(path, "wb");
+    if (!file) {
+        fprintf(stderr, "GWENESIS: cannot open '%s' for save\n", path);
+        return;
+    }
+    gwenesis_savestate_write_file_header(file);
+    gwenesis_save_state(file);
+    fclose(file);
+    fprintf(stderr, "GWENESIS: state saved to '%s'\n", path);
+}
+
+static void gwenesis_linux_load_state(void)
+{
+    char path[1024];
+    gwenesis_state_path(path, sizeof(path));
+    FILE *file = fopen(path, "rb");
+    if (!file) {
+        fprintf(stderr, "GWENESIS: cannot open '%s' for load\n", path);
+        return;
+    }
+    unsigned char header[GWENESIS_SAVESTATE_HEADER_SIZE];
+    if (fread(header, 1, sizeof(header), file) != sizeof(header)) {
+        fprintf(stderr, "GWENESIS: '%s' truncated header\n", path);
+        fclose(file);
+        return;
+    }
+    int ss_version = gwenesis_savestate_version_from_header(header);
+    gwenesis_load_state(file, ss_version);
+    fclose(file);
+    fprintf(stderr, "GWENESIS: state loaded from '%s' (version %d)\n", path, ss_version);
+}
+
 static void run_gwenesis_emulation(void)
 {
     printf("Genesis start\n");
@@ -245,8 +291,23 @@ static void run_gwenesis_emulation(void)
     lcd_wait_for_vblank();
     gwenesis_sound_start();
 
+    {
+        const char *al = getenv("GWAUTOLOAD");
+        if (al && al[0] && al[0] != '0')
+            linux_loadstate_req = 1;
+    }
+
     for (;;) {
         odroid_input_read_gamepad(&joystick);
+
+        if (linux_savestate_req) {
+            linux_savestate_req = 0;
+            gwenesis_linux_save_state();
+        }
+        if (linux_loadstate_req) {
+            linux_loadstate_req = 0;
+            gwenesis_linux_load_state();
+        }
 
         common_emu_clear_dwt_cycles();
         (void)common_emu_frame_loop();

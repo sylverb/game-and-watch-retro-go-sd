@@ -373,7 +373,7 @@ static void app_main_a2600_cpp(uint8_t load_state, uint8_t start_paused, int8_t 
     common_emu_state.frame_time_10us = (uint16_t)(100000 / console->getFramerate() + 0.5f);
 
     odroid_system_init(APPID_A2600, AUDIO_A2600_SAMPLE_RATE);
-    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL);
+    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL, NULL);
 
     /* Set initial digital sensitivity */
     Paddles::setDigitalSensitivity(paddle_digital_sensitivity);

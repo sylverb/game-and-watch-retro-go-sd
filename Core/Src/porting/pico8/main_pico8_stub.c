@@ -116,7 +116,7 @@ void app_main_pico8(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     (void)save_slot;
 
     odroid_system_init(APPID_PICO8, 48000);
-    odroid_system_emu_init(NULL, NULL, NULL, NULL, NULL, NULL);
+    odroid_system_emu_init(NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
     draw_install_screen();
     wait_for_any_button();

@@ -158,7 +158,7 @@ static void videopac_input_update(odroid_gamepad_state_t *joystick)
 static rg_app_desc_t * init(uint8_t load_state, int8_t save_slot)
 {
     odroid_system_init(APPID_GB, AUDIO_SAMPLE_RATE_VIDEOPAC);
-    odroid_system_emu_init(&LoadState, &SaveState, NULL, NULL, NULL, NULL);
+    odroid_system_emu_init(&LoadState, &SaveState, NULL, NULL, NULL, NULL, NULL);
 
     // Load ROM
 

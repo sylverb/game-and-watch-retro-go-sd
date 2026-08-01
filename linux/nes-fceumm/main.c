@@ -200,6 +200,10 @@ static bool SaveState(const char *savePathName)
 static bool LoadState(const char *savePathName)
 {
     FCEUSS_Load_Fs(savePathName);
+    /* Rebuild the RGB565 LUT (built-in default palette) after load so colors and
+     * deemphasis match a fresh start, mirroring the G&W port. The linux harness
+     * has no custom palette support, so this always restores the default. */
+    FCEUI_SetPaletteArray(NULL, 0);
     return true;
 }
 
@@ -489,7 +493,7 @@ int main(int argc, char *argv[])
     init_window(WIDTH, HEIGHT);
 
     odroid_system_init(APP_ID, AUDIO_SAMPLE_RATE);
-    odroid_system_emu_init(&LoadState, &SaveState, NULL, NULL, NULL, NULL);
+    odroid_system_emu_init(&LoadState, &SaveState, NULL, NULL, NULL, NULL, NULL);
 
     FCEUI_Initialize();
 

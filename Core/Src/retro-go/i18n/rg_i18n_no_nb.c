@@ -38,6 +38,8 @@ const lang_t lang_no_nb LANG_DATA = {
 
     // Core\Src\porting\gb\main_gb.c =======================================
     .s_Palette = "Palett",
+    .s_System = "System",
+    .s_SGB_Border = "SGB-ramme",
     //=====================================================================
 
     // Core\Src\porting\nes\main_nes.c =====================================
@@ -82,8 +84,6 @@ const lang_t lang_no_nb LANG_DATA = {
     .s_md_Synchro_Vsync = "VSYNC",
     .s_md_Dithering = "Dithering",
     .s_md_Debug_bar = "Feilsøkingslinje",
-    .s_md_Option_ON = "\x6",
-    .s_md_Option_OFF = "\x5",
     .s_md_AudioFilter = "Lydfilter",
     .s_md_VideoUpscaler = "Oppskaler video",
     .s_md_Region = "Region",
@@ -144,6 +144,8 @@ const lang_t lang_no_nb LANG_DATA = {
     //=====================================================================
 
     // Core\Src\porting\odroid_overlay.c ===================================
+    .s_Option_ON = "\x6",
+    .s_Option_OFF = "\x5",
     .s_Full = "\x7",
     .s_Fill = "\x8",
     .s_No_Cover = "ingen omslag",
@@ -211,8 +213,6 @@ const lang_t lang_no_nb LANG_DATA = {
 #if CHEAT_CODES == 1
     .s_Cheat_Codes = "Juksekoder",
     .s_Cheat_Codes_Title = "Juksealternativer",
-    .s_Cheat_Codes_ON = "\x6",
-    .s_Cheat_Codes_OFF = "\x5",
 #endif
     //=====================================================================
 
@@ -229,12 +229,12 @@ const lang_t lang_no_nb LANG_DATA = {
     .s_Second_Unit = "s",
     .s_Author = "Av",
     .s_Author_ = "\t\t+",
-    .s_UI_Mod = "UI-mod",
+    .s_UI_Mod = "Grensesnitt-mod",
     .s_Lang = "Norsk",
     .s_LangAuthor = "Idar Lund",
     .s_Debug_menu = "Feilsøkingsmeny",
     .s_Reset_settings = "Tilbakestill innstillinger",
-    .s_Patreon_menu = "Patreon / nyheter",
+    .s_Patreon_menu = "Patreon og nyheter",
     .s_Retro_Go = "Om %s",
     .s_Confirm_Reset_settings = "Tilbakestille alle innstillinger?",
     .s_Flash_JEDEC_ID = "Flash JEDEC-ID",
@@ -253,9 +253,9 @@ const lang_t lang_no_nb LANG_DATA = {
     .s_Time = "Tid",
     .s_Date = "Dato",
     .s_Time_Title = "TID",
-    .s_Hour = "Time",
-    .s_Minute = "Minutt",
-    .s_Second = "Sekund",
+    .s_Hour = "Timer",
+    .s_Minute = "Minutter",
+    .s_Second = "Sekunder",
     .s_Time_setup = "Tidsoppsett",
     .s_Day = "Dag",
     .s_Month = "Måned",
@@ -277,6 +277,7 @@ const lang_t lang_no_nb LANG_DATA = {
     .s_Title_Date_Format = "%s %02d/%02d %02d:%02d:%02d",
     .s_Date_Format = "%s %02d/%02d 20%02d",
     .s_Time_Format = "%02d:%02d:%02d",
+    .s_favorite = "Favoritter",
     .fmt_Title_Date_Format = no_nb_fmt_Title_Date_Format,
     .fmtDate = no_nb_fmt_Date,
     .fmtTime = no_nb_fmt_Time,

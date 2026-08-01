@@ -68,6 +68,7 @@ $(FATFS_DIR)/user_diskio_softspi.c
 FROGFS_DIR = Core/Src/porting/lib/frogfs
 FROGFS_C_SOURCES = \
 Core/Src/retro-go/rg_frogfs.c \
+Core/Src/retro-go/gw_layout_superblock.c \
 $(FROGFS_DIR)/src/frogfs.c \
 $(FROGFS_DIR)/src/decomp_raw.c
 
@@ -101,7 +102,8 @@ $(CORE_TGBDUAL)/gb_core/tgbdual_cpu.cpp \
 $(CORE_TGBDUAL)/gb_core/tgbdual_gb.cpp \
 $(CORE_TGBDUAL)/gb_core/tgbdual_lcd.cpp \
 $(CORE_TGBDUAL)/gb_core/tgbdual_mbc.cpp \
-$(CORE_TGBDUAL)/gb_core/tgbdual_rom.cpp
+$(CORE_TGBDUAL)/gb_core/tgbdual_rom.cpp \
+$(CORE_TGBDUAL)/gb_core/tgbdual_sgb.cpp
 
 NES_C_SOURCES = 
 
@@ -434,6 +436,9 @@ retro-go-stm32/pce-go/components/pce-go/gfx.c \
 retro-go-stm32/pce-go/components/pce-go/h6280.c \
 retro-go-stm32/pce-go/components/pce-go/pce.c \
 Core/Src/porting/pce/sound_pce.c \
+Core/Src/porting/pce/pce_cd.c \
+Core/Src/porting/pce/pce_scsi.c \
+Core/Src/porting/pce/pce_adpcm.c \
 Core/Src/porting/pce/main_pce.c
 
 MSX_C_SOURCES = 
@@ -454,6 +459,8 @@ $(CORE_MSX)/Src/Memory/ramMapperIo.c \
 $(CORE_MSX)/Src/Memory/RomLoader.c \
 $(CORE_MSX)/Src/Memory/romMapperASCII8.c \
 $(CORE_MSX)/Src/Memory/romMapperASCII16.c \
+$(CORE_MSX)/Src/Memory/romMapperASCII16X.c \
+$(CORE_MSX)/Src/Memory/romMapperNEO16.c \
 $(CORE_MSX)/Src/Memory/romMapperASCII16nf.c \
 $(CORE_MSX)/Src/Memory/romMapperBasic.c \
 $(CORE_MSX)/Src/Memory/romMapperCasette.c \
@@ -551,6 +558,7 @@ $(CORE_GWENESIS)/src/sound/ym2612.c \
 $(CORE_GWENESIS)/src/sound/gwenesis_sn76489.c \
 $(CORE_GWENESIS)/src/bus/gwenesis_bus.c \
 $(CORE_GWENESIS)/src/bus/gwenesis_sram.c \
+$(CORE_GWENESIS)/src/bus/gwenesis_eeprom.c \
 $(CORE_GWENESIS)/src/io/gwenesis_io.c \
 $(CORE_GWENESIS)/src/vdp/gwenesis_vdp_mem.c \
 $(CORE_GWENESIS)/src/vdp/gwenesis_vdp_gfx.c \
@@ -626,6 +634,19 @@ $(CORE_A2600)/stella/src/emucore/Paddles.cxx \
 $(CORE_A2600)/stella/src/emucore/TrackBall.cxx \
 $(CORE_A2600)/stella/src/emucore/StellaGenesis.cxx \
 $(CORE_A2600)/stella/src/emucore/StellaKeyboard.cxx
+
+LYNX_C_SOURCES =
+LYNX_CXX_SOURCES =
+
+CORE_LYNX = external/handy-go
+LYNX_CXX_SOURCES += \
+Core/Src/porting/lynx/main_lynx.cpp \
+$(CORE_LYNX)/cart.cpp \
+$(CORE_LYNX)/eeprom.cpp \
+$(CORE_LYNX)/lynxdec.cpp \
+$(CORE_LYNX)/mikie.cpp \
+$(CORE_LYNX)/susie.cpp \
+$(CORE_LYNX)/system.cpp
 
 A7800_C_SOURCES = 
 
@@ -804,6 +825,50 @@ $(CORE_SMW)/src/snes/cart.c \
 $(CORE_SMW)/src/tracing.c \
 Core/Src/porting/smw/main_smw.c
 
+# Game Boy Advance (gpSP). NOT compiled:
+#   cpu_threaded.c  the dynamic recompiler — its backends are x86/A32/A64/MIPS,
+#                   and there is no Thumb-2 one. The interpreter (cpu.cc) is the
+#                   whole CPU here.
+#   memmap.c        host mmap/VirtualAlloc; this device has neither.
+#   gba_cc_lut.c    a 64 KB colour-correction LUT that nothing in this build
+#                   references (checked: no user outside the file itself).
+#
+# serial.c / gbp.c / rfu.c / serial_proto.c ARE compiled, even though the unit has
+# no link port and no wireless adapter. gba_memory.c and main.c call into them
+# from reachable code; matching the QEMU harness object set matters.
+#
+# cpu.cc and video.cc are C++ only in name — they are C compiled as C++ (no
+# classes, no globals with constructors), so no .init_array runs for this core.
+CORE_GBA = external/gpsp
+GBA_C_SOURCES = \
+$(CORE_GBA)/gba_memory.c \
+$(CORE_GBA)/sound.c \
+$(CORE_GBA)/main.c \
+$(CORE_GBA)/savestate.c \
+$(CORE_GBA)/input.c \
+$(CORE_GBA)/cheats.c \
+$(CORE_GBA)/serial.c \
+$(CORE_GBA)/serial_proto.c \
+$(CORE_GBA)/gbp.c \
+$(CORE_GBA)/rfu.c \
+Core/Src/porting/gba/gba_frontend.c \
+Core/Src/porting/gba/gba_idle_loop.c \
+Core/Src/porting/gba/gba_audio_filter.c \
+Core/Src/porting/gba/main_gba.c \
+tools/gba_m4a/m4a_hle.c \
+tools/gba_m4a/m4a_gpsp.c \
+Core/Src/porting/gba/gba_bios_hle.c
+
+GBA_CXX_SOURCES = \
+$(CORE_GBA)/cpu.cc \
+$(CORE_GBA)/video.cc
+
+# The stock BIOS replacement, .incbin'd. gpSP's own bios_data.S puts it in .data
+# (16 KB of RAM_EMU for something never written); this one is read-only and rides
+# along in the XIP blob instead.
+GBA_ASM_SOURCES = \
+Core/Src/porting/gba/gba_bios.S
+
 GNUBOY_C_INCLUDES +=  \
 -ICore/Inc \
 -ICore/Src/porting/lib \
@@ -852,6 +917,7 @@ SMSPLUSGX_C_INCLUDES +=  \
 
 PCE_C_INCLUDES +=  \
 -ICore/Inc \
+-ICore/Inc/porting/pce \
 -ICore/Src/porting/lib \
 -ICore/Src/porting/lib/lzma \
 -Iretro-go-stm32/components/odroid \
@@ -944,6 +1010,14 @@ A2600_C_INCLUDES += \
 -I$(CORE_A2600)/libretro-common/include \
 -I./
 
+LYNX_C_INCLUDES += \
+-ICore/Inc \
+-ICore/Inc/porting/lynx \
+-ICore/Src/porting/lib \
+-ICore/Src/porting/lib/lzma \
+-I$(CORE_LYNX) \
+-I./
+
 A7800_C_INCLUDES += \
 -ICore/Inc \
 -ICore/Src/porting/lib \
@@ -1025,7 +1099,7 @@ include Makefile.common
 
 $(BUILD_DIR)/$(TARGET)_extflash.bin: $(BUILD_DIR)/$(TARGET).elf | $(BUILD_DIR)
 	$(V)$(ECHO) [ BIN ] $(notdir $@)
-	$(V)$(BIN) -j ._itcram_hot -j ._ram_exec -j ._extflash -j .overlay_nes -j .overlay_nes_fceu -j .overlay_gb -j .overlay_tgb -j .overlay_sms -j .overlay_col -j .overlay_pce -j .overlay_msx -j .overlay_gw -j .overlay_wsv -j .overlay_md -j .overlay_a2600 -j .overlay_a7800 -j .overlay_amstrad -j .overlay_zelda3 -j .overlay_smw -j .overlay_videopac -j .overlay_celeste -j .overlay_pico8 -j .overlay_tama -j .overlay_pkmini $< $(BUILD_DIR)/$(TARGET)_extflash.bin
+	$(V)$(BIN) -j ._itcram_hot -j ._ram_exec -j ._extflash -j .overlay_nes -j .overlay_nes_fceu -j .overlay_gb -j .overlay_tgb -j .overlay_sms -j .overlay_col -j .overlay_pce -j .overlay_pce_itc -j .overlay_msx -j .overlay_gw -j .overlay_wsv -j .overlay_md -j .overlay_a2600 -j .overlay_lynx -j .overlay_a7800 -j .overlay_amstrad -j .overlay_zelda3 -j .overlay_smw -j .overlay_gba -j .overlay_gba_itc -j .overlay_videopac -j .overlay_celeste -j .overlay_pico8 -j .overlay_tama -j .overlay_pkmini $< $(BUILD_DIR)/$(TARGET)_extflash.bin
 
 $(BUILD_DIR)/$(TARGET)_intflash.bin: $(BUILD_DIR)/$(TARGET).elf | $(BUILD_DIR)
 	$(V)$(ECHO) [ BIN ] $(notdir $@)

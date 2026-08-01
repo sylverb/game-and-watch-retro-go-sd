@@ -66,3 +66,10 @@
 [submodule "Core/Src/porting/lib/tamp"]
 	path = Core/Src/porting/lib/tamp
 	url = https://github.com/BrianPugh/tamp.git
+[submodule "external/handy-go"]
+	path = external/handy-go
+	url = https://github.com/jshsakura/handy-go.git
+[submodule "external/gpsp"]
+	path = external/gpsp
+	url = https://github.com/sylverb/gpsp.git
+	branch = gnw-port

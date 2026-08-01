@@ -55,6 +55,7 @@
 #include "main.h"
 #include "odroid_system.h"
 #include "odroid_overlay.h"
+#include "gw_malloc.h"
 
 static uint8_t curr_font = 0;
 
@@ -223,8 +224,8 @@ static FontEntry *get_font_data(uint32_t codepoint) {
     FILE *file;
 
     if (font_cache == NULL) {
-        font_cache = (FontEntry *)malloc(CACHE_SIZE * sizeof(FontEntry));
-        font_data_cache = (uint8_t *)malloc(FONT_CACHE_SIZE * sizeof(uint8_t));
+        font_cache = (FontEntry *)dtcm_malloc(CACHE_SIZE * sizeof(FontEntry));
+        font_data_cache = (uint8_t *)dtcm_malloc(FONT_CACHE_SIZE * sizeof(uint8_t));
         init_font_cache();
     }
 
@@ -437,10 +438,10 @@ lang_t *curr_lang = &lang_en_us;
  * populate the 215 `s_XXX` pointers in lang_active to point inside the
  * buffer. curr_lang is then set to &lang_active.
  *
- * en_us stays baked (lang_en_us) as a guaranteed fallback when the SD
- * card has no /lang/xx_xx.bin or the file is corrupt. The 10 other
- * lang_xx_xx static structs will be removed in a follow-up commit once
- * this loader is verified.
+ * Only one non-en_us language is kept in RAM at a time; switching
+ * frees the previous buffer. en_us stays baked (lang_en_us) as a
+ * guaranteed fallback when the SD card has no /lang/xx_xx.bin or the
+ * file is corrupt.
  *
  * Binary format (matches tools/gen_i18n_bin.py):
  *   [0]            u32 magic = 'I18N' (0x4E383149)
@@ -532,47 +533,35 @@ static const lang_metadata_t lang_metadata[] = {
      / sizeof(const char *))
 
 static lang_t  lang_active;
-/* Per-idx string-buffer cache. Each language is loaded from SD at most
- * once per session; the strings buffer and the populated pointer table
- * are kept for the lifetime of the app. Any pointer captured at
- * dialog-open time (e.g. options[i].label = curr_lang->s_Brightness)
- * therefore stays valid no matter how many times the user toggles
- * languages while the dialog is open.
- *
- * The previous design parked old buffers in a 16-deep FIFO and freed
- * the oldest on overflow — which would corrupt an open dialog's labels
- * after enough rapid language presses (and crash when the freed
- * memory was reused for the next .bin read). With cap-by-idx instead
- * of cap-by-FIFO, total RAM cost (lazily allocated as each language is
- * first selected) is bounded at gui_lang_count * (~2-3KB strings +
- * 860B pointer table) ≈ ~30KB worst-case if the user visits every
- * language, vs. the same ~32KB worst-case the old design had.
- *
- * `strings` is malloc'd lazily on first load — keeping it out of the
- * struct shrinks the cache's BSS footprint from ~14KB to ~256B (16
- * entries × 16B bookkeeping), which is what fits in the firmware's
- * tight RAM budget.
- *
- * `load_attempted` is set even on failure so the menu-redraw callback
- * (~60 Hz) doesn't re-open a missing .bin every frame and exhaust
- * FatFs file descriptors. */
-#define LANG_CACHE_MAX 16   /* covers all 11 current languages + headroom */
-typedef struct {
-    char        *strings_buf;
-    const char **strings;        /* LANG_T_STRING_COUNT entries, malloc'd */
-    bool         load_attempted;
-} lang_cache_entry_t;
-static lang_cache_entry_t lang_cache[LANG_CACHE_MAX];
 
-/* idx most recently committed to lang_active. -1 = none. */
-static int     lang_active_idx = -1;
+/* Single-slot SD language strings. Only one non-en_us language is kept
+ * in RAM at a time (~2–3 KB). en_us stays baked in flash (lang_en_us)
+ * and needs no allocation. Switching languages frees the previous
+ * buffer before installing the new one.
+ *
+ * Dialogs that capture curr_lang->s_XXX pointers at open time must
+ * snapshot those strings (see odroid_overlay_dialog) — otherwise
+ * browsing the language list would leave dangling labels.
+ *
+ * lang_failed_idx remembers an idx whose .bin failed to load so the
+ * ~60 Hz redraw path does not re-open a missing file every frame. */
+static char   *lang_strings_buf = NULL;
+static int     lang_active_idx  = -1;
+static int     lang_failed_idx  = -1;
 
-/* Read /lang/xx_xx.bin for `idx` into lang_cache[idx]. Returns true on
- * success (cache now populated), false on any error (cache entry stays
- * NULL but load_attempted is set so we don't retry every frame). */
-static bool i18n_cache_load(int idx)
+static void i18n_free_active_strings(void)
 {
-    lang_cache[idx].load_attempted = true;
+    if (lang_strings_buf) {
+        dtcm_free(lang_strings_buf);
+        lang_strings_buf = NULL;
+    }
+}
+
+/* Read /lang/xx_xx.bin for `idx` into a fresh buffer and install it as
+ * the sole active language. On any error the previous language (if any)
+ * is left untouched and false is returned. */
+static bool i18n_load_from_sd(int idx)
+{
     const lang_metadata_t *m = &lang_metadata[idx];
     if (!m->bin_path) return true;  /* en_us: nothing to load. */
 
@@ -627,79 +616,28 @@ static bool i18n_cache_load(int idx)
     }
     fseek(f, header_end, SEEK_SET);
 
-    char *buf = malloc((size_t)strings_size);
+    char *buf = (char *)dtcm_malloc((size_t)strings_size);
     if (!buf) {
         fprintf(stderr, "i18n_load: '%s' OOM allocating %ld bytes — using en_us\n",
                 m->bin_path, strings_size);
         fclose(f);
         return false;
     }
-    /* Pointer table lives in malloc'd RAM too — keeping it out of the
-     * static cache struct saves ~13KB BSS on a build with LANG_CACHE_MAX
-     * entries pre-reserved. */
-    const char **strings = calloc(LANG_T_STRING_COUNT, sizeof(const char *));
-    if (!strings) {
-        fprintf(stderr, "i18n_load: '%s' OOM allocating pointer table — using en_us\n",
-                m->bin_path);
-        free(buf);
-        fclose(f);
-        return false;
-    }
     if (fread(buf, 1, (size_t)strings_size, f) != (size_t)strings_size) {
         fprintf(stderr, "i18n_load: '%s' short read of strings — using en_us\n",
                 m->bin_path);
-        free(strings);
-        free(buf);
+        dtcm_free(buf);
         fclose(f);
         return false;
     }
     fclose(f);
 
-    for (uint16_t i = 0; i < to_read; i++) {
-        if (offsets[i] < (uint32_t)strings_size)
-            strings[i] = buf + offsets[i];
-    }
-    lang_cache[idx].strings_buf = buf;
-    lang_cache[idx].strings     = strings;
-    printf("i18n_load: '%s' loaded %u strings (%ld bytes)\n",
-           m->bin_path, to_read, strings_size);
-    return true;
-}
+    /* Commit: free the previous language, then point lang_active at the
+     * new buffer. Populate from en_us first so any missing string keeps
+     * the English fallback. */
+    i18n_free_active_strings();
+    lang_strings_buf = buf;
 
-/* Return a usable lang_t* for `idx`. The returned pointer is either
- * &lang_active (populated from the per-idx cache) or &lang_en_us (the
- * baked fallback when SD load failed or idx is out of range).
- *
- * Cheap to call from the redraw loop — only does file I/O on the
- * first request for each idx. */
-lang_t *i18n_load_language(int idx)
-{
-    const int n = (int)(sizeof(lang_metadata) / sizeof(*lang_metadata));
-    if (idx < 0 || idx >= n || idx >= LANG_CACHE_MAX) {
-        fprintf(stderr, "i18n_load: idx=%d out of range, falling back to en_us\n", idx);
-        return &lang_en_us;
-    }
-    const lang_metadata_t *m = &lang_metadata[idx];
-    if (!m->bin_path) {
-        /* en_us: rodata, no malloc, no SD touch. */
-        lang_active_idx = idx;
-        return &lang_en_us;
-    }
-
-    /* Already populated to this idx — nothing to do. */
-    if (idx == lang_active_idx && lang_cache[idx].strings_buf)
-        return &lang_active;
-
-    /* Lazy first-time load. Failure flag prevents re-opening a missing
-     * .bin every redraw. */
-    if (!lang_cache[idx].load_attempted)
-        i18n_cache_load(idx);
-    if (!lang_cache[idx].strings_buf || !lang_cache[idx].strings)
-        return &lang_en_us;
-
-    /* Re-populate lang_active from baked en_us + cached strings. Old
-     * pointers held by an open dialog are NOT invalidated — they
-     * point into lang_cache[prev_idx].strings_buf, which stays alive. */
     memcpy(&lang_active, &lang_en_us, sizeof(lang_t));
     *(uint32_t *)&lang_active.codepage = m->codepage;
     *(void **)&lang_active.fmt_Title_Date_Format = (void *)m->fmt_Title_Date_Format;
@@ -707,13 +645,53 @@ lang_t *i18n_load_language(int idx)
     *(void **)&lang_active.fmtTime               = (void *)m->fmtTime;
 
     const char **dst = (const char **)&lang_active.s_LangUI;
-    const char **src = lang_cache[idx].strings;
-    for (int i = 0; i < (int)LANG_T_STRING_COUNT; i++) {
-        if (src[i])
-            dst[i] = src[i];
-        /* else: keep the en_us fallback we memcpy'd above */
+    for (uint16_t i = 0; i < to_read; i++) {
+        if (offsets[i] < (uint32_t)strings_size)
+            dst[i] = buf + offsets[i];
     }
     lang_active_idx = idx;
+    lang_failed_idx = -1;
+    printf("i18n_load: '%s' loaded %u strings (%ld bytes)\n",
+           m->bin_path, to_read, strings_size);
+    return true;
+}
+
+/* Return a usable lang_t* for `idx`. The returned pointer is either
+ * &lang_active (the single SD-loaded language) or &lang_en_us (baked
+ * fallback when SD load failed, idx is en_us, or idx is out of range).
+ *
+ * At most one non-en_us language buffer is kept in RAM; switching
+ * frees the previous one. Safe to call from the redraw loop — a
+ * failed idx is not retried every frame. */
+lang_t *i18n_load_language(int idx)
+{
+    const int n = (int)(sizeof(lang_metadata) / sizeof(*lang_metadata));
+    if (idx < 0 || idx >= n) {
+        fprintf(stderr, "i18n_load: idx=%d out of range, falling back to en_us\n", idx);
+        return &lang_en_us;
+    }
+    const lang_metadata_t *m = &lang_metadata[idx];
+    if (!m->bin_path) {
+        /* en_us: rodata, no malloc, no SD touch. Drop any previously
+         * loaded language so we never keep a stale buffer around. */
+        i18n_free_active_strings();
+        lang_active_idx = idx;
+        lang_failed_idx = -1;
+        return &lang_en_us;
+    }
+
+    /* Already the active language — nothing to do. */
+    if (idx == lang_active_idx && lang_strings_buf)
+        return &lang_active;
+
+    /* Prior failure for this idx: do not hammer FatFs every redraw. */
+    if (idx == lang_failed_idx)
+        return &lang_en_us;
+
+    if (!i18n_load_from_sd(idx)) {
+        lang_failed_idx = idx;
+        return &lang_en_us;
+    }
     return &lang_active;
 }
 

@@ -33,6 +33,7 @@
 #include "JoystickPort.h"
 #include "InputEvent.h"
 #include "R800.h"
+#include "SlotManager.h"
 #include "Src/Utils/SaveState.h"
 #include "save_msx.h"
 #include "main.h"
@@ -683,6 +684,14 @@ int GuessROM(const uint8_t *buf,int size)
     /* No result yet */
     mapper = ROM_UNKNOWN;
 
+    if (size >= 0x18 && memcmp(buf + 0x10, "ASCII16X", 8) == 0) {
+        return ROM_ASCII16X;
+    }
+
+    if (size >= 0x18 && memcmp(buf + 0x10, "ROM_NE16", 8) == 0) {
+        return ROM_NEO16;
+    }
+
     if (size <= 0x10000) {
         if (size == 0x10000) {
             if (buf[0x4000] == 'A' && buf[0x4001] == 'B') mapper = ROM_PLAIN;
@@ -870,7 +879,7 @@ static void setPropertiesMsx(Machine *machine, int msxType) {
                 strcpy(machine->slotInfo[i].name, "../external/blueMSX-go/system/bluemsx/Machines/Shared Roms/PANASONICDISK.rom");
                 i++;
             }
-            /* else if (msx_game_type == MSX_GAME_HDIDE)*/ {
+            if (msx_game_type == MSX_GAME_HDIDE) {
                 /* Sunrise IDE in machine slots (not cart): hdId 0 → HDD drive 1. */
                 machine->slotInfo[i].slot = 1;
                 machine->slotInfo[i].subslot = 0;
@@ -1068,7 +1077,7 @@ static void createProperties() {
     properties->sound.stereo = 0;
 //    properties->emulation.vdpSyncMode = P_VDP_SYNCAUTO;
 //    properties->emulation.vdpSyncMode = P_VDP_SYNC50HZ;
-    properties->emulation.vdpSyncMode = P_VDP_SYNC60HZ;
+    properties->emulation.vdpSyncMode = P_VDP_SYNCAUTO;
     properties->emulation.enableFdcTiming = 0;
     properties->emulation.noSpriteLimits = 0;
     properties->sound.masterVolume = 0;
@@ -1168,7 +1177,7 @@ int main(int argc, char *argv[])
     init_window(width, height);
 
     odroid_system_init(APP_ID, AUDIO_MSX_SAMPLE_RATE);
-//    odroid_system_emu_init(&msx_system_LoadState, &msx_system_SaveState, NULL, NULL, NULL, NULL);
+//    odroid_system_emu_init(&msx_system_LoadState, &msx_system_SaveState, NULL, NULL, NULL, NULL, NULL);
 
     /* Init controls */
     memset(&previous_joystick_state,0, sizeof(odroid_gamepad_state_t));
@@ -1195,6 +1204,10 @@ int main(int argc, char *argv[])
 
     setupEmulatorRessources(2); // 0 = MSX1 1 = MSX2 2 = MSX2+
 
+    const char* tracePc = getenv("MSX_TRACE_PC");
+    static uint16_t lastPc;
+    static int samePc;
+    int frame = 0;
 
     while (1) {
         keyboardUpdate();
@@ -1202,6 +1215,27 @@ int main(int argc, char *argv[])
         // Render 1 frame
         ((R800*)boardInfo.cpuRef)->terminate = 0;
         boardInfo.run(boardInfo.cpuRef);
+
+        if (tracePc != NULL) {
+            uint16_t pc = ((R800*)boardInfo.cpuRef)->regs.PC.W;
+            if (pc == lastPc) {
+                samePc++;
+            } else {
+                samePc = 0;
+            }
+            lastPc = pc;
+            if (frame < 8 || samePc == 60 || (frame % 120) == 0) {
+                fprintf(stderr, "frame %d PC=%04X same=%d CCDD=%02X mem38=%02X%02X D020=%02X%02X\n",
+                        frame, pc, samePc, slotRead(boardInfo.cpuRef, 0xCCDD),
+                        slotRead(boardInfo.cpuRef, 0x0038), slotRead(boardInfo.cpuRef, 0x0039),
+                        slotRead(boardInfo.cpuRef, 0xD020), slotRead(boardInfo.cpuRef, 0xD021));
+            }
+            if (samePc > 300) {
+                fprintf(stderr, "CPU stuck at PC=%04X\n", pc);
+                samePc = 0;
+            }
+            frame++;
+        }
 
         // If current MSX screen mode is 10 or 12, data has been directly written into
         // framebuffer elseway convert 8bit pixels to RGB565
@@ -1337,3 +1371,10 @@ void archSoundDestroy(void)
 }
 
 void archShowStartEmuFailDialog() {}
+
+#ifdef MSX_NO_FILESYSTEM
+const char* boardGetBaseDirectory(void)
+{
+    return ".";
+}
+#endif

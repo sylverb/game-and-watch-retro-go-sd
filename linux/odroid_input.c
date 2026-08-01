@@ -4,6 +4,10 @@
 #include <SDL.h>
 static odroid_gamepad_state_t out_state;
 
+/* Linux savestate request flags (consumed by the core main loop). */
+int linux_savestate_req = 0;
+int linux_loadstate_req = 0;
+
 void odroid_input_read_gamepad(odroid_gamepad_state_t* out_state)
 {
     SDL_Event event;
@@ -40,6 +44,12 @@ void odroid_input_read_gamepad(odroid_gamepad_state_t* out_state)
                 break;
             case SDLK_s:
                 out_state->values[ODROID_INPUT_Y] = 1;
+                break;
+            case SDLK_F2:
+                linux_savestate_req = 1;
+                break;
+            case SDLK_F4:
+                linux_loadstate_req = 1;
                 break;
             case SDLK_ESCAPE:
                 exit(1);

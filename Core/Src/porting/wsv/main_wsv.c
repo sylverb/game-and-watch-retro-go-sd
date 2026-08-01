@@ -534,7 +534,7 @@ int app_main_wsv(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     video_frame.buffer = wsv_framebuffer;
 
     odroid_system_init(APPID_WSV, SV_SAMPLE_RATE);
-    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL);
+    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL, NULL);
 
     // Init Sound
     audio_start_playing(WSV_AUDIO_BUFFER_LENGTH);

@@ -17,8 +17,12 @@ bool common_emu_frame_loop(void);
 void common_emu_input_loop(odroid_gamepad_state_t *joystick, odroid_dialog_choice_t *game_options, void_callback_t repaint);
 void common_emu_input_loop_handle_turbo(odroid_gamepad_state_t *joystick);
 void common_emu_sound_sync(bool use_nops);
+void common_emu_sound_sync_reset(void);
 bool common_emu_sound_loop_is_muted();
 uint8_t common_emu_sound_get_volume();
+
+/* DMA half-buffer pacing marker shared by common_emu_sound_sync and PCE. */
+extern uint32_t common_emu_sound_dma_marker;
 
 typedef struct {
     uint last_busy;

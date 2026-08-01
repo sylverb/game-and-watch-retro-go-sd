@@ -163,7 +163,7 @@ void lcd_init(SPI_HandleTypeDef *spi, LTDC_HandleTypeDef *ltdc, lcd_init_flags_t
     lcd_clear_buffers();
   }
 
-  HAL_LTDC_SetAddress(ltdc,(uint32_t) &fb1, 0);
+  HAL_LTDC_SetAddress(ltdc,(uint32_t) fb1, 0);
   HAL_LTDC_ProgramLineEvent(&hltdc, 239);
   __HAL_LTDC_ENABLE_IT(&hltdc, LTDC_IT_LI | LTDC_IT_RR);
 
@@ -319,11 +319,16 @@ void lcd_setup_framebuffers(lcd_mode_t mode)
   uint32_t fb_footprint = (mode == LCD_MODE_LUT8)
       ? (uint32_t)(2 * GW_LCD_WIDTH * GW_LCD_HEIGHT)        /* 154 KB */
       : (uint32_t)(2 * GW_LCD_WIDTH * GW_LCD_HEIGHT * 2);   /* 300 KB */
+  SCB_CleanInvalidateDCache_by_Addr(
+      (uint32_t *)base,
+      (int32_t)((uintptr_t)__lcd_pool_end__ - (uintptr_t)base));
   HAL_MPU_Disable();
   mpu_set_lcd_pool_uncached_range(fb_footprint);
   HAL_MPU_Enable(MPU_HFNMI_PRIVDEF);
   __DSB();
   __ISB();
+
+  lcd_sleep_while_swap_pending();
 }
 
 void lcd_get_bonus_pool(uint8_t **out_ptr, size_t *out_size)
@@ -383,19 +388,60 @@ static void clut_store_dark_twin(int idx, uint32_t e)
   active_clut[idx] = (r << 16) | (g << 8) | b;
 }
 
+static uint16_t rgb888_entry_to_rgb565(uint32_t e)
+{
+  uint8_t r = (uint8_t)((e >> 16) & 0xFF);
+  uint8_t g = (uint8_t)((e >>  8) & 0xFF);
+  uint8_t b = (uint8_t)((e      ) & 0xFF);
+  return (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+}
+
+/* Darken an RGB565 color by LCD_DARKEN_PERCENT — mirrors clut_store_dark_twin
+ * so embedded cart CLUTs can reconstruct the [32..64) darkened-twin range. */
+static uint16_t darken_rgb565(uint16_t c)
+{
+  const int keep = 100 - LCD_DARKEN_PERCENT;
+  int r = (c >> 11) & 0x1F;
+  int g = (c >>  5) & 0x3F;
+  int b = (c      ) & 0x1F;
+  r = (r * keep) / 100;
+  g = (g * keep) / 100;
+  b = (b * keep) / 100;
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
 void lcd_get_clut_rgb565(uint16_t *out)
 {
   if (out == NULL) return;
   uint16_t n = active_clut_count;
   if (n > LCD_SCREENSHOT_CLUT_ENTRIES) n = LCD_SCREENSHOT_CLUT_ENTRIES;
   for (uint16_t i = 0; i < n; i++) {
-    uint32_t e = active_clut[i];
-    uint8_t r = (uint8_t)((e >> 16) & 0xFF);
-    uint8_t g = (uint8_t)((e >>  8) & 0xFF);
-    uint8_t b = (uint8_t)((e      ) & 0xFF);
-    out[i] = (uint16_t)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+    out[i] = rgb888_entry_to_rgb565(active_clut[i]);
   }
   for (uint16_t i = n; i < LCD_SCREENSHOT_CLUT_ENTRIES; i++) out[i] = 0;
+}
+
+void lcd_convert_lut8_to_rgb565(const uint8_t *src, uint16_t *dst, size_t count,
+                                const uint16_t *clut)
+{
+  if (src == NULL || dst == NULL) return;
+
+  for (size_t i = 0; i < count; i++) {
+    uint8_t idx = src[i];
+    if (clut != NULL) {
+      if (idx < LCD_SCREENSHOT_CLUT_ENTRIES) {
+        dst[i] = clut[idx];
+      } else if (idx < 2 * LCD_SCREENSHOT_CLUT_ENTRIES) {
+        dst[i] = darken_rgb565(clut[idx - LCD_SCREENSHOT_CLUT_ENTRIES]);
+      } else {
+        dst[i] = 0;
+      }
+    } else if (idx < LCD_EXTENDED_CLUT_MAX) {
+      dst[i] = rgb888_entry_to_rgb565(active_clut[idx]);
+    } else {
+      dst[i] = 0;
+    }
+  }
 }
 
 void lcd_set_clut(const uint32_t *clut, uint16_t count)

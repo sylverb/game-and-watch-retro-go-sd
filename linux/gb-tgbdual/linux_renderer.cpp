@@ -32,7 +32,7 @@ extern "C" {
 
 #define SAMPLES_PER_FRAME (44100/60)
 
-extern gb *g_gb[2];
+extern gb *g_gb;
 static int16_t stream[SAMPLES_PER_FRAME*2];
 
 extern void blit(uint16_t *buffer);
@@ -112,5 +112,27 @@ void linux_renderer::set_time(int type,byte dat)
          break;
    }
    cur_time = now - adj;
+}
+
+void linux_renderer::get_calendar_time(byte *year,byte *month,byte *day,
+                                       byte *hour,byte *minute,byte *second)
+{
+   time_t t = fixed_time ? (time_t)fixed_time : time(NULL);
+   struct tm *tm = localtime(&t);
+   if (!tm) {
+      if (year) *year = 0;
+      if (month) *month = 1;
+      if (day) *day = 1;
+      if (hour) *hour = 0;
+      if (minute) *minute = 0;
+      if (second) *second = 0;
+      return;
+   }
+   if (year) *year = (byte)(tm->tm_year % 100);
+   if (month) *month = (byte)(tm->tm_mon + 1);
+   if (day) *day = (byte)tm->tm_mday;
+   if (hour) *hour = (byte)tm->tm_hour;
+   if (minute) *minute = (byte)tm->tm_min;
+   if (second) *second = (byte)tm->tm_sec;
 }
 

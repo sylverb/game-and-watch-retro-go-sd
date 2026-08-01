@@ -1,0 +1,229 @@
+#!/usr/bin/env python3
+"""Assemble a web-flasher artifact from a SD_CARD=0 build, published as a GitHub
+Release asset (NOT for end users — end users want retro-go_update.bin).
+
+Outputs into <out>/:
+  web-artifacts.zip  - gw_retro_go_intflash_bank{1,2}.bin (two superblock blobs, one
+                       per intflash bank — bank is the link address, not a runtime
+                       patch) + one sd_content_<bank>/ tree PER BLOB (cores, bios,
+                       fonts, lang, logo, homebrew; covers/ and cheats/ EXCLUDED for
+                       now) + manifest.json.
+  manifest.json      - standalone copy, uploaded as its own release asset so the
+                       web-flasher's version picker can read metadata without
+                       downloading the whole zip.
+
+FOUR separate content trees, one per (SD_CARD, INTFLASH_BANK) pair. Every core and
+homebrew .bin is an objcopy slice of whichever ELF was built, so it carries that
+build's absolute addresses. Both axes matter:
+
+  SD_CARD axis - several overlay entry points land at different RAM addresses between
+    an SD_CARD=0 (flash) and SD_CARD=1 (SD) build of identical source (confirmed on
+    hardware: NES/PCE/MSX, likely more), so the core's code is loaded where the OTHER
+    build's linker put it and execution corrupts on launch.
+  INTFLASH_BANK axis - cores call back into firmware through ABSOLUTE pointers, which
+    differ per bank. Bank2-built cores contain the literal Thumb pointer 0x0810cdcd
+    (odroid_system_init at its bank2 address). Paired with a bank1 firmware, the first
+    core callback jumps into bank 2: subtly broken if a stale image happens to sit
+    there, an instant hardfault at PC=0x0810cdcc once bank 2 is erased. This axis was
+    previously assumed safe and content was shared across banks — that assumption was
+    wrong and shipped in v1.4.1-43-gff74121c.
+
+Consumers MUST take core binaries from manifest.blobs[<bank>].content, which names the
+tree built alongside that exact blob. Never share a tree between blobs.
+
+Layout (flat): gw_retro_go_intflash_<bank>.bin, sd_content_<bank>/..., manifest.json
+"""
+import argparse
+import hashlib
+import json
+import os
+import sys
+import zipfile
+
+EXCLUDE_TOP = {"covers", "cheats"}  # subordinate features, packed later
+# Firmware-update trigger files: the firmware_update bootloader flashes these
+# (firmware_update.c). They are SD-update plumbing — irrelevant to the web flasher
+# (we flash over USB) and the ONLY files in sd_content that could cause a flash if
+# someone merged the archive onto an SD card. Excluded so NOTHING here can flash.
+EXCLUDE_FILES = {"update_bank1.bin", "update_bank2.bin", "retro-go_update.bin"}
+ZIP_NAME = "web-artifacts.zip"
+# Neutral name on purpose — nothing here invites an end user. Safe even if someone
+# overwrites their SD with these: the firmware reads /cores, /bios, /roms from the
+# SD ROOT, but our SD content lives under sd_content/, so it's simply absent at root
+# (no content loads); and the on-device updater only flashes /retro-go_update.bin,
+# which we never ship → no flash, no brick.
+
+def sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    # One content tree per (SD_CARD, bank) pair. Content is specific to BOTH axes:
+    # cores embed this build's absolute addresses, including callbacks into firmware
+    # at bank-specific addresses (0x080xxxxx vs 0x081xxxxx). Never share across banks.
+    ap.add_argument("--sd-content-bank1", required=True)     # SD_CARD=0, BANK=1
+    ap.add_argument("--sd-content-bank2", required=True)     # SD_CARD=0, BANK=2
+    ap.add_argument("--sd-content-sd-bank1", required=True)  # SD_CARD=1, BANK=1
+    ap.add_argument("--sd-content-sd-bank2", required=True)  # SD_CARD=1, BANK=2
+    ap.add_argument("--blob-bank1", required=True)  # INTFLASH_BANK=1 link (0x08000000)
+    ap.add_argument("--blob-bank2", required=True)  # INTFLASH_BANK=2 link (0x08100000)
+    ap.add_argument("--blob-sd-bank1", required=True)     # SD_CARD=1 link (0x08000000)
+    ap.add_argument("--blob-sd-bank2", required=True)     # SD_CARD=1 link (0x08100000)
+    # Optional matching ELFs (debug symbols), one per blob above. Bundled in so a
+    # debugger can be pointed at symbols that actually match whatever's flashed on a
+    # given device, instead of a locally-built ELF that may be a different commit or
+    # build variant entirely (a real mix-up during this branch's debugging sessions).
+    ap.add_argument("--elf-bank1", default=None)
+    ap.add_argument("--elf-bank2", default=None)
+    ap.add_argument("--elf-sd-bank1", default=None)
+    ap.add_argument("--elf-sd-bank2", default=None)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--id", required=True)
+    ap.add_argument("--ref", required=True)
+    ap.add_argument("--sha", required=True)
+    ap.add_argument("--built-at", required=True)  # ISO8601; CI provides
+    args = ap.parse_args()
+
+    os.makedirs(args.out, exist_ok=True)
+    zip_path = os.path.join(args.out, ZIP_NAME)
+
+    def collect_content(src_dir, arc_prefix):
+        """Walk one sd_content tree (excluding covers/cheats/update-trigger files) into
+        (abs_path, arcname) pairs under arc_prefix/, plus its own core name list."""
+        cores_dir = os.path.join(src_dir, "cores")
+        found_cores = sorted(
+            f[:-4]
+            for f in os.listdir(cores_dir)
+            if f.endswith(".bin") and not f.endswith("_defprops.bin")
+        ) if os.path.isdir(cores_dir) else []
+
+        found_members = []
+        for root, dirs, files in os.walk(src_dir):
+            rel = os.path.relpath(root, src_dir)
+            if rel.split(os.sep)[0] in EXCLUDE_TOP:
+                dirs[:] = []
+                continue
+            dirs.sort()
+            for fn in sorted(files):
+                if fn in EXCLUDE_FILES:
+                    continue
+                full = os.path.join(root, fn)
+                arc = os.path.join(arc_prefix, os.path.relpath(full, src_dir))
+                found_members.append((full, arc.replace(os.sep, "/")))
+        return found_members, found_cores
+
+    # Two linked blobs per configuration — bank is the intflash address, not a runtime
+    # patch — and one content tree per blob, since cores bake in bank-specific pointers.
+    banks = [
+        ("bank1", "gw_retro_go_intflash_bank1.bin", args.blob_bank1, "0x08000000", args.elf_bank1, args.sd_content_bank1),
+        ("bank2", "gw_retro_go_intflash_bank2.bin", args.blob_bank2, "0x08100000", args.elf_bank2, args.sd_content_bank2),
+        ("sd_bank1", "gw_retro_go_intflash_sd_bank1.bin", args.blob_sd_bank1, "0x08000000", args.elf_sd_bank1, args.sd_content_sd_bank1),
+        ("sd_bank2", "gw_retro_go_intflash_sd_bank2.bin", args.blob_sd_bank2, "0x08100000", args.elf_sd_bank2, args.sd_content_sd_bank2),
+    ]
+
+    members = []
+    content_prefix = {}  # bank -> zip prefix
+    bank_cores = {}      # bank -> core name list
+    for bank, _f, _p, _a, _e, content_dir in banks:
+        prefix = f"sd_content_{bank}"
+        bank_members, bank_core_list = collect_content(content_dir, prefix)
+        members += bank_members
+        content_prefix[bank] = prefix
+        bank_cores[bank] = bank_core_list
+    elf_arcnames = {}  # bank -> arcname, only for banks with an ELF actually supplied
+    for bank, _fname, _path, _addr, elf_path, _content in banks:
+        if elf_path and os.path.isfile(elf_path):
+            elf_arcnames[bank] = f"elf/gw_retro_go_{bank}.elf"
+
+    manifest = {
+        "id": args.id,
+        "ref": args.ref,
+        "sha": args.sha,
+        "sdCard": 0,
+        "superblock": True,
+        "builtAt": args.built_at,
+        "asset": ZIP_NAME,
+        # Each blob names the ONE content tree built alongside it. The consumer must
+        # take content from here, never from a global/shared key — pairing a blob with
+        # another bank's cores is the 0x0810cdcd hardfault (see module docstring).
+        "blobs": {
+            bank: {
+                "file": fname,
+                "intflashAddr": addr,
+                "bytes": os.path.getsize(path),
+                "content": content_prefix[bank],
+                "cores": bank_cores[bank],
+                **({"elf": elf_arcnames[bank]} if bank in elf_arcnames else {}),
+            }
+            for bank, fname, path, addr, _elf_path, _content in banks
+        },
+        # Capabilities baked into the blobs (content like covers/cheats is added later
+        # by the browser into the FrogFS; these flags just enable the firmware paths).
+        "capabilities": ["coverflow", "cheatCodes", "screenshot", "sharedHibernateSavestate"],
+        # Convenience NAME lists only (which cores exist in a flash- vs SD-mode build).
+        # Safe to share across banks because these are names, not code. The actual core
+        # BINARIES must always come from blobs[<bank>].content — see above.
+        "cores": bank_cores["bank1"],
+        "coresSd": bank_cores["sd_bank1"],
+        "fileCount": len(members),
+    }
+
+    # fixed timestamp → reproducible-ish zips
+    zdate = (1980, 1, 1, 0, 0, 0)
+
+    def add_bytes(zf, arcname, data):
+        zi = zipfile.ZipInfo(arcname, date_time=zdate)
+        zi.compress_type = zipfile.ZIP_DEFLATED
+        zf.writestr(zi, data)
+
+    def add_file(zf, full, arcname):
+        zi = zipfile.ZipInfo(arcname, date_time=zdate)
+        zi.compress_type = zipfile.ZIP_DEFLATED
+        with open(full, "rb") as f:
+            zf.writestr(zi, f.read())
+
+    # collect restool scripts (Python extraction scripts for the web builder Pyodide worker)
+    restool_members = []
+    restool_dirs = [
+        ("external/smw/assets", "restools/smw"),
+        ("external/zelda3/tables", "restools/zelda3"),
+    ]
+    for src_dir, dest_dir in restool_dirs:
+        if os.path.exists(src_dir):
+            for root, _, files in os.walk(src_dir):
+                for fn in sorted(files):
+                    if fn.endswith(".py"):
+                        full = os.path.join(root, fn)
+                        rel = os.path.relpath(full, src_dir)
+                        arc = os.path.join(dest_dir, rel).replace(os.sep, "/")
+                        restool_members.append((full, arc))
+
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for bank, fname, path, _addr, elf_path, _content in banks:
+            add_file(zf, path, fname)
+            if bank in elf_arcnames:
+                add_file(zf, elf_path, elf_arcnames[bank])
+        for full, arc in members:
+            add_file(zf, full, arc)
+        for full, arc in restool_members:
+            add_file(zf, full, arc)
+        add_bytes(zf, "manifest.json", json.dumps(manifest, indent=2).encode())
+
+    manifest["assetBytes"] = os.path.getsize(zip_path)
+    manifest["assetSha256"] = sha256(zip_path)
+    with open(os.path.join(args.out, "manifest.json"), "w") as f:
+        json.dump(manifest, f, indent=2)
+
+    print(f"{ZIP_NAME}: {manifest['assetBytes']} B ({manifest['fileCount']} content files)")
+    for bank, _f, _p, _a, _e, _c in banks:
+        print(f"  {bank}: content={content_prefix[bank]} cores={len(bank_cores[bank])}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

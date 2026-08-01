@@ -34,6 +34,20 @@
 #include "stm32h7xx_hal.h"
 #include "gw_malloc.h"     /* ram_start */
 
+/* ABI keeps the historical 6-arg odroid_system_emu_init signature; Core
+ * now takes a 7th cheat_update callback. Bridge here so old plugins keep
+ * working (cheats stay NULL for ABI-loaded cores). */
+static void abi_odroid_system_emu_init(state_handler_t load_cb,
+                                       state_handler_t save_cb,
+                                       screenshot_handler_t screenshot_cb,
+                                       shutdown_handler_t shutdown_cb,
+                                       sleep_post_wakeup_handler_t sleep_post_wakeup_cb,
+                                       sram_save_handler_t sram_save_cb)
+{
+    odroid_system_emu_init(load_cb, save_cb, screenshot_cb, shutdown_cb,
+                           sleep_post_wakeup_cb, sram_save_cb, NULL);
+}
+
 /* These are defined in rg_emulators.c */
 extern uint8_t *pico8_code_flash_addr;
 extern uint32_t pico8_code_flash_size;
@@ -193,7 +207,7 @@ const gw_firmware_abi_t g_firmware_abi = {
 
     /* retro-go: system */
     .odroid_system_init       = odroid_system_init,
-    .odroid_system_emu_init   = odroid_system_emu_init,
+    .odroid_system_emu_init   = abi_odroid_system_emu_init,
     .odroid_system_switch_app = odroid_system_switch_app,
 
     /* retro-go: input / display */
@@ -234,7 +248,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .impure_ptr_ptr            = (void **)&_impure_ptr,
     .dtcm_p8ram_start          = NULL,  /* no longer a fixed section — use dtcm_malloc */
 
-    .dtcm_malloc               = malloc,
+    .dtcm_malloc               = dtcm_malloc,
 
     .odroid_system_emu_load_state = odroid_system_emu_load_state,
     .odroid_audio_mute            = odroid_audio_mute,

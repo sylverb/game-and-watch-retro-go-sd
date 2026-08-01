@@ -35,10 +35,14 @@ public:
 	virtual void refresh();
 	virtual byte get_time(int type);
 	virtual void set_time(int type,byte dat);
+	virtual void get_calendar_time(byte *year,byte *month,byte *day,
+	                               byte *hour,byte *minute,byte *second);
 
 	time_t fixed_time;
 private:
 	int cur_time;
 	int which_gb;
 	bool rgb565;
+	bool cal_valid;
+	byte cal_year, cal_month, cal_day, cal_hour, cal_minute, cal_second;
 };

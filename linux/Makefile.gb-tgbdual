@@ -31,6 +31,7 @@ SOURCES_CXX := \
 	../external/tgbdual-go/gb_core/tgbdual_lcd.cpp \
 	../external/tgbdual-go/gb_core/tgbdual_mbc.cpp \
 	../external/tgbdual-go/gb_core/tgbdual_rom.cpp \
+	../external/tgbdual-go/gb_core/tgbdual_sgb.cpp \
 	gb-tgbdual/linux_renderer.cpp \
 	gb-tgbdual/main.cpp \
 

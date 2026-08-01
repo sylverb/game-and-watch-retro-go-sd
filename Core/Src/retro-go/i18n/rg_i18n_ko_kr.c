@@ -38,6 +38,8 @@ const lang_t lang_ko_kr LANG_DATA = {
 
     // Core\Src\porting\gb\main_gb.c =======================================
     .s_Palette = "팔레트",
+    .s_System = "시스템",
+    .s_SGB_Border = "SGB 테두리",
     //=====================================================================
 
     // Core\Src\porting\nes\main_nes.c =====================================
@@ -82,8 +84,6 @@ const lang_t lang_ko_kr LANG_DATA = {
     .s_md_Synchro_Vsync = "수직동기",
     .s_md_Dithering = "디더링",
     .s_md_Debug_bar = "디버그 바",
-    .s_md_Option_ON = "\x6",
-    .s_md_Option_OFF = "\x5",
     .s_md_AudioFilter = "오디오 필터",
     .s_md_VideoUpscaler = "비디오 업스케일러",
     .s_md_Region = "지역",
@@ -144,6 +144,8 @@ const lang_t lang_ko_kr LANG_DATA = {
     //=====================================================================
 
     // Core\Src\porting\odroid_overlay.c ===================================
+    .s_Option_ON = "\x6",
+    .s_Option_OFF = "\x5",
     .s_Full = "\x7",
     .s_Fill = "\x8",
 
@@ -215,8 +217,6 @@ const lang_t lang_ko_kr LANG_DATA = {
 #if CHEAT_CODES == 1
     .s_Cheat_Codes = "치트 코드",
     .s_Cheat_Codes_Title = "치트 설정",
-    .s_Cheat_Codes_ON = "\x6",
-    .s_Cheat_Codes_OFF = "\x5",
 #endif
 
     //=====================================================================
@@ -290,6 +290,7 @@ const lang_t lang_ko_kr LANG_DATA = {
     .s_Title_Date_Format = "%02d-%02d %s %02d:%02d:%02d",
     .s_Date_Format = "%02d.%02d.20%02d %s",
     .s_Time_Format = "%02d:%02d:%02d",
+    .s_favorite = "즐겨찾기",
     .fmt_Title_Date_Format = ko_kr_fmt_Title_Date_Format,
     .fmtDate = ko_kr_fmt_Date,
     .fmtTime = ko_kr_fmt_Time,

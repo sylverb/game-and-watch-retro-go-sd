@@ -218,9 +218,9 @@ void odroid_settings_commit()
         }
     }
 
-    /* Settings dialog has just closed. Re-loading the committed
-     * language is a cache hit when the user landed back on the same
-     * idx they entered with (i18n_load_language caches per-idx). */
+    /* Settings dialog has just closed. Re-load the committed language
+     * (no-op / already active when the user left the picker on the
+     * same idx; otherwise swaps the single SD language slot). */
     curr_lang = i18n_load_language(odroid_settings_lang_get());
 }
 

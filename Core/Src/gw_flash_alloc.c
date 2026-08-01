@@ -14,6 +14,7 @@
 #include "gw_malloc.h"
 #include "gw_flash_alloc.h"
 #include "gw_ofw.h"
+#include "gw_layout_superblock.h"
 
 #define METADATA_FILE ODROID_BASE_PATH_SAVES "/flashcachedata.bin"
 #define METADATA_VERSION 1
@@ -74,6 +75,91 @@ static uint32_t align_to_next_block(uint32_t pointer)
     return (pointer + block_size - 1) & ~(block_size - 1);
 }
 
+/* ---------------------------------------------------------------- live set ---
+ *
+ * Every address handed out this boot is live — a cache hit exactly as much as a
+ * fresh write, since the caller walks away holding it either way — and a write
+ * steps over live ranges instead of through them. GBA (and similar) caches a ROM
+ * then a code blob; without this the second write can erase the ROM underneath
+ * the core. Nothing to release: leaving a game reboots.
+ */
+#define MAX_LIVE_FILES 28
+
+static uint32_t get_extflash_base(void);
+static uint32_t get_extflash_total_size(void);
+
+typedef struct {
+    uint32_t address;
+    uint32_t size;
+} LiveRange;
+
+static LiveRange live_files[MAX_LIVE_FILES];
+static uint8_t live_file_count = 0;
+
+static void live_add(uint32_t address, uint32_t size)
+{
+    if (size == 0)
+        return;
+
+    for (uint8_t i = 0; i < live_file_count; i++) {
+        if (live_files[i].address == address) {
+            if (size > live_files[i].size)
+                live_files[i].size = size;
+            return;
+        }
+    }
+    if (live_file_count >= MAX_LIVE_FILES) {
+        printf("flash_alloc: live set full (%d) - a write may overwrite a file in use\n",
+               MAX_LIVE_FILES);
+        return;
+    }
+    live_files[live_file_count].address = address;
+    live_files[live_file_count].size = size;
+    live_file_count++;
+}
+
+void flash_alloc_forget_live_files(void)
+{
+    live_file_count = 0;
+}
+
+static bool live_overlaps(uint32_t start, uint32_t end, uint32_t *live_end_out)
+{
+    for (uint8_t i = 0; i < live_file_count; i++) {
+        uint32_t file_start = live_files[i].address;
+        uint32_t file_end = file_start + live_files[i].size;
+        if (start < file_end && file_start < end) {
+            *live_end_out = file_end;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool find_write_slot(uint32_t start_pointer, uint32_t erase_size_total,
+                            uint32_t *out_pointer)
+{
+    const uint32_t base = get_extflash_base();
+    const uint32_t limit = (uint32_t)&__EXTFLASH_BASE__ + get_extflash_total_size();
+    uint32_t p = start_pointer;
+
+    if (erase_size_total > limit - base)
+        return false;
+
+    for (int attempt = 0; attempt < MAX_LIVE_FILES * 2 + 2; attempt++) {
+        if (p < base || p + erase_size_total > limit)
+            p = base;
+
+        uint32_t live_end;
+        if (!live_overlaps(p, p + erase_size_total, &live_end)) {
+            *out_pointer = p;
+            return true;
+        }
+        p = align_to_next_block(live_end);
+    }
+    return false;
+}
+
 /* Bytes to keep reserved at the bottom of external flash before the ROM cache may
  * write. We honor the LARGER of two reservations:
  *   1. get_ofw_extflash_size() - the active OFW's own external-flash footprint, read
@@ -87,14 +173,27 @@ static uint32_t align_to_next_block(uint32_t pointer)
  * the stock behavior when EXTFLASH_OFFSET is 0. */
 static uint32_t get_reserved_extflash_size()
 {
+#if SD_CARD == 1
+    uint32_t ofw = gw_layout_reserved_size();
+#else
     uint32_t ofw = get_ofw_extflash_size();
+#endif
     uint32_t reserved = (uint32_t)&__EXTFLASH_OFFSET__;
     return ofw > reserved ? ofw : reserved;
 }
 
-static uint32_t get_extflash_base()
+static uint32_t get_extflash_base(void)
 {
     return align_to_next_block(((uint32_t)&__EXTFLASH_BASE__) + get_reserved_extflash_size());
+}
+
+static uint32_t get_extflash_total_size()
+{
+#if SD_CARD == 1
+    return gw_layout_extflash_size();
+#else
+    return OSPI_GetFlashSize();
+#endif
 }
 
 static void reset_metadata(uint32_t flash_write_base) {
@@ -212,7 +311,8 @@ static bool circular_flash_write(const char *file_path,
                                  uint32_t *data_size,
                                  uint32_t *flash_address_out,
                                  bool byte_swap,
-                                 file_progress_cb_t progress_cb)
+                                 file_progress_cb_t progress_cb,
+                                 flash_relocate_cb_t relocate_cb)
 {
     uint8_t buffer[16 * 1024];
     uint32_t total_bytes_processed = 0;
@@ -232,56 +332,85 @@ static bool circular_flash_write(const char *file_path,
         progress_cb(*data_size, 0, 0);
     }
 
-    uint32_t flash_write_base = get_extflash_base();
+    uint32_t block_size = OSPI_GetSmallestEraseSize();
+    /* The erase (and thus the flash we consume) is block-aligned. */
+    uint32_t erase_size_total = (*data_size + block_size - 1) & ~(block_size - 1);
 
-    // If there is not enough space available, write the file at the beginning of the flash
-    if (flash_write_pointer - flash_write_base + *data_size > OSPI_GetFlashSize() - get_reserved_extflash_size())
+    /* Wrap if it does not fit, step over whatever a caller is reading right now,
+     * and say no if there is nowhere left — rather than erase a live file. */
+    uint32_t slot;
+    if (!find_write_slot(flash_write_pointer, erase_size_total, &slot))
     {
-        flash_write_pointer = flash_write_base;
-    }
-
-    // Data are larger than flash size ... Abort
-    if (flash_write_pointer - flash_write_base + *data_size > OSPI_GetFlashSize() - get_reserved_extflash_size())
-    {
+        printf("flash_alloc: no room for %s (%lu bytes) clear of the files in use\n",
+               file_path, (unsigned long)*data_size);
         fclose(file);
         return false;
     }
+    flash_write_pointer = slot;
 
     uint32_t old_flash_write_pointer = flash_write_pointer;
     // Translates the address to an offset into external flash.
     uint32_t address_in_flash = flash_write_pointer - (uint32_t)&__EXTFLASH_BASE__;
-    uint32_t block_size = OSPI_GetSmallestEraseSize();
 
     OSPI_DisableMemoryMappedMode();
 
     *flash_address_out = flash_write_pointer;
 
+    /* Erase cursor runs AHEAD of the program cursor, one command at a time.
+     * OSPI_Erase() picks the LARGEST erase the chip offers for the current
+     * alignment (64KB blocks on the fitted chips) — the old loop forced one
+     * 4KB-sector erase per 4KB of file, i.e. 2048 erase commands for an 8MB
+     * ROM, which was the bulk of the "Caching game" wait. Interleaving the
+     * erase with the SD reads keeps the progress bar moving.
+     * (This also fixes a latent overflow: the old loop fread() block_size
+     * bytes into the 16KB buffer, which overflows on chips whose smallest
+     * erase exceeds 16KB, e.g. the 256KB-sector Spansion config.) */
+    uint32_t erase_addr = address_in_flash;
+    uint32_t erase_left = erase_size_total;
+
     while (total_bytes_processed < *data_size) {
-        OSPI_EraseSync(address_in_flash, block_size);
+        size_t want = sizeof(buffer);
+        if (want > *data_size - total_bytes_processed)
+            want = *data_size - total_bytes_processed;
 
-        size_t bytes_read = fread(buffer, 1, block_size, file);
-        if (bytes_read > 0) {
-            if (byte_swap) {
-                for (size_t i = 0; i < bytes_read; i += 2) {
-                    uint8_t temp = buffer[i];
-                    buffer[i] = buffer[i + 1];
-                    buffer[i + 1] = temp;
-                }
-            }
+        while (erase_addr < address_in_flash + want && erase_left > 0) {
+            OSPI_Erase(&erase_addr, &erase_left, true);
+            wdog_refresh();
+        }
 
-            OSPI_Program(address_in_flash, buffer, bytes_read);
+        size_t bytes_read = fread(buffer, 1, want, file);
+        if (bytes_read == 0)
+            break;
 
-            address_in_flash += block_size;
-            flash_write_pointer += block_size;
-            total_bytes_processed += bytes_read;
-
-            if (progress_cb) {
-                progress = (uint8_t)((total_bytes_processed * 100) / (*data_size));
-                progress_cb(*data_size, total_bytes_processed, progress);
+        if (byte_swap) {
+            size_t swap_limit = bytes_read & ~(size_t)1; // last odd byte (if any) is left as-is
+            for (size_t i = 0; i < swap_limit; i += 2) {
+                uint8_t temp = buffer[i];
+                buffer[i] = buffer[i + 1];
+                buffer[i + 1] = temp;
             }
         }
 
-        if (bytes_read < block_size) {
+        /* Last look at the data while it is still in RAM. The chunk size is a
+         * multiple of 4 except at end-of-file, and the file starts on an erase
+         * block, so a 32-bit field never straddles two chunks. */
+        if (relocate_cb) {
+            relocate_cb(buffer, bytes_read, total_bytes_processed,
+                        (uint8_t *)*flash_address_out, *data_size);
+        }
+
+        OSPI_Program(address_in_flash, buffer, bytes_read);
+
+        address_in_flash += bytes_read;
+        flash_write_pointer += bytes_read;
+        total_bytes_processed += bytes_read;
+
+        if (progress_cb) {
+            progress = (uint8_t)((total_bytes_processed * 100) / (*data_size));
+            progress_cb(*data_size, total_bytes_processed, progress);
+        }
+
+        if (bytes_read < want) {
             break;
         }
     }
@@ -289,7 +418,14 @@ static bool circular_flash_write(const char *file_path,
     OSPI_EnableMemoryMappedMode();
     fclose(file);
 
-    invalidate_overwritten_files(old_flash_write_pointer, total_bytes_processed);
+    /* The next file must start on an erase-block boundary (the old loop
+     * advanced in whole blocks; we advance by real bytes now). */
+    flash_write_pointer = (flash_write_pointer + block_size - 1) & ~(block_size - 1);
+
+    /* Invalidate everything the ERASE touched, not just the programmed bytes —
+     * the aligned tail past the file end is wiped too, and a cached file whose
+     * data began there would otherwise stay marked valid over blank flash. */
+    invalidate_overwritten_files(old_flash_write_pointer, erase_size_total);
     update_flash_pointer(flash_write_pointer);
 
     return true;
@@ -308,6 +444,12 @@ void flash_alloc_reset()
 
 uint8_t *store_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap, file_progress_cb_t progress_cb)
 {
+    return store_file_in_flash_relocate(file_path, file_size_p, byte_swap, progress_cb, NULL);
+}
+
+uint8_t *store_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
+                                      file_progress_cb_t progress_cb, flash_relocate_cb_t relocate_cb)
+{
     initialize_metadata();
     initialize_flash_pointer();
     // TODO : append file modification time to filepath for crc32
@@ -317,17 +459,21 @@ uint8_t *store_file_in_flash(const char *file_path, uint32_t *file_size_p, bool 
 
     if (is_file_in_flash(file_crc32, &flash_address, file_size_p))
     {
+        /* A hit is as live as a write: the caller walks away holding this address. */
+        live_add(flash_address, *file_size_p);
         free(metadata);
         metadata = NULL;
         return (uint8_t *)flash_address;
     }
 
-    if (!circular_flash_write(file_path, file_size_p, &flash_address, byte_swap, progress_cb))
+    if (!circular_flash_write(file_path, file_size_p, &flash_address, byte_swap, progress_cb, relocate_cb))
     {
         free(metadata);
         metadata = NULL;
         return NULL;
     }
+
+    live_add(flash_address, *file_size_p);
 
     bool metadata_updated = false;
 

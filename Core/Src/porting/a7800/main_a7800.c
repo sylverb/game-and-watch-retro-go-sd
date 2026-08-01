@@ -297,7 +297,7 @@ int app_main_a7800(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     common_emu_state.frame_time_10us = (uint16_t)(100000 / prosystem_frequency + 0.5f);
 
     odroid_system_init(APPID_A7800, tia_size*prosystem_frequency); // 31200Hz for PAL, 31440Hz for NTSC
-    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL);
+    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL, NULL);
 
     // Init Sound
     audio_start_playing(tia_size);

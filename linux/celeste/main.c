@@ -667,7 +667,7 @@ int main(int argc, char *argv[])
     init_window(WIDTH, HEIGHT);
 
     odroid_system_init(APP_ID, SAMPLE_RATE);
-    odroid_system_emu_init(&LoadState, &SaveState, NULL, NULL, NULL, NULL);
+    odroid_system_emu_init(&LoadState, &SaveState, NULL, NULL, NULL, NULL, NULL);
 
 	int pico8emu(CELESTE_P8_CALLBACK_TYPE call, ...);
 	Celeste_P8_set_call_func(pico8emu);

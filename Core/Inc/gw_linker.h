@@ -30,6 +30,7 @@ extern uint32_t __itcram_hot_end__;
 
 // If this is not an array the compiler might put in a memory_chk with dest_size 1...
 extern void * __RAM_EMU_START__[];
+extern uint32_t __RAM_EMU_END__;
 extern void * _OVERLAY_NES_LOAD_START[];
 extern uint8_t _OVERLAY_NES_SIZE;
 extern void * _OVERLAY_NES_BSS_START[];
@@ -102,6 +103,17 @@ extern uint8_t _OVERLAY_SMW_SIZE;
 extern void * _OVERLAY_SMW_BSS_START[];
 extern void * _OVERLAY_SMW_BSS_END[];
 extern uint8_t _OVERLAY_SMW_BSS_SIZE;
+extern uint8_t _OVERLAY_GBA_SIZE;
+extern void * _OVERLAY_GBA_BSS_START[];
+extern uint8_t _OVERLAY_GBA_BSS_SIZE;
+/* End of main_gba.o inside .overlay_gba: where the XIP sentinel pass starts, so
+ * that it does not walk over the constant it is built on (see main_gba.c). */
+extern void * _GBA_MAIN_CODE_END[];
+/* AHB-resident gpSP BSS (bios_rom / cheats / sound_buffer), outside
+ * the overlay pool. They are .bss but they are NOT inside .overlay_gba_bss, so
+ * run_internal_emu()'s memset never reaches them — main_gba.c zeroes this range. */
+extern uint8_t __gba_ahb_start__[];
+extern uint8_t __gba_ahb_end__[];
 extern void * _OVERLAY_VIDEOPAC_LOAD_START[];
 extern uint8_t _OVERLAY_VIDEOPAC_SIZE;
 extern void * _OVERLAY_VIDEOPAC_BSS_START[];
@@ -133,6 +145,11 @@ extern uint8_t _OVERLAY_A2600_SIZE;
 extern void * _OVERLAY_A2600_BSS_START[];
 extern void * _OVERLAY_A2600_BSS_END[];
 extern uint8_t _OVERLAY_A2600_BSS_SIZE;
+extern void * _OVERLAY_LYNX_LOAD_START[];
+extern uint8_t _OVERLAY_LYNX_SIZE;
+extern void * _OVERLAY_LYNX_BSS_START[];
+extern void * _OVERLAY_LYNX_BSS_END[];
+extern uint8_t _OVERLAY_LYNX_BSS_SIZE;
 extern void * __itcram_emu_wswan_start__[];
 extern void * __itcram_emu_wswan_end__[];
 extern uint8_t _ITCM_WSWAN_SIZE;
@@ -142,7 +159,7 @@ extern uint8_t _OVERLAY_WSWAN_BSS_SIZE;
 
 extern void * _MSX_ROM_UNPACK_BUFFER[];
 extern uint8_t _MSX_ROM_UNPACK_BUFFER_SIZE;
-extern uint8_t *_PCE_ROM_UNPACK_BUFFER;
+extern uint8_t _PCE_ROM_UNPACK_BUFFER[];
 extern uint8_t _PCE_ROM_UNPACK_BUFFER_SIZE;
 
 extern void * __RAM_END__[];
@@ -157,3 +174,5 @@ extern void (* __init_array_tgb_start__[])(void);
 extern void (* __init_array_tgb_end__[])(void);
 extern void (* __init_array_a2600_start__[])(void);
 extern void (* __init_array_a2600_end__[])(void);
+extern void (* __init_array_lynx_start__[])(void);
+extern void (* __init_array_lynx_end__[])(void);

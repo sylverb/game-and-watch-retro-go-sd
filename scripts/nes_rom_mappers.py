@@ -98,7 +98,7 @@ def _mapper_stems_for_nsf_payload(data: bytes, path: Path) -> tuple[set[str] | N
     return nsf_expansion_mapper_stems(data[_NSF_SOUNDCHIP_OFF]), None
 
 
-def littlefs_nes_mapper_allowlist(
+def littlefs_nes_mapper_stems(
     repo_root: Path,
     project_roms: Path | None,
     sd_roms: Path | None,
@@ -107,9 +107,10 @@ def littlefs_nes_mapper_allowlist(
     analyze_rom: Callable | None = None,
 ) -> tuple[frozenset[str] | None, list[str]]:
     """
-    Return (allowed relpaths under cores/, posix) or None to allow every mapper file.
+    Return (needed board stems) or None to keep every mapper (ambiguous scan).
 
-    Always includes mappers_table.bin and ines_correct.bin when returning a frozenset.
+    Stems match the mapper_<stem>.bin blob names; they are packed into a pruned
+    mappers.pak. An empty frozenset means "no NES ROMs -> no mapper blobs".
     """
     warnings: list[str] = []
     nes_dirs: list[Path] = []
@@ -189,30 +190,27 @@ def littlefs_nes_mapper_allowlist(
     if ambiguous:
         return None, warnings
 
-    rels = {f"mappers/mapper_{s}.bin" for s in sorted(stems)}
-    rels.add("mappers/mappers_table.bin")
-    rels.add("mappers/ines_correct.bin")
-    return frozenset(rels), warnings
+    return frozenset(stems), warnings
 
 
 def main() -> int:
     import argparse
     import sys
 
-    p = argparse.ArgumentParser(description="List mapper numbers / stems for roms/nes trees.")
+    p = argparse.ArgumentParser(description="List needed mapper stems for roms/nes trees.")
     p.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[1])
     p.add_argument("--project-roms", type=Path, default=None)
     p.add_argument("--sd-roms", type=Path, default=None)
     args = p.parse_args()
     repo = args.repo.resolve()
-    allow, w = littlefs_nes_mapper_allowlist(repo, args.project_roms, args.sd_roms)
+    stems, w = littlefs_nes_mapper_stems(repo, args.project_roms, args.sd_roms)
     for line in w:
         print(line, file=sys.stderr)
-    if allow is None:
+    if stems is None:
         print("(ambiguous — pack all mappers)")
         return 2
-    for r in sorted(allow):
-        print(r)
+    for s in sorted(stems):
+        print(s)
     return 0
 
 

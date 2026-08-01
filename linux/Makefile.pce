@@ -1,14 +1,48 @@
+# PC Engine CD — Linux/SDL harness
+#
+#   make -f Makefile.pce              → interactive player (main_play.c)
+#   make -f Makefile.pce debug        → diagnostic harness (main.c, heavy trace)
+#   make -f Makefile.pce SAN=1        → build with AddressSanitizer
+#   make -f Makefile.pce PCE_ENABLE_ARCADE_CARD=0  → build without Arcade Card
+#
 TARGET = retro-go-pce
-
-DEBUG = 1
-#OPT = -Og -ggdb
-OPT = -O0 -ggdb3 -fsanitize=address
-
 BUILD_DIR = build
 
+PCE_ENABLE_ARCADE_CARD ?= 1
 
-C_SOURCES =  \
-pce/main.c \
+# Default: play mode. Override with: make -f Makefile.pce debug
+MODE ?= play
+
+ifeq ($(MODE),debug)
+  MAIN_SRC = pce/main.c
+  C_DEFS_EXTRA = -DPCE_HOST_DEBUG
+  OPT ?= -O0 -ggdb3
+else
+  MAIN_SRC = pce/main_play.c
+  OPT ?= -O2 -g
+endif
+
+SAN ?= 0
+ifeq ($(SAN),1)
+  OPT += -fsanitize=address
+  LDFLAGS_EXTRA = -lasan
+endif
+
+# clang does not support -Wa,-a,-ad,-alms=…
+CC_IS_CLANG := $(shell $(CC) --version 2>/dev/null | grep -qi clang && echo 1)
+ifeq ($(CC_IS_CLANG),1)
+  ASM_LST =
+else
+  ASM_LST = -Wa,-a,-ad,-alms=$(BUILD_DIR)/$(notdir $(<:.c=.lst))
+endif
+
+C_SOURCES = \
+$(MAIN_SRC) \
+pce/osd_stubs.c \
+pce/syscard_load.c \
+pce/pce_input_sdl.c \
+pce/pce_audio.c \
+../Core/Src/porting/pce/sound_pce.c \
 ../Core/Src/porting/lib/lzma/LzmaDec.c \
 ../Core/Src/porting/lib/lzma/lzma.c \
 odroid_input.c \
@@ -17,64 +51,75 @@ odroid_overlay.c \
 odroid_sdcard.c \
 odroid_system.c \
 odroid_display.c \
-odroid_audio.c \
+pce/odroid_audio_pce.c \
 gw_lcd.c \
-loaded_pce_rom.c \
 crc32.c \
 porting.c \
 ../retro-go-stm32/pce-go/components/pce-go/gfx.c \
 ../retro-go-stm32/pce-go/components/pce-go/h6280.c \
 ../retro-go-stm32/pce-go/components/pce-go/pce.c \
+../retro-go-stm32/pce-go/components/pce-go/psg.c \
+../Core/Src/porting/pce/pce_scsi.c \
+../Core/Src/porting/pce/pce_cd.c \
+../Core/Src/porting/pce/pce_adpcm.c
 
-
-PREFIX = 
-
+PREFIX =
 CC = $(PREFIX)gcc
-AS = $(PREFIX)gcc -x assembler-with-cpp
 CP = $(PREFIX)objcopy
 SZ = $(PREFIX)size
 
-HEX = $(CP) -O ihex
-BIN = $(CP) -O binary -S
+C_DEFS = -DIS_LITTLE_ENDIAN -DLINUX_EMU $(C_DEFS_EXTRA)
+ifeq ($(PCE_ENABLE_ARCADE_CARD),1)
+C_DEFS += -DPCE_ENABLE_ARCADE_CARD
+C_SOURCES += pce/arcade_card.c
+endif
 
-C_DEFS =  \
--DIS_LITTLE_ENDIAN
-
-C_INCLUDES =  \
+C_INCLUDES = \
 -I. \
 -I./pce \
 -I../Core/Src/porting/lib \
 -I../Core/Src/porting/lib/lzma \
 -I../retro-go-stm32/pce-go/components/pce-go \
+-I../Core/Inc/porting/pce \
+-I../Core/Inc \
+-I../Core/Inc/retro-go \
 -I../retro-go-stm32/components/odroid \
 -I../retro-go-stm32/components/lupng \
 -I../
 
-ASFLAGS = $(AS_DEFS) $(AS_INCLUDES) $(OPT) -Wall -fdata-sections -ffunction-sections
-CFLAGS  = $(C_DEFS) $(C_INCLUDES) `sdl2-config --cflags` $(OPT) -Wall -fdata-sections -ffunction-sections
+CFLAGS = $(C_DEFS) $(C_INCLUDES) `sdl2-config --cflags` $(OPT) -Wall -fdata-sections -ffunction-sections
 CFLAGS += -MMD -MP -MF"$(@:%.o=%.d)"
 
-#LIBS = -lm `sdl2-config --libs`
-LIBS = -lasan -lm `sdl2-config --libs`
-LDFLAGS = $(LIBS) -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections
+LIBS = $(LDFLAGS_EXTRA) -lm `sdl2-config --libs`
 
-all: $(BUILD_DIR)/$(TARGET).elf
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+LDFLAGS = $(LIBS)
+else
+LDFLAGS = $(LIBS) -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections
+endif
+
+.PHONY: all debug clean
+
+all: $(BUILD_DIR)/$(TARGET)
+
+debug:
+	$(MAKE) -f Makefile.pce MODE=debug all
 
 OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
 vpath %.c $(sort $(dir $(C_SOURCES)))
 
+$(BUILD_DIR)/%.o: %.c Makefile.pce | $(BUILD_DIR)
+	$(CC) -c $(CFLAGS) $(ASM_LST) $< -o $@
 
-$(BUILD_DIR)/%.o: %.c Makefile.pce | $(BUILD_DIR) 
-	$(CC) -c $(CFLAGS) -Wa,-a,-ad,-alms=$(BUILD_DIR)/$(notdir $(<:.c=.lst)) $< -o $@
-
-$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) Makefile.pce
+$(BUILD_DIR)/$(TARGET): $(OBJECTS) Makefile.pce
 	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
 	$(SZ) $@
 
 $(BUILD_DIR):
-	mkdir $@
+	mkdir -p $@
 
 clean:
-	-rm -fR $(BUILD_DIR)
+	rm -rf $(BUILD_DIR)
 
 -include $(wildcard $(BUILD_DIR)/*.d)

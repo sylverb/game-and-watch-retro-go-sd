@@ -1037,6 +1037,20 @@ void _blit()
     common_ingame_overlay();
 }
 
+/* gw_sleep() restores the *settings* OC level on wake, but this core forces the
+ * maximum OC during gameplay when the user left the setting at 0.  Without this
+ * the game keeps running at the (slower) settings clock after a sleep/wake
+ * cycle.  Re-apply the boost and reinit audio (SystemClock_Config also
+ * reprograms the audio PLL). */
+static void amstrad_sleep_wake_up()
+{
+    if (odroid_settings_cpu_oc_level_get() == 0) {
+        SystemClock_Config(2);
+        odroid_audio_init(odroid_audio_sample_rate_get());
+        audio_start_playing_full_length(audio_get_buffer_full_length());
+    }
+}
+
 void app_main_amstrad(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
     odroid_gamepad_state_t joystick;
@@ -1071,7 +1085,7 @@ void app_main_amstrad(uint8_t load_state, uint8_t start_paused, int8_t save_slot
     lcd_set_refresh_rate(AMSTRAD_FPS);
 
     odroid_system_init(APPID_AMSTRAD, AMSTRAD_SAMPLE_RATE);
-    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL);
+    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, &amstrad_sleep_wake_up, NULL, NULL);
 
     // Init Sound
     audio_start_playing(AUDIO_BUFFER_LENGTH_AM);

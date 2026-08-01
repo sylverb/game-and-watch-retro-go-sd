@@ -37,6 +37,8 @@ const lang_t lang_zh_tw LANG_DATA = {
 
     // Core\Src\porting\gb\main_gb.c =======================================
     .s_Palette = "調色盤",
+    .s_System = "系統",
+    .s_SGB_Border = "SGB 邊框",
     //=====================================================================
 
     // Core\Src\porting\md\main_gwenesis.c ================================
@@ -46,8 +48,6 @@ const lang_t lang_zh_tw LANG_DATA = {
     .s_md_Synchro_Vsync = "影像",
     .s_md_Dithering = "抖動顯示",
     .s_md_Debug_bar = "測試資訊",
-    .s_md_Option_ON = "\x6",
-    .s_md_Option_OFF = "\x5",
     .s_md_AudioFilter = "音訊強化",
     .s_md_VideoUpscaler = "影像強化",
     .s_md_Region = "地區",
@@ -142,6 +142,8 @@ const lang_t lang_zh_tw LANG_DATA = {
     //=====================================================================
 
     // Core\Src\porting\odroid_overlay.c ===================================
+    .s_Option_ON = "\x6",
+    .s_Option_OFF = "\x5",
     .s_Full = "\x7",
     .s_Fill = "\x8",
 
@@ -213,8 +215,6 @@ const lang_t lang_zh_tw LANG_DATA = {
 #if CHEAT_CODES == 1
     .s_Cheat_Codes = "金手指碼",
     .s_Cheat_Codes_Title = "金手指",
-    .s_Cheat_Codes_ON = "\x6",
-    .s_Cheat_Codes_OFF = "\x5",
 #endif
 
     //=====================================================================
@@ -287,6 +287,7 @@ const lang_t lang_zh_tw LANG_DATA = {
     .s_Title_Date_Format = "%02d-%02d 週%s %02d:%02d:%02d",
     .s_Time_Format = "%02d:%02d:%02d",
 
+    .s_favorite = "收藏",
     .fmt_Title_Date_Format = zh_tw_fmt_Title_Date_Format,
     .fmtDate = zh_tw_fmt_Date,
     .fmtTime = zh_tw_fmt_Time,

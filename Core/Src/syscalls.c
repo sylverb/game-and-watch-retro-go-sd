@@ -28,7 +28,7 @@ typedef struct {
     int is_open;
 } FatFSFile;
 
-#define MAX_OPEN_FILES 10
+#define MAX_OPEN_FILES 3
 FatFSFile file_table[MAX_OPEN_FILES];
 
 void init_file_table() {
@@ -381,7 +381,7 @@ int __wrap_fflush(int file) {
 extern uint32_t log_idx;
 extern char logbuf[1024 * 4];
 
-#define MAX_OPEN_FILES 10
+#define MAX_OPEN_FILES 3
 #define FS_FD_OFFSET 3
 
 typedef enum {
@@ -819,13 +819,10 @@ int _gettimeofday(struct timeval *tv, void *tzvp)
 {
     if (tv)
     {
-        // get epoch UNIX time from RTC
-        time_t unixTime = GW_GetUnixTime();
-        tv->tv_sec = unixTime;
-
-        // get millisecondes from rtc and convert them to microsecondes
+        /* Single RTC read + mktime (was GetUnixTime + GetCurrentMillis = 2x). */
         uint64_t millis = GW_GetCurrentMillis();
-        tv->tv_usec = (millis % 1000) * 1000;
+        tv->tv_sec = (time_t)(millis / 1000);
+        tv->tv_usec = (long)((millis % 1000) * 1000);
         return 0;
     }
 

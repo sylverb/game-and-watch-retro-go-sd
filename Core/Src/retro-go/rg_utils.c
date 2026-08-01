@@ -31,9 +31,9 @@ char *rg_strtoupper(char *str)
 
 const char *rg_dirname(const char *path)
 {
-    static char buffer[100];
+    static char buffer[RG_PATH_MAX];
     const char *basename = strrchr(path, '/');
-    ptrdiff_t length = basename - path;
+    ptrdiff_t length;
 
     if (!path || !basename)
         return ".";
@@ -41,9 +41,11 @@ const char *rg_dirname(const char *path)
     if (path[0] == '/' && path[1] == 0)
         return "/";
 
-//    RG_ASSERT(length < 100, "to do: use heap");
+    length = basename - path;
+    if (length >= (ptrdiff_t)sizeof(buffer))
+        length = (ptrdiff_t)sizeof(buffer) - 1;
 
-    strncpy(buffer, path, length);
+    memcpy(buffer, path, (size_t)length);
     buffer[length] = 0;
 
     return buffer;

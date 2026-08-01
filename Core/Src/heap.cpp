@@ -31,9 +31,15 @@ extern "C" void *heap_alloc_mem(size_t s) {
         ptr = itc_malloc(s);
     }
     if (ptr == (void *)0xffffffff) {
-        ptr = &badheap[heap_offset];
-        heap_offset += (s + 0b11) & ~0b11; // 32-bit
-        assert(heap_offset <= heapsize);
+        size_t aligned = (s + 0b11) & ~0b11; // 32-bit
+        if (heap_offset + aligned <= heapsize) {
+            ptr = &badheap[heap_offset];
+            heap_offset += aligned;
+        } else {
+            /* RAM_EMU bump heap full — spill into AHB (asserts if that OOMs too). */
+            DBG("-> ahb_only_malloc %d\n", (int)s);
+            ptr = ahb_only_malloc(s);
+        }
     }
     memset(ptr, 0, s);
 

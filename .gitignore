@@ -22,6 +22,7 @@ linux/loaded_o2em_rom.c
 linux/loaded_a2600_rom.c
 linux/loaded_pkmini_rom.c
 linux/loaded_gwenesis_rom.c
+linux/loaded_lynx_rom.c
 
 save_states
 
@@ -45,3 +46,16 @@ choices.yaml
 build-error.log
 .bash_history
 *.sfc
+
+# gwemu emulator binary (downloaded, lives at repo root so make clean does not wipe it)
+gwemu_bin
+gwemu_bin.version
+.gwemu_tmp/
+# On macOS gwemu ships as an .app bundle whose executable loads its dylibs from
+# a sibling Frameworks/ dir, so the bundle is kept and gwemu_bin symlinks into it.
+gwemu.app/
+
+# Session logs from scripts/run_gwemu.sh. The default (build/gwemu.log) is already
+# covered by build/, but --log-file can point anywhere. No .log files are tracked.
+*.log
+.gwemu_release_cache

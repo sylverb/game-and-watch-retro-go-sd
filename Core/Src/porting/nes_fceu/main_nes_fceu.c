@@ -143,6 +143,21 @@ void setCustomPalette(uint16_t palette_idx) {
       FCEUI_SetPaletteArray( base_palette, 64 );
 }
 
+/* Unified palette selection used by both new game and savestate load so the
+ * colors match in every case.
+ *   idx == 0 (or no palette file)  -> fceumm built-in default palette
+ *                                     (this is what a fresh "new game" shows).
+ *   idx 1..palettes_count          -> custom palette entry [idx-1] from
+ *                                     /bios/nes/palettes.bin.
+ */
+static void apply_palette(uint8_t idx) {
+    if (idx == 0 || palettes_count == 0) {
+        FCEUI_SetPaletteArray(NULL, 0); /* clears the user palette -> built-in default */
+    } else {
+        setCustomPalette(idx - 1);
+    }
+}
+
 void FCEUD_PrintError(char *c)
 {
     printf("%s", c);
@@ -167,6 +182,9 @@ static bool SaveState(const char *savePathName)
 static bool LoadState(const char *savePathName)
 {
     FCEUSS_Load_Fs(savePathName);
+    /* palette_index was just restored from the state; rebuild the RGB565 LUT so
+     * the palette matches (otherwise blacks/colors differ from a fresh start). */
+    apply_palette(palette_index);
     return true;
 }
 
@@ -616,16 +634,21 @@ static size_t nes_getromdata(unsigned char **data)
 static bool palette_update_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     if (palettes_count > 0) {
-        int max = palettes_count - 1;
+        /* index 0 is the built-in default, 1..palettes_count are the .bin entries */
+        int max = palettes_count;
 
         if (event == ODROID_DIALOG_PREV) palette_index = palette_index > 0 ? palette_index - 1 : max;
         if (event == ODROID_DIALOG_NEXT) palette_index = palette_index < max ? palette_index + 1 : 0;
 
         if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
-            setCustomPalette(palette_index);
+            apply_palette(palette_index);
         }
-        get_palette_name(palette_index, palette.name);
-        sprintf(option->value, "%10s", palette.name);
+        if (palette_index == 0) {
+            sprintf(option->value, "%10s", curr_lang->s_Default);
+        } else {
+            get_palette_name(palette_index - 1, palette.name);
+            sprintf(option->value, "%10s", palette.name);
+        }
     } else {
         option->value = '\0';
     }
@@ -845,6 +868,20 @@ void apply_cheat_code(const char *cheatcode) {
 }
 #endif
 
+/* gw_sleep() restores the *settings* OC level on wake, but this core forces the
+ * maximum OC during gameplay when the user left the setting at 0.  Without this
+ * the game keeps running at the (slower) settings clock after a sleep/wake
+ * cycle.  Re-apply the boost and reinit audio (SystemClock_Config also
+ * reprograms the audio PLL). */
+static void nes_fceu_sleep_wake_up()
+{
+    if (odroid_settings_cpu_oc_level_get() == 0) {
+        SystemClock_Config(2);
+        odroid_audio_init(odroid_audio_sample_rate_get());
+        audio_start_playing_full_length(audio_get_buffer_full_length());
+    }
+}
+
 int app_main_nes_fceu(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
     uint8_t *rom_data;
@@ -899,7 +936,7 @@ int app_main_nes_fceu(uint8_t load_state, uint8_t start_paused, int8_t save_slot
     FCEUI_SetSoundVolume(150);
 
     odroid_system_init(APPID_NES, sndsamplerate);
-    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, &nes_fceu_sram_save_cb);
+    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, &nes_fceu_sleep_wake_up, &nes_fceu_sram_save_cb, NULL);
 
     if (FSettings.PAL) {
         lcd_set_refresh_rate(50);
@@ -920,10 +957,10 @@ int app_main_nes_fceu(uint8_t load_state, uint8_t start_paused, int8_t save_slot
     nes_fceu_sram_load();
 
     if (load_state) {
+        /* LoadState() reapplies the palette from the restored palette_index */
         odroid_system_emu_load_state(save_slot);
 
         // Update local settings
-        setCustomPalette(palette_index);
         update_overclocking(overclocking_type);
         FCEUI_DisableSpriteLimitation(disable_sprite_limit);
 
@@ -934,6 +971,7 @@ int app_main_nes_fceu(uint8_t load_state, uint8_t start_paused, int8_t save_slot
             allow_swap_disk = true;
         }
     } else {
+        apply_palette(palette_index);
         lcd_clear_buffers();
     }
 

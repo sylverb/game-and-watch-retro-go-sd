@@ -401,8 +401,8 @@ static bool gwenesis_submenu_setAudioFilter(odroid_dialog_choice_t *option, odro
     gwenesis_lpfilter = gwenesis_lpfilter == 0 ? 1 : 0;
     }
 
-    if (gwenesis_lpfilter == 0) strcpy(option->value, curr_lang->s_md_Option_OFF);
-    if (gwenesis_lpfilter == 1) strcpy(option->value, curr_lang->s_md_Option_ON);
+    if (gwenesis_lpfilter == 0) strcpy(option->value, curr_lang->s_Option_OFF);
+    if (gwenesis_lpfilter == 1) strcpy(option->value, curr_lang->s_Option_ON);
 
     return event == ODROID_DIALOG_ENTER;
 }
@@ -414,8 +414,8 @@ static bool gwenesis_submenu_debug_bar(odroid_dialog_choice_t *option, odroid_di
   if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
       gwenesis_show_debug_bar = gwenesis_show_debug_bar == 0 ? 1 : 0;
     }
-    if (gwenesis_show_debug_bar == 0) strcpy(option->value, curr_lang->s_md_Option_OFF);
-    if (gwenesis_show_debug_bar == 1) strcpy(option->value, curr_lang->s_md_Option_ON);
+    if (gwenesis_show_debug_bar == 0) strcpy(option->value, curr_lang->s_Option_OFF);
+    if (gwenesis_show_debug_bar == 1) strcpy(option->value, curr_lang->s_Option_ON);
 
     return event == ODROID_DIALOG_ENTER;
 }
@@ -426,8 +426,8 @@ static bool gwenesis_submenu_setVideoUpscaler(odroid_dialog_choice_t *option, od
     gwenesis_H32upscaler = gwenesis_H32upscaler == 0 ? 1 : 0;
   }
 
-    if (gwenesis_H32upscaler == 0) strcpy(option->value, curr_lang->s_md_Option_OFF);
-    if (gwenesis_H32upscaler == 1) strcpy(option->value, curr_lang->s_md_Option_ON);
+    if (gwenesis_H32upscaler == 0) strcpy(option->value, curr_lang->s_Option_OFF);
+    if (gwenesis_H32upscaler == 1) strcpy(option->value, curr_lang->s_Option_ON);
 
     return event == ODROID_DIALOG_ENTER;
 }
@@ -515,20 +515,20 @@ void gwenesis_load_local_data(FILE *file, int ss_version) {
     fread((unsigned char *)&gwenesis_lpfilter, 4, 1, file);
     switch (gwenesis_lpfilter) {
       case 1:
-        strcpy(AudioFilter_str, curr_lang->s_md_Option_ON);
+        strcpy(AudioFilter_str, curr_lang->s_Option_ON);
         break;
       default:
-        strcpy(AudioFilter_str, curr_lang->s_md_Option_OFF);
+        strcpy(AudioFilter_str, curr_lang->s_Option_OFF);
         break;
     }
   } else {
     fread((unsigned char *)&gwenesis_lpfilter, 4, 1, file);
     switch (gwenesis_lpfilter) {
       case 1:
-        strcpy(AudioFilter_str, curr_lang->s_md_Option_ON);
+        strcpy(AudioFilter_str, curr_lang->s_Option_ON);
         break;
       default:
-        strcpy(AudioFilter_str, curr_lang->s_md_Option_OFF);
+        strcpy(AudioFilter_str, curr_lang->s_Option_OFF);
         break;
     }
     if (ss_version >= 2) {
@@ -605,6 +605,20 @@ static void gwenesis_system_SramSave()
     gwenesis_sram_save();
 }
 
+/* gw_sleep() restores the *settings* OC level on wake, but Genesis forces the
+ * maximum OC during gameplay when the user left the setting at 0.  Without this
+ * the game keeps running at the (slower) settings clock after a sleep/wake
+ * cycle.  Re-apply the boost and reinit audio (SystemClock_Config also
+ * reprograms the audio PLL). */
+static void gwenesis_sleep_wake_up()
+{
+    if (odroid_settings_cpu_oc_level_get() == 0) {
+        SystemClock_Config(2);
+        odroid_audio_init(odroid_audio_sample_rate_get());
+        audio_start_playing_full_length(audio_get_buffer_full_length());
+    }
+}
+
 /* Main */
 int app_main_gwenesis(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
@@ -613,18 +627,19 @@ int app_main_gwenesis(uint8_t load_state, uint8_t start_paused, int8_t save_slot
 
     ram_start = (uint32_t)&_OVERLAY_MD_BSS_END;
 
-    // Set maximum clock speed for better performance if CPU is not overclocked
+    // Set medium clock speed for better performance if CPU is not overclocked
+    // Maximum speed could cause random crash so it should not be used
     if (odroid_settings_cpu_oc_level_get() == 0) {
       SystemClock_Config(2);
   }
 
     odroid_system_init(APPID_MD, GWENESIS_AUDIO_FREQ_NTSC);
     odroid_system_emu_init(&gwenesis_system_LoadState,
-                           &gwenesis_system_SaveState, 
+                           &gwenesis_system_SaveState,
                            &gwenesis_system_Screenshot,
                            NULL,
-                           NULL,
-                           &gwenesis_system_SramSave);
+                           &gwenesis_sleep_wake_up,
+                           &gwenesis_system_SramSave, NULL);
    // rg_app_desc_t *app = odroid_system_get_app();
 
     if (start_paused) {

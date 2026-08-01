@@ -11,6 +11,7 @@
 #include "ff.h"
 #else
 #include "rg_frogfs.h"
+#include "gw_littlefs.h"
 #endif
 #include "rg_storage.h"
 #include <unistd.h>
@@ -98,6 +99,23 @@ static int delete_cb(const rg_scandir_t *file, void *arg)
 {
     rg_storage_delete(file->path);
     return RG_SCANDIR_CONTINUE;
+}
+
+/* newlib's rename() is _link()+_unlink(), and _link() is an always-fail stub in
+ * this toolchain, so it can never work here — go straight at the backend. */
+bool rg_storage_rename(const char *old_path, const char *new_path)
+{
+    CHECK_PATH(old_path);
+    CHECK_PATH(new_path);
+
+    /* Neither backend replaces an existing destination, so clear it first. */
+    remove(new_path);
+
+#if SD_CARD == 1
+    return f_rename(old_path, new_path) == FR_OK;
+#else
+    return fs_rename(old_path, new_path) == 0;
+#endif
 }
 
 bool rg_storage_delete(const char *path)
@@ -304,7 +322,12 @@ bool rg_storage_scandir(const char *path, rg_scandir_cb_t *callback, void *arg, 
 #endif
 }
 
-size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_dest, uint32_t offset, file_progress_cb_t file_progress_cb) {
+/* max_len == 0 means unbounded (preserves the historical, unchecked
+ * behavior relied upon by every existing caller of the two public
+ * wrappers below). */
+static size_t rg_storage_copy_file_to_ram_impl(char *file_path, uint8_t *ram_dest,
+                                                uint32_t offset, uint32_t max_len,
+                                                file_progress_cb_t file_progress_cb) {
     FILE *file;
     size_t bytes_read;
     uint32_t total_written;
@@ -312,7 +335,7 @@ size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_des
     file = fopen(file_path,"rb");
     if (file == NULL) {
         return 0;
-    } 
+    }
 
     if (fseek(file, 0, SEEK_END) != 0) {
         fclose(file);
@@ -324,6 +347,11 @@ size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_des
         return 0;
     }
     uint32_t total_size = (uint32_t)file_size_l - offset;
+    if (max_len != 0 && total_size > max_len) {
+        // Refuse rather than overrun the caller's destination buffer/region.
+        fclose(file);
+        return 0;
+    }
     if (fseek(file, (long)offset, SEEK_SET) != 0) {
         fclose(file);
         return 0;
@@ -347,9 +375,63 @@ size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_des
     return total_written;
 }
 
+size_t rg_storage_copy_file_to_ram_with_offset(char *file_path, uint8_t *ram_dest, uint32_t offset, file_progress_cb_t file_progress_cb) {
+    return rg_storage_copy_file_to_ram_impl(file_path, ram_dest, offset, 0, file_progress_cb);
+}
+
+size_t rg_storage_copy_file_to_ram_bounded(char *file_path, uint8_t *ram_dest, uint32_t offset, uint32_t max_len, file_progress_cb_t file_progress_cb) {
+    return rg_storage_copy_file_to_ram_impl(file_path, ram_dest, offset, max_len, file_progress_cb);
+}
+
 /* copy file content into ram */
 size_t rg_storage_copy_file_to_ram(char *file_path, uint8_t *ram_dest, file_progress_cb_t file_progress_cb) {
     return rg_storage_copy_file_to_ram_with_offset(file_path, ram_dest, 0, file_progress_cb);
+}
+
+/* copy at most `length` bytes starting at `offset` from a file into ram */
+size_t rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest, uint32_t offset, uint32_t length, file_progress_cb_t file_progress_cb) {
+    FILE *file;
+    size_t bytes_read;
+    uint32_t total_written;
+
+    if (length == 0) {
+        return 0;
+    }
+
+    file = fopen(file_path, "rb");
+    if (file == NULL) {
+        return 0;
+    }
+
+    if (fseek(file, (long)offset, SEEK_SET) != 0) {
+        fclose(file);
+        return 0;
+    }
+
+    total_written = 0;
+    if (file_progress_cb) {
+        file_progress_cb(length, 0, 0);
+    }
+
+    while (total_written < length) {
+        uint32_t chunk = length - total_written;
+        if (chunk > 32 * 1024) {
+            chunk = 32 * 1024;
+        }
+        bytes_read = fread(ram_dest + total_written, 1, chunk, file);
+        if (bytes_read == 0) {
+            break;
+        }
+        wdog_refresh();
+        total_written += bytes_read;
+        if (file_progress_cb) {
+            file_progress_cb(length, total_written, (uint8_t)((total_written * 100) / length));
+        }
+    }
+
+    fclose(file);
+
+    return total_written;
 }
 
 bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next_path) {

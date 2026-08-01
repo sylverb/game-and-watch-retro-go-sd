@@ -33,6 +33,7 @@ enum {
     RG_LOGO_HEADER_HOMEBREW,
     RG_LOGO_HEADER_TAMA,
     RG_LOGO_HEADER_PKMINI,
+    RG_LOGO_HEADER_LYNX,
     // Pads
     RG_LOGO_PAD_SG1000,
     RG_LOGO_PAD_COL,
@@ -51,6 +52,7 @@ enum {
     RG_LOGO_PAD_SNES,
     RG_LOGO_PAD_TAMA,
     RG_LOGO_PAD_PKMINI,
+    RG_LOGO_PAD_LYNX,
     // Logos
     RG_LOGO_COLECO,
     RG_LOGO_NINTENDO,
@@ -63,6 +65,13 @@ enum {
     RG_LOGO_TAMA,
     // PICO-8 (appended last to not shift any existing enum values)
     RG_LOGO_HEADER_PICO8,
+    // PC Engine CD name header (appended last in rg_logos.c / logo.bin)
+    RG_LOGO_HEADER_PCECD,
+    // Favorites virtual tab name header (appended last — no existing index shift)
+    RG_LOGO_HEADER_FAVORITES,
+    // Game Boy Advance (appended last — no existing index shift)
+    RG_LOGO_HEADER_GBA,
+    RG_LOGO_PAD_GBA,
 };
 
 void odroid_overlay_draw_logo(uint16_t x_pos, uint16_t y_pos, int16_t logo_idx, uint16_t color);
@@ -94,7 +103,11 @@ extern const retro_logo_image header_smw;
 extern const retro_logo_image header_homebrew;
 extern const retro_logo_image header_tama;
 extern const retro_logo_image header_pkmini;
+extern const retro_logo_image header_lynx;
 extern const retro_logo_image header_pico8;
+extern const retro_logo_image header_pcecd;
+extern const retro_logo_image header_favorites;
+extern const retro_logo_image header_gba;
 
 extern const retro_logo_image pad_sg1000;
 extern const retro_logo_image pad_col;
@@ -113,6 +126,8 @@ extern const retro_logo_image pad_amstrad;
 extern const retro_logo_image pad_snes;
 extern const retro_logo_image pad_tama;
 extern const retro_logo_image pad_pkmini;
+extern const retro_logo_image pad_lynx;
+extern const retro_logo_image pad_gba;
 
 extern const retro_logo_image logo_coleco;
 extern const retro_logo_image logo_nintendo;

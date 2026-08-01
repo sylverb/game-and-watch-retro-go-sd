@@ -515,7 +515,7 @@ static void main_tama(uint8_t start_paused) {
 
 _Noreturn void app_main_tama(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     odroid_system_init(APPID_TAMA, TAMA_SAMPLE_RATE);
-    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL);
+    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL, NULL);
 
     if (load_state) {
         current_save_slot = save_slot;

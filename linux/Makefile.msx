@@ -36,6 +36,8 @@ $(CORE_MSX)/Src/Memory/ramMapperIo.c \
 $(CORE_MSX)/Src/Memory/RomLoader.c \
 $(CORE_MSX)/Src/Memory/romMapperASCII8.c \
 $(CORE_MSX)/Src/Memory/romMapperASCII16.c \
+$(CORE_MSX)/Src/Memory/romMapperASCII16X.c \
+$(CORE_MSX)/Src/Memory/romMapperNEO16.c \
 $(CORE_MSX)/Src/Memory/romMapperASCII16nf.c \
 $(CORE_MSX)/Src/Memory/romMapperBasic.c \
 $(CORE_MSX)/Src/Memory/romMapperCasette.c \

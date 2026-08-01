@@ -1,0 +1,17 @@
+---
+description: PCE / PCE CD emulator — architecture and debugging
+globs: Core/Src/porting/pce/**,linux/pce/**,retro-go-stm32/pce-go/**
+alwaysApply: false
+---
+
+# PCE / PCE CD
+
+When editing or debugging PCE code, read and follow **Core/Src/porting/pce/CLAUDE.md** in full.
+
+Quick pointers:
+
+- **Linux harness:** `cd linux && make -f Makefile.pce` (play) or `make -f Makefile.pce debug` (trace/self-tests).
+- **Savestate padded layout:** SVARs at byte 13, then pad to 76 KB, then CD RAM — never `fseek(76KB)` before SVARs (Valis II freeze).
+- **ADPCM:** `pce_adpcm_sync()` on status polls (`$1800`, `$1803`, `$180A`, `$180B`, `$180C`) + per frame; not every `$180x` read.
+- **Arcade Card:** `PCE_ENABLE_ARCADE_CARD`; phys reads need `(MMR[page]<<13)|(addr&0x1FFF)`.
+- **Low CD volume:** `grep FADER pcecd_diag.txt` — stuck fader after `$180F` fade without `CANCEL`.

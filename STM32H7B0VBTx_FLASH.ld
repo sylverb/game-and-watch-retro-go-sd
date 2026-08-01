@@ -55,9 +55,9 @@ ENTRY(Reset_Handler)
 /* Highest address of the user mode stack */
 _estack = _stack_top;    /* end of RAM */
 
-/* Generate a link error if heap and stack don't fit into RAM */
-_Heap_Size = 85 * 1024;     /* p8ram section removed — PICO-8 allocates from heap at runtime */
-
+/* Stack is fixed at the top of DTCM; the stdlib heap (_heap_start.._heap_end)
+ * automatically fills whatever remains after .data/.bss (no hardcoded size).
+ * PICO-8 and other overlays allocate from this heap at runtime. */
 _Stack_Redzone_Size = 256;  /* size of stack overflow protection */
 _Min_Stack_Size = 20 * 1024; /* required amount of stack */
 
@@ -333,12 +333,33 @@ INCLUDE build/fceumm_mappers.ld
    .overlay_pce __RAM_EMU_START__ : {
       . = ALIGN(4);
     __ram_emu_pce_start__ = .;
-      build/pce/*.o (.data .data* .text .text* .rodata .rodata*)
+      /* Data/rodata for all PCE objects; main_pce .text stays here — it calls
+       * launcher APIs (settings, overlay, audio) and ITCM→flash veneers fail on
+       * arm-none-eabi 15.x ("Unknown destination type ARM/Thumb"). */
+      build/pce/*.o (.data .data* .rodata .rodata*)
+      build/pce/main_pce.o (.text .text*)
       . = ALIGN(4);
       _OVERLAY_PCE_LOAD_END = .;
   } AT > CORES
   _OVERLAY_PCE_LOAD_START = LOADADDR(.overlay_pce);
   _OVERLAY_PCE_SIZE = SIZEOF(.overlay_pce);
+
+  /* PCE hot code → ITCM (zero-wait-state, no I-cache miss). The LMA is appended
+     right after .overlay_pce in CORES so `objcopy --only-section` of both
+     sections yields one contiguous pce.bin. At load time the ITC image lands in
+     RAM_EMU at _OVERLAY_PCE_LOAD_END (overlapping the BSS VMA!) — the launcher
+     (run_internal_emu) memcpy's it to ITCM BEFORE zeroing BSS.
+     Base offset 0x4: keeps address 0 free so no function == NULL. */
+  .overlay_pce_itc (ORIGIN(ITCMRAM) + 0x4) : {
+    . = ALIGN(4);
+    __ram_itc_pce_start__ = .;
+    EXCLUDE_FILE(*/main_pce.o) build/pce/*.o (.text .text*)
+    . = ALIGN(4);
+    __ram_itc_pce_end__ = .;
+    ASSERT(ABSOLUTE(__ram_itc_pce_end__) <= ORIGIN(ITCMRAM) + LENGTH(ITCMRAM), "Error: PCE ITC overflow");
+  } AT > CORES
+  _OVERLAY_PCE_ITC_SIZE = SIZEOF(.overlay_pce_itc);
+  _OVERLAY_PCE_ITC_LMA_OFFSET = LOADADDR(.overlay_pce_itc) - LOADADDR(.overlay_pce);
 
   .overlay_pce_bss _OVERLAY_PCE_LOAD_END : {
     . = ALIGN(4);
@@ -490,6 +511,31 @@ INCLUDE build/fceumm_mappers.ld
     ASSERT(ABSOLUTE(_OVERLAY_A7800_BSS_END) < __RAM_EMU_END__, "Error: A7800 BSS overflow");
   }
   _OVERLAY_A7800_BSS_SIZE = SIZEOF(.overlay_a7800_bss);
+
+  .overlay_lynx __RAM_EMU_START__ : {
+    . = ALIGN(4);
+    __ram_emu_lynx_start__ = .;
+    __init_array_lynx_start__ = .;
+    KEEP(build/lynx/*.o(.init_array*))
+    __init_array_lynx_end__ = .;
+    build/lynx/*.o (.data .data* .text .text* .rodata .rodata* .ARM.extab.text.* .ARM.exidx.text.*)
+    . = ALIGN(4);
+    _OVERLAY_LYNX_LOAD_END = .;
+  } AT > CORES
+  _OVERLAY_LYNX_LOAD_START = LOADADDR(.overlay_lynx);
+  _OVERLAY_LYNX_SIZE = SIZEOF(.overlay_lynx);
+
+  .overlay_lynx_bss _OVERLAY_LYNX_LOAD_END : {
+    . = ALIGN(4);
+    _OVERLAY_LYNX_BSS_START = .;
+    build/lynx/*.o (.bss .bss*)
+    . = ALIGN(4);
+    build/lynx/*.o (COMMON)
+    __ram_emu_lynx_end__ = .;
+    _OVERLAY_LYNX_BSS_END = .;
+    ASSERT(ABSOLUTE(_OVERLAY_LYNX_BSS_END) < __RAM_EMU_END__, "Error: LYNX BSS overflow");
+  }
+  _OVERLAY_LYNX_BSS_SIZE = SIZEOF(.overlay_lynx_bss);
 
   .overlay_amstrad __RAM_EMU_START__ : {
     . = ALIGN(4);
@@ -842,26 +888,32 @@ INCLUDE build/fceumm_mappers.ld
     __bss_end__ = _ebss;
   } >DTCMRAM
 
-  /* PICO-8 RAM removed — engine allocates 64KB from DTCM heap via dtcm_malloc */
-
-  ._user_heap :
+  /* PICO-8 RAM removed — engine allocates 64KB from DTCM heap via dtcm_malloc.
+   *
+   * Heap fills all DTCM left after .data/.bss up to the fixed stack at the
+   * top (redzone + _Min_Stack_Size + optional remote-input reserve). */
+  ._user_heap (NOLOAD) :
   {
     . = ALIGN(16);
-    _heap_start = . ;
-    . = . + _Heap_Size;
-    . = ALIGN(16);
-    _heap_end = . ;
+    _heap_start = .;
+    /* Alias for scripts/size.sh — "padding" is now the whole flexible heap. */
+    __dtc_padding_start__ = .;
+
+    /* Align down so . = _heap_limit never steps into the stack. */
+    _heap_limit = (ORIGIN(DTCMRAM) + LENGTH(DTCMRAM)
+                - __REMOTE_INPUT_RESERVE__
+                - _Min_Stack_Size
+                - _Stack_Redzone_Size) & ~15;
+    ASSERT(_heap_start <= _heap_limit,
+           "DTCM overflow: .data/.bss leave no room for stack");
+
+    . = _heap_limit;
+    _heap_end = .;
+    __dtc_padding_end__ = .;
   } >DTCMRAM
 
-  /* User_heap_stack section, used to check that there is enough RAM left */
-  ._user_stack :
+  ._user_stack (NOLOAD) :
   {
-    /* Pad the unused area between the last symbol and the start of the redzone.
-       We reserve space at the top of DTCMRAM for boot magic and remote input if enabled. */
-    __dtc_padding_start__ = .;
-    . = . + __DTCMRAM_LENGTH__ - __REMOTE_INPUT_RESERVE__ - (_Min_Stack_Size + _Stack_Redzone_Size) - (__dtc_padding_start__ - __dtcram_start__);
-    __dtc_padding_end__ = .;
-
     _stack_redzone = .;
     . = . + _Stack_Redzone_Size;
     _stack_bottom = .;

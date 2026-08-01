@@ -112,6 +112,18 @@ void lcd_set_clut(const uint32_t *clut, uint16_t count);
 #define LCD_SCREENSHOT_CLUT_BYTES    (LCD_SCREENSHOT_CLUT_ENTRIES * 2)
 void lcd_get_clut_rgb565(uint16_t *out);
 
+/* Expand `count` LUT8 CLUT indices from `src` into RGB565 at `dst`.
+ *
+ * If `clut` is NULL, look up the live hardware CLUT cache (cart palette,
+ * darkened twins, and overlay theme colors) — used by user BMP screenshots.
+ *
+ * If `clut` is non-NULL, it must point to LCD_SCREENSHOT_CLUT_ENTRIES RGB565
+ * values as stored in savestate screenshot files; darkened twins are
+ * reconstructed via LCD_DARKEN_PERCENT, and indices outside [0..64) become 0.
+ * Used by the savestate-preview loader when converting a LUT8 .raw to RGB565. */
+void lcd_convert_lut8_to_rgb565(const uint8_t *src, uint16_t *dst, size_t count,
+                                const uint16_t *clut);
+
 /* Reserved CLUT range for Retro-Go menu/overlay colors. The cart palette
  * uses [0..32) + darkened twins at [32..64); we reserve [64..64+MAX) for
  * the active theme's colors. No darkened twins are stored for the menu —

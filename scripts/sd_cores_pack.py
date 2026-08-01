@@ -30,6 +30,7 @@ _SYSTEM_CORE_RELFILES: dict[str, frozenset[str]] = {
     "msx": frozenset({"msx.bin"}),
     "wsv": frozenset({"wsv.bin"}),
     "a2600": frozenset({"a2600.bin", "a2600_defprops.bin"}),
+    "lynx": frozenset({"lynx.bin"}),
     "a7800": frozenset({"a7800.bin"}),
     "amstrad": frozenset({"amstrad.bin"}),
     "tama": frozenset({"tama.bin"}),
@@ -76,10 +77,12 @@ def core_relative_path_allowed(
 ) -> bool:
     """Whether rel_posix (relative to cores/, posix) should be copied to the image.
 
-    When ``nes`` is active and ``nes_mapper_allowlist`` is set, only those
-    ``mappers/*.bin`` paths (plus table/ines) are included; ``None`` keeps the
-    legacy behaviour (every file under mappers/).
+    NES mappers now ship as a single ``mappers/mappers.pak`` (+ ines_correct.bin);
+    ROM-based pruning happens when that pack is (re)built, not here. The
+    ``nes_mapper_allowlist`` argument is accepted for backward compatibility and
+    ignored.
     """
+    del nes_mapper_allowlist  # single-file pack: pruning handled at pack build time
     if rel_posix in LITTLEFS_EXCLUDE_CORE_RELPATHS:
         return False
     if rel_posix in ALWAYS_PACK_REL:
@@ -92,9 +95,7 @@ def core_relative_path_allowed(
         if rel_posix == "nes_fceu.bin":
             return True
         if rel_posix.startswith("mappers/"):
-            if nes_mapper_allowlist is None:
-                return True
-            return rel_posix in nes_mapper_allowlist
+            return rel_posix in ("mappers/mappers.pak", "mappers/ines_correct.bin")
 
     for dirname, relfiles in _SYSTEM_CORE_RELFILES.items():
         if dirname in active_systems:

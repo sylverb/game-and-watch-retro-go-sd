@@ -566,7 +566,7 @@ int main(int argc, char *argv[])
     init_window(CPC_SCREEN_WIDTH, CPC_SCREEN_HEIGHT);
 
     odroid_system_init(APPID_AMSTRAD, AMSTRAD_SAMPLE_RATE);
-    odroid_system_emu_init(&amstrad_LoadState, &amstrad_SaveState, NULL, NULL, NULL, NULL);
+    odroid_system_emu_init(&amstrad_LoadState, &amstrad_SaveState, NULL, NULL, NULL, NULL, NULL);
 
     /* Init controls */
     memset(&previous_joystick_state,0, sizeof(odroid_gamepad_state_t));

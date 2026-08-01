@@ -1,0 +1,249 @@
+# Web-flasher artifact producer (POC for gnw-web-builder).
+#
+# Builds the FrogFS (SD_CARD=0) firmware blob (with the layout superblock) + the
+# default sd_content, packs them into web-artifacts.zip, and publishes it as a
+# PRERELEASE asset (neutral name; the gnw-web-builder app consumes it via the
+# Releases API + the asset's browser_download_url, CORS-friendly).
+#
+# Scope: lives only on web-builder-flash; do NOT merge to main. Triggered by pushes
+# to web-builder-flash that touch the firmware/workflow (a full retro-go build is
+# heavy), plus manual dispatch. (workflow_dispatch won't appear in the Actions UI
+# while this is off the default branch — the push trigger is how you test it.)
+#
+# The four blobs (SD_CARD={0,1} x INTFLASH_BANK={1,2}) used to build sequentially in
+# one job separated by `make clean`. They share nothing but the checkout, so they now
+# run as a matrix and the pack/publish step joins them. Wall clock is the slowest
+# single build instead of the sum of four.
+name: web-artifacts (POC)
+
+on:
+  workflow_dispatch:
+    inputs:
+      builder_image:
+        description: "retro-go-sd builder image"
+        default: sylverb/retro-go-sd-builder:v1.5
+        type: string
+  push:
+    branches: [web-builder-flash]
+    # Broad on purpose: an enumerated list of individual firmware files (the previous
+    # version of this filter) silently misses any file it doesn't name — that's exactly
+    # how a real regression (Core/Src/gw_flash_alloc.c, not in the old list) shipped
+    # without a rebuild ever firing on the push that fixed it. Any file under Core/,
+    # Drivers/, or external/ (submodule cores/homebrew) can affect the built blobs, so
+    # they're covered wholesale; add build-config/linker/script files individually.
+    paths:
+      - '.github/workflows/flasher-artifacts.yml'
+      - 'scripts/**'
+      - 'Core/**'
+      - 'Drivers/**'
+      - 'external/**'
+      - 'Makefile'
+      - 'Makefile.common'
+      - 'STM32H7B0VBTx_FLASH.ld'
+      - 'STM32H7B0VBTx_SDCARD.ld'
+      - 'startup_stm32h7b0xx.s'
+      - 'choices.yaml'
+      - 'firmware_helper.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-artifacts
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true   # one bad blob makes the bundle unpublishable anyway
+      matrix:
+        include:
+          # slug feeds the artifact filenames the pack step expects, AND names this
+          # job's own sd_content tree. EVERY job extracts its own — content is
+          # specific to BOTH SD_CARD and INTFLASH_BANK; see the build step comment.
+          - slug: bank1
+            sd_card: 0
+            bank: 1
+          - slug: bank2
+            sd_card: 0
+            bank: 2
+          - slug: sd_bank1
+            sd_card: 1
+            bank: 1
+          - slug: sd_bank2
+            sd_card: 1
+            bank: 2
+    name: build ${{ matrix.slug }}
+    env:
+      BUILDER_IMAGE: ${{ inputs.builder_image || 'sylverb/retro-go-sd-builder:v1.5' }}
+    steps:
+      - name: Checkout web-builder-flash (recursive submodules)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive   # MUST be recursive — cores/MSX/etc. live in submodules
+          # Full history + tags so scripts/update_gittag.sh's `git describe --tags`
+          # resolves a real version instead of falling back to "NOTAG". The GIT_TAG is
+          # baked into BOTH the firmware and every core header; retro-go refuses to load
+          # a core whose tag doesn't byte-match the firmware (rg_emulators.c) — so a
+          # bogus/inconsistent tag silently breaks all internal emulators. Every matrix
+          # job checks out the same commit, so they all bake an identical tag.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build SD_CARD=${{ matrix.sd_card }} bank${{ matrix.bank }} (in builder image)
+        run: |
+          set -euo pipefail
+          # The bank IS the intflash link address (0x08000000 / 0x08100000), so it can't
+          # be a runtime patch — hence separate blobs for bank 1 (overwrite stock) and
+          # bank 2 (keep stock in bank 1 for dual-boot/recovery). GNW_TARGET is omitted
+          # (LittleFS geometry is superblock-driven; docs/BINARY_PATCHING.md).
+          # ALL capabilities baked ON — COVERFLOW, CHEAT_CODES, SHARED_HIBERNATE_SAVESTATE
+          # (screenshots default on; splash off) — so one blob set serves every feature
+          # (~246 KB, fits the single 256 KB bank); the browser adds covers/cheats CONTENT
+          # later. All 12 languages baked. MAX_CHEAT_CODES=13 is passed on the command
+          # line (NOT a Makefile edit): the stock Makefile only defines it for SD_CARD=1,
+          # so CHEAT_CODES=1 SD_CARD=0 needs it supplied here — matches the SD value.
+          #
+          # sd_content is extracted by EVERY job — it is specific to BOTH SD_CARD and
+          # INTFLASH_BANK. core/homebrew .bin files are objcopy'd out of whichever ELF
+          # just built, so they carry that build's absolute addresses baked in:
+          #
+          #  - SD_CARD axis: several overlay entry points (confirmed: NES, PCE, MSX;
+          #    likely more) land at different RAM addresses between SD_CARD=0 and
+          #    SD_CARD=1 builds, so a core's code gets loaded at the address the OTHER
+          #    build's linker chose and execution corrupts on jump.
+          #  - INTFLASH_BANK axis: cores call back into firmware through ABSOLUTE
+          #    pointers, which differ per bank (0x080xxxxx vs 0x081xxxxx). This axis was
+          #    previously asserted here to be safe ("cores ARE bank-independent, bank1 ==
+          #    bank2, verified") and extraction was done only on the bank2 jobs. That was
+          #    WRONG, and it shipped: bank2-built cores contain the literal Thumb pointer
+          #    0x0810cdcd (odroid_system_init at its BANK2 address) — present in all 18
+          #    core/homebrew .bin files of the v1.4.1-43-gff74121c bundle. Install those
+          #    alongside a bank1 firmware and the first core callback jumps into bank2.
+          #    With a stale retro-go still in bank2 it half-works; with bank2 erased it
+          #    hardfaults instantly at PC=0x0810cdcc. Diagnosed on real hardware.
+          #
+          # Both axes are now handled the same way: one job per (SD_CARD, bank) pair,
+          # each keeping its OWN content, which makes the mix-up structurally impossible.
+          # Do not "optimise" this back into shared content without re-checking the
+          # cores for foreign-bank pointers first.
+          FLAGS="SD_CARD=${{ matrix.sd_card }} COVERFLOW=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 SCREENSHOTS=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1"
+          # Every job extracts its own sd_content (see above).
+          TARGETS="create_sd_data build/gw_retro_go_intflash.bin"
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
+            "$BUILDER_IMAGE" \
+            bash -l -c "set -e
+              make -j\$(nproc) INTFLASH_BANK=${{ matrix.bank }} $FLAGS $TARGETS"
+
+          # Stage under _out/ so the four jobs' artifacts merge into one tree. The ELF
+          # ships alongside each .bin so a debugger can be pointed at symbols that
+          # ACTUALLY match what's running on a given device, instead of whatever happens
+          # to be sitting in a dev's local build/ dir (a real mix-up while debugging
+          # this branch).
+          mkdir -p _out/blobs
+          cp build/gw_retro_go_intflash.bin _out/blobs/gw_retro_go_intflash_${{ matrix.slug }}.bin
+          cp build/gw_retro_go.elf          _out/blobs/gw_retro_go_${{ matrix.slug }}.elf
+          cp -r sd_content _out/sd_content_${{ matrix.slug }}
+
+      - name: Upload ${{ matrix.slug }} artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.slug }}
+          path: _out/
+          retention-days: 1   # intermediates; the prerelease asset is the real output
+          if-no-files-found: error
+
+  pack-and-publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # to create the prerelease + upload assets
+    steps:
+      # Checkout is still needed here: pack_bundle.py, and `git describe` for the tag.
+      - name: Checkout web-builder-flash
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          # No submodules: this job only runs scripts/flasher/pack_bundle.py over
+          # artifacts the build jobs already produced.
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: build-*
+          merge-multiple: true   # merges the four _out/ trees into one _dl/
+          path: _dl
+
+      - name: Check every expected blob arrived
+        run: |
+          set -euo pipefail
+          # merge-multiple is silent about a job that uploaded nothing; a missing blob
+          # would otherwise surface as a confusing pack_bundle.py error.
+          for f in _dl/blobs/gw_retro_go_intflash_bank1.bin \
+                   _dl/blobs/gw_retro_go_intflash_bank2.bin \
+                   _dl/blobs/gw_retro_go_intflash_sd_bank1.bin \
+                   _dl/blobs/gw_retro_go_intflash_sd_bank2.bin \
+                   _dl/blobs/gw_retro_go_bank1.elf \
+                   _dl/blobs/gw_retro_go_bank2.elf \
+                   _dl/blobs/gw_retro_go_sd_bank1.elf \
+                   _dl/blobs/gw_retro_go_sd_bank2.elf; do
+            [ -f "$f" ] || { echo "missing artifact: $f"; exit 1; }
+          done
+          # One content tree per (SD_CARD, bank) pair — all four are required.
+          for d in _dl/sd_content_bank1 _dl/sd_content_bank2 \
+                   _dl/sd_content_sd_bank1 _dl/sd_content_sd_bank2; do
+            [ -d "$d" ] || { echo "missing sd_content dir: $d"; exit 1; }
+          done
+
+      - name: Pack web-artifacts.zip + manifest.json
+        id: pack
+        run: |
+          set -euo pipefail
+          SHORT="${GITHUB_SHA::7}"
+          # --exclude '*-g*': without this, each prerelease is tagged with its own
+          # describe output (also "vX.Y.Z-N-gHASH", matching --match 'v*'), so the next
+          # build finds THIS build's tag as "nearest" and compounds another suffix onto
+          # it — ever-growing version strings across builds. See scripts/update_gittag.sh.
+          GIT_DESCRIBE="$(git describe --tags --always --match 'v*' --exclude '*-g*')"
+          ID="web-builder-flash-${SHORT}"
+          {
+            echo "short=$SHORT"
+            echo "id=$ID"
+            echo "tag=$GIT_DESCRIBE"
+          } >> "$GITHUB_OUTPUT"
+          python3 scripts/flasher/pack_bundle.py \
+            --sd-content-bank1 _dl/sd_content_bank1 \
+            --sd-content-bank2 _dl/sd_content_bank2 \
+            --sd-content-sd-bank1 _dl/sd_content_sd_bank1 \
+            --sd-content-sd-bank2 _dl/sd_content_sd_bank2 \
+            --blob-bank1 _dl/blobs/gw_retro_go_intflash_bank1.bin \
+            --blob-bank2 _dl/blobs/gw_retro_go_intflash_bank2.bin \
+            --blob-sd-bank1 _dl/blobs/gw_retro_go_intflash_sd_bank1.bin \
+            --blob-sd-bank2 _dl/blobs/gw_retro_go_intflash_sd_bank2.bin \
+            --elf-bank1 _dl/blobs/gw_retro_go_bank1.elf \
+            --elf-bank2 _dl/blobs/gw_retro_go_bank2.elf \
+            --elf-sd-bank1 _dl/blobs/gw_retro_go_sd_bank1.elf \
+            --elf-sd-bank2 _dl/blobs/gw_retro_go_sd_bank2.elf \
+            --out _bundle --id "$ID" --ref web-builder-flash \
+            --sha "$GITHUB_SHA" \
+            --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+      - name: Publish as a prerelease asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.pack.outputs.tag }}
+          name: ${{ steps.pack.outputs.tag }}
+          prerelease: true
+          body: |
+            Build inputs for the gnw-web-builder browser flasher (FrogFS `SD_CARD=0`
+            firmware blob + default content). One universal blob — the host sets
+            extflash geometry via the superblock. Not an end-user release.
+
+            - commit: `${{ github.sha }}`
+          files: |
+            _bundle/web-artifacts.zip
+            _bundle/manifest.json

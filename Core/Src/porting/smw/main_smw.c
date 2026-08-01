@@ -314,7 +314,7 @@ int app_main_smw(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 
   printf("SMW start\n");
   odroid_system_init(APPID_SMW, SMW_AUDIO_SAMPLE_RATE);
-  odroid_system_emu_init(&smw_system_LoadState, &smw_system_SaveState, &Screenshot, NULL, NULL, &smw_system_SramSave);
+  odroid_system_emu_init(&smw_system_LoadState, &smw_system_SaveState, &Screenshot, NULL, NULL, &smw_system_SramSave, NULL);
   
   if (start_paused) {
     common_emu_state.pause_after_frames = 2;

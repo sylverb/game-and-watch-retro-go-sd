@@ -51,9 +51,6 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
 #include "rg_frogfs.h"
 #endif
 #if CHEAT_CODES == 1
-#include "main_msx.h"
-#include "main_gb_tgbdual.h"
-
 static retro_emulator_file_t *CHOSEN_FILE = NULL;
 #endif
 
@@ -894,6 +891,40 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     bool power_key_debounce = false;
     odroid_gamepad_state_t joystick;
 
+    /* Snapshot header + labels (+ values that may point into lang
+     * strings). i18n_load_language() keeps only one non-en_us language
+     * in RAM and frees the previous when browsing the language picker;
+     * without this copy, options[i].label pointers captured at dialog
+     * construction would dangle. update_cb writes still go through
+     * option->value into these local buffers.
+     *
+     * Only the first MAX_OPTIONS_COUNT entries are snapshotted — that
+     * covers the settings menu (where language browsing happens).
+     * Longer dialogs (e.g. cheat lists) do not switch languages. */
+#define DIALOG_STR_MAX 64
+    char header_buf[DIALOG_STR_MAX];
+    char label_bufs[MAX_OPTIONS_COUNT][DIALOG_STR_MAX];
+    char value_bufs[MAX_OPTIONS_COUNT][DIALOG_STR_MAX];
+    if (header) {
+        strncpy(header_buf, header, DIALOG_STR_MAX - 1);
+        header_buf[DIALOG_STR_MAX - 1] = '\0';
+        header = header_buf;
+    }
+    const int snap_count = options_count < MAX_OPTIONS_COUNT ? options_count : MAX_OPTIONS_COUNT;
+    for (int i = 0; i < snap_count; i++) {
+        if (options[i].label) {
+            strncpy(label_bufs[i], options[i].label, DIALOG_STR_MAX - 1);
+            label_bufs[i][DIALOG_STR_MAX - 1] = '\0';
+            options[i].label = label_bufs[i];
+        }
+        if (options[i].value) {
+            strncpy(value_bufs[i], options[i].value, DIALOG_STR_MAX - 1);
+            value_bufs[i][DIALOG_STR_MAX - 1] = '\0';
+            options[i].value = value_bufs[i];
+        }
+    }
+#undef DIALOG_STR_MAX
+
     void _repaint()
     {
         wdog_refresh();
@@ -1384,16 +1415,11 @@ static bool cheat_update_cb(odroid_dialog_choice_t *option, odroid_dialog_event_
         is_on = is_on ? false : true;
         odroid_settings_ActiveGameGenieCodes_set(CHOSEN_FILE->path, option->id, is_on);
     }
-    strcpy(option->value, is_on ? curr_lang->s_Cheat_Codes_ON : curr_lang->s_Cheat_Codes_OFF);
+    strcpy(option->value, is_on ? curr_lang->s_Option_ON : curr_lang->s_Option_OFF);
     if (event == ODROID_DIALOG_ENTER) {
-        rom_system_t *system = (rom_system_t *)CHOSEN_FILE->system;
-        if(strcmp(system->system_name, "MSX") == 0) {
-            update_cheats_msx();
-        }
-        if((strcmp(system->system_name, "Nintendo Gameboy") == 0) ||
-           (strcmp(system->system_name, "Nintendo Gameboy Color") == 0)) {
-            update_cheats_gb();
-        }
+        cheat_update_handler_t update = odroid_system_get_app()->handlers.cheat_update;
+        if (update)
+            update();
     }
 
     return event == ODROID_DIALOG_ENTER;
@@ -1428,39 +1454,14 @@ static bool show_cheat_dialog()
 }
 #endif
 
-/* Darken an RGB565 color by LCD_DARKEN_PERCENT — mirrors clut_store_dark_twin
- * in gw_lcd.c so we can reconstruct the [count..2*count) darkened-twin range
- * from the embedded cart CLUT during LUT8→RGB565 preview conversion. */
-static inline uint16_t darken_rgb565(uint16_t c)
-{
-    const int keep = 100 - LCD_DARKEN_PERCENT;
-    int r = (c >> 11) & 0x1F;
-    int g = (c >>  5) & 0x3F;
-    int b = (c      ) & 0x1F;
-    r = (r * keep) / 100;
-    g = (g * keep) / 100;
-    b = (b * keep) / 100;
-    return (uint16_t)((r << 11) | (g << 5) | b);
-}
-
 static void preview_blit_lut8_to_rgb565(FILE *file, const uint16_t clut[LCD_SCREENSHOT_CLUT_ENTRIES])
 {
     uint8_t row[GW_LCD_WIDTH];
     uint16_t *dst = (uint16_t *)lcd_get_active_buffer();
     for (int y = 0; y < GW_LCD_HEIGHT; y++) {
         if (fread(row, 1, GW_LCD_WIDTH, file) != GW_LCD_WIDTH) return;
-        for (int x = 0; x < GW_LCD_WIDTH; x++) {
-            uint8_t idx = row[x];
-            uint16_t color;
-            if (idx < LCD_SCREENSHOT_CLUT_ENTRIES) {
-                color = clut[idx];
-            } else if (idx < 2 * LCD_SCREENSHOT_CLUT_ENTRIES) {
-                color = darken_rgb565(clut[idx - LCD_SCREENSHOT_CLUT_ENTRIES]);
-            } else {
-                color = 0;
-            }
-            *dst++ = color;
-        }
+        lcd_convert_lut8_to_rgb565(row, dst, GW_LCD_WIDTH, clut);
+        dst += GW_LCD_WIDTH;
     }
 }
 
@@ -1589,14 +1590,8 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
 
 #if CHEAT_CODES == 1
     odroid_dialog_choice_t choices[12];
-    bool cheat_update_support = false;
     CHOSEN_FILE = ACTIVE_FILE;
-    rom_system_t *system = (rom_system_t *)CHOSEN_FILE->system;
-    if((strcmp(system->system_name, "MSX") == 0) ||
-       (strcmp(system->system_name, "Nintendo Gameboy") == 0) ||
-       (strcmp(system->system_name, "Nintendo Gameboy Color") == 0)) {
-        cheat_update_support = true;
-    }
+    bool cheat_update_support = odroid_system_get_app()->handlers.cheat_update != NULL;
 
     int index=0;
     choices[index].id = 10;
@@ -1804,8 +1799,17 @@ void odroid_overlay_draw_progress_bar(const char *header, uint8_t progress)
 
 uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap)
 {
+    return odroid_overlay_cache_file_in_flash_relocate(file_path, file_size_p, byte_swap, NULL);
+}
+
+uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
+                                                     bool byte_swap, flash_relocate_cb_t relocate_cb)
+{
 #if SD_CARD == 0
     (void)byte_swap;
+    /* FrogFS maps the file where it already sits in the firmware image, so there
+     * is no copy to relocate. Callers that need one must not use this build. */
+    (void)relocate_cb;
     const uint8_t *data = NULL;
     uint32_t file_size = 0;
 
@@ -1832,7 +1836,7 @@ uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *fil
         lcd_swap();
     }
 
-    return store_file_in_flash(file_path, file_size_p, byte_swap, progress_cb);
+    return store_file_in_flash_relocate(file_path, file_size_p, byte_swap, progress_cb, relocate_cb);
 #endif
 }
 

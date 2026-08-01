@@ -509,7 +509,7 @@ int app_main_nes(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     save_slot_load = save_slot;
 
     odroid_system_init(APPID_NES, AUDIO_SAMPLE_RATE);
-    odroid_system_emu_init(&LoadState, &SaveState, NULL, NULL, NULL, NULL);
+    odroid_system_emu_init(&LoadState, &SaveState, NULL, NULL, NULL, NULL, NULL);
 
     if (start_paused) {
         common_emu_state.pause_after_frames = 4;
