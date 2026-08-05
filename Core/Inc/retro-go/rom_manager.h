@@ -24,12 +24,11 @@ struct rom_system_t {
     uint32_t roms_count;
     game_data_type_t game_data_type;
 
-    /* Mirrors retro_emulator_t.core_path/core_*_size for the owning
+    /* Mirrors retro_emulator_t.core_path/parse_type for the owning
      * emulator, aliased (not copied) so it survives the AHB-pool reset in
-     * emulator_start(). NULL/"" for compile-time tabs. */
+     * emulator_start(). core_path is NULL/"" for compile-time tabs. */
     const char *core_path;
-    uint32_t core_code_size;
-    uint32_t core_bss_size;
+    uint32_t parse_type;
 };
 
 typedef struct {

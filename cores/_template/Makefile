@@ -23,12 +23,24 @@
 # Optional:
 #   CORE_C_INCLUDES  extra -I flags, on top of the common set below
 #   CORE_C_DEFS      extra -D flags, on top of the common set below
-#   CORE_LDSCRIPT    defaults to $(TEMPLATE_DIR)/core_ram_emu.ld
+#   CORE_LDSCRIPT    defaults to $(TEMPLATE_DIR)/core_ram_emu.ld. Point this
+#                    at your own script (INCLUDE-ing ld/gnw_itcm_core.ld /
+#                    ld/gnw_ahb_core.ld as needed) if you use CORE_EXTRA_SEGMENTS
+#                    — see cores/pce/pce_core.ld for an ITCM example.
 #   CORE_LDLIBS      extra -l flags, e.g. -lm (see cores/md/Makefile: gwenesis's
 #                    ym2612.c calls sin()/log() once at init time to build FM
 #                    tables — self-contained libm code with no firmware calls,
 #                    so it's simplest to link it in directly rather than route
 #                    it through gw_firmware_abi_t like everything else here)
+#   CORE_EXTRA_SEGMENTS  space-separated "region:section" pairs for code/data
+#                    that must land in a fixed memory region other than
+#                    RAM_EMU (segment 0, always produced by TARGET_BIN below)
+#                    — e.g. "itcm:core_itcm" extracts the `.core_itcm` output
+#                    section (defined by your own CORE_LDSCRIPT) into
+#                    build/$(CORE_NAME)_core_itcm.bin via objcopy
+#                    --only-section. Each pair needs a matching --segment
+#                    argument in the core's own `pack` target (see
+#                    tools/pack_core.py and cores/pce/Makefile).
 #   GCC_PATH         toolchain bin dir, same convention as the root Makefile
 #   OPT              optimization level, default -Os (code-size matters more
 #                     here than for the always-resident launcher: this is the
@@ -148,11 +160,26 @@ vpath %.S $(sort $(dir $(BRIDGE_ASM_SOURCES)))
 TARGET_ELF := $(BUILD_DIR)/$(CORE_NAME)_core.elf
 TARGET_BIN := $(BUILD_DIR)/$(CORE_NAME)_core.bin
 
+CORE_EXTRA_SEGMENTS ?=
+# "region:section" -> just the region ("itcm:core_itcm" -> "itcm").
+CORE_EXTRA_SEGMENT_REGIONS := $(foreach seg,$(CORE_EXTRA_SEGMENTS),$(word 1,$(subst :, ,$(seg))))
+CORE_EXTRA_SEGMENT_BINS := $(foreach r,$(CORE_EXTRA_SEGMENT_REGIONS),$(BUILD_DIR)/$(CORE_NAME)_core_$(r).bin)
+
 .PHONY: all clean
-all: $(TARGET_BIN)
+all: $(TARGET_BIN) $(CORE_EXTRA_SEGMENT_BINS)
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
+
+# gw_core_bridge.c defines the real memcpy/memset/memmove/__aeabi_mem*
+# symbols (see its own comment) instead of routing them through the ABI —
+# -fno-builtin-mem*: without this, GCC's loop-idiom recognition can decide
+# our own byte/word-copy loops in memcpy()/memset() "look like" memcpy/
+# memset and rewrite their bodies into a call to... memcpy/memset,
+# infinitely recursing. Scoped to this one object so every OTHER core
+# object still gets normal builtin recognition (compile-time-constant-size
+# memcpy(a,b,4) calls inlined to a plain load/store instead of a real call).
+$(BRIDGE_OBJECTS): CFLAGS += -fno-builtin-memcpy -fno-builtin-memmove -fno-builtin-memset
 
 # Compile, then rename every libc/firmware symbol EXCEPT in the bridge
 # object itself (which defines the core_<name> targets those renames point
@@ -170,12 +197,33 @@ $(TARGET_ELF): $(C_OBJECTS) $(ASM_OBJECTS) $(CORE_LDSCRIPT)
 	$(CC) $(C_OBJECTS) $(ASM_OBJECTS) $(LDFLAGS) -o $@
 	$(SZ) $@
 
-# .bss is NOLOAD (see core_ram_emu.ld) so objcopy -O binary naturally emits
-# exactly code_size bytes (__RAM_EMU_START__ .. __CORE_CODE_END__) with no
-# BSS padding — tools/pack_core.py re-derives the same length from the ELF
-# symbols directly rather than trusting the file size, but both must agree.
+# .bss is NOLOAD (see core_ram_emu.ld) so extracting just the loaded
+# sections naturally emits exactly code_size bytes (__RAM_EMU_START__ ..
+# __CORE_CODE_END__) with no BSS padding — tools/pack_core.py re-derives the
+# same length from the ELF symbols directly rather than trusting the file
+# size, but both must agree.
+#
+# Explicit --only-section=.core_entry --only-section=.data (segment 0's own
+# output sections, see core_ram_emu.ld) instead of a whole-ELF `-O binary -S`
+# dump: a plain whole-ELF dump lays out every loadable section by absolute
+# address across ALL memory regions in one blob, so it silently produces a
+# multi-hundred-KB file full of zero padding (or worse, corrupts pack_core.py's
+# code_size math) the moment a second region (ITCM/AHB, via
+# CORE_EXTRA_SEGMENTS) exists anywhere in the link — explicit sections don't
+# have that problem since only sections placed in RAM_EMU are named here.
 $(TARGET_BIN): $(TARGET_ELF)
-	$(CP) -O binary -S $< $@
+	$(CP) -O binary --only-section=.core_entry --only-section=.data $< $@
+
+# One rule per CORE_EXTRA_SEGMENTS entry: build/$(CORE_NAME)_core_<region>.bin
+# from the `.{section}` output section your own CORE_LDSCRIPT defines for
+# that region (e.g. "itcm:core_itcm" -> --only-section=.core_itcm). .bss for
+# an extra segment must equally be NOLOAD in your linker script — same
+# reasoning as segment 0 above.
+define CORE_EXTRA_SEGMENT_RULE
+$(BUILD_DIR)/$(CORE_NAME)_core_$(word 1,$(subst :, ,$(1))).bin: $(TARGET_ELF)
+	$$(CP) -O binary --only-section=.$(word 2,$(subst :, ,$(1))) $$< $$@
+endef
+$(foreach seg,$(CORE_EXTRA_SEGMENTS),$(eval $(call CORE_EXTRA_SEGMENT_RULE,$(seg))))
 
 # Double-colon: lets a concrete core's Makefile (e.g. cores/wsv/Makefile,
 # after `include`ing this file) add its own `clean::` rule for anything it

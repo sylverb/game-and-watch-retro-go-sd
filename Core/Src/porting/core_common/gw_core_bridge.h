@@ -55,6 +55,14 @@ extern "C" {
  * (A/V-sync overflow detection); read-only from a core's point of view. */
 #define frame_counter (*(gw_firmware_abi()->frame_counter_ptr))
 
+/* dma_counter (gw_audio.h) / common_emu_sound_dma_marker (common.h): audio
+ * DMA pacing counters, read AND written (PC Engine's CD-DA prefetch loop
+ * advances common_emu_sound_dma_marker itself, mirroring what
+ * common_emu_sound_sync() does internally) through the firmware's live
+ * globals — same reasoning as ram_start above. */
+#define dma_counter (*(gw_firmware_abi()->dma_counter_ptr))
+#define common_emu_sound_dma_marker (*(gw_firmware_abi()->common_emu_sound_dma_marker_ptr))
+
 /* Defined by every core's own linker script (cores/_template/core_ram_emu.ld)
  * right after the loaded code+data and right after BSS, respectively.
  * tools/pack_core.py reads these two (via `nm`) to compute code_size/

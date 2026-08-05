@@ -12,11 +12,16 @@
 # Core/Src/porting/core_common/gw_core_bridge.c header comment for what is
 # intentionally NOT covered yet (setjmp/longjmp, __aeabi_ldivmod/uldivmod).
 # --- libc: string.h ---
+# NOTE: memcpy/memmove/memset are intentionally NOT here — gw_core_bridge.c
+# defines real, local implementations of those (and the whole __aeabi_mem*
+# family below) instead of routing them through the ABI, because they are
+# by far the hottest calls a classic core makes (scanline blits, CD sector
+# reads, audio buffer fills, ...) and the extra ABI indirection was
+# measurably causing frameskip/audio glitches (see gw_core_bridge.c). Only
+# rename memcpy/memmove/memset here if you deliberately want to go back to
+# routing them through the firmware instead.
 memchr core_memchr
 memcmp core_memcmp
-memcpy core_memcpy
-memmove core_memmove
-memset core_memset
 strchr core_strchr
 strcmp core_strcmp
 strlen core_strlen
@@ -27,19 +32,6 @@ strstr core_strstr
 strcpy core_strcpy
 strtol core_strtol
 strtod core_strtod
-# --- ARM EABI memory helpers (compiler-generated, see gw_core_bridge.c) ---
-__aeabi_memcpy core_aeabi_memcpy
-__aeabi_memcpy4 core_aeabi_memcpy4
-__aeabi_memcpy8 core_aeabi_memcpy8
-__aeabi_memmove core_aeabi_memmove
-__aeabi_memmove4 core_aeabi_memmove4
-__aeabi_memmove8 core_aeabi_memmove8
-__aeabi_memset core_aeabi_memset
-__aeabi_memset4 core_aeabi_memset4
-__aeabi_memset8 core_aeabi_memset8
-__aeabi_memclr core_aeabi_memclr
-__aeabi_memclr4 core_aeabi_memclr4
-__aeabi_memclr8 core_aeabi_memclr8
 # --- libc: ctype.h ---
 isalnum core_isalnum
 isalpha core_isalpha
@@ -69,6 +61,8 @@ fgets core_fgets
 remove core_remove
 puts core_puts
 printf core_printf
+vprintf core_vprintf
+vfprintf core_vfprintf
 sprintf core_sprintf
 snprintf core_snprintf
 # --- libc: assert.h ---
@@ -147,3 +141,9 @@ get_ofw_is_mario core_get_ofw_is_mario
 odroid_system_get_path core_odroid_system_get_path
 lcd_get_pixel_position core_lcd_get_pixel_position
 lcd_sleep_while_swap_pending core_lcd_sleep_while_swap_pending
+# --- v2 append: PC Engine / PC Engine CD porting surface ---
+crc32_le core_crc32_le
+cpumon_sleep core_cpumon_sleep
+strncat core_strncat
+sscanf core_sscanf
+odroid_settings_ActiveGameGenieCodes_is_enabled core_odroid_settings_ActiveGameGenieCodes_is_enabled

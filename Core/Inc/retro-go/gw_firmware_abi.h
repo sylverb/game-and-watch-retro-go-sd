@@ -383,6 +383,34 @@ typedef struct {
      * against the firmware's global directly. */
     uint32_t                    *frame_counter_ptr;
 
+    /* ================================================================
+     * v2 append: surface required to port PC Engine / PC Engine CD
+     * (multi-system, multi-segment core) to the external-core model.
+     * Identified by porting Core/Src/porting/pce/main_pce.c (+ pce_cd.c)
+     * against this ABI. Pure append — no version bump needed.
+     * ================================================================ */
+    /* Matches Core/Inc/porting/crc32.h's exact declared signature
+     * (`unsigned int`/`unsigned char const *`, not uint32_t/uint8_t*) —
+     * some arm-none-eabi/newlib configurations typedef uint32_t as `long
+     * unsigned int` rather than `unsigned int`, and initializing this
+     * pointer field from the real crc32_le function is then an
+     * incompatible-pointer-types error despite both being 32-bit. */
+    unsigned int (*crc32_le)(unsigned int crc, const unsigned char *buf, unsigned int len);
+    void     (*cpumon_sleep)(void);
+    int      (*vsscanf)(const char *str, const char *format, va_list ap);
+    char    *(*strncat)(char *dest, const char *src, size_t n);
+    bool     (*odroid_settings_ActiveGameGenieCodes_is_enabled)(char *game_path, int code_index);
+
+    /* dma_counter (gw_audio.h) / common_emu_sound_dma_marker (common.h):
+     * both incremented/compared by the audio DMA ISR + common_emu_sound_sync
+     * to pace emulation to real playback time. PCE's CD-DA prefetch loop
+     * (pce_sound_sync_with_prefetch) needs to observe/advance the same
+     * counters common_emu_sound_sync() uses internally, so it can spend the
+     * pacer wait prefetching CD sectors instead of just sleeping — exposed
+     * as data pointers, same pattern as frame_counter_ptr. */
+    uint32_t                    *dma_counter_ptr;
+    uint32_t                    *common_emu_sound_dma_marker_ptr;
+
 } gw_firmware_abi_t;
 
 /* The firmware publishes this instance at GW_FIRMWARE_ABI_ADDRESS via the

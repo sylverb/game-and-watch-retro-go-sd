@@ -543,12 +543,14 @@ const rom_system_t *rg_emulators_system_for_dir(const char *dirname, size_t len)
     return NULL;
 }
 
-/* core_path/core_code_size/core_bss_size are non-NULL/non-zero only for a
- * dynamically-discovered external core (see emulators_scan_cores()); pass
- * NULL/0/0 for the compile-time tabs (Homebrew, PICO-8). */
+/* core_path is non-NULL only for a dynamically-discovered external core
+ * (see emulators_scan_cores()); pass NULL for the compile-time tabs
+ * (Homebrew, PICO-8). Several tabs may share the same core_path (one core
+ * binary exposing multiple systems, e.g. PC Engine + PC Engine CD — see
+ * add_emulator_dynamic()). */
 static void add_emulator_ex(const char *system, const char *dirname, const char* ext,
                             int16_t logo_idx, int16_t header_idx, game_data_type_t game_data_type,
-                            const char *core_path, uint32_t core_code_size, uint32_t core_bss_size)
+                            uint32_t parse_type, const char *core_path)
 {
     assert(emulators_count < MAX_EMULATORS);
     retro_emulator_t *p = &emulators[emulators_count];
@@ -569,8 +571,7 @@ static void add_emulator_ex(const char *system, const char *dirname, const char*
     p->initialized = false;
     p->system = s;
     p->core_path[0] = '\0';
-    p->core_code_size = core_code_size;
-    p->core_bss_size = core_bss_size;
+    p->parse_type = parse_type;
     if (core_path)
         strncpy(p->core_path, core_path, sizeof(p->core_path) - 1);
 
@@ -584,8 +585,7 @@ static void add_emulator_ex(const char *system, const char *dirname, const char*
     s->system_name = p->system_name;
     s->game_data_type = game_data_type;
     s->core_path = p->core_path[0] ? p->core_path : NULL;
-    s->core_code_size = core_code_size;
-    s->core_bss_size = core_bss_size;
+    s->parse_type = parse_type;
 
     gui_add_tab(dirname, logo_idx, header_idx, p, event_handler);
 }
@@ -593,7 +593,8 @@ static void add_emulator_ex(const char *system, const char *dirname, const char*
 static void add_emulator(const char *system, const char *dirname, const char* ext,
                          uint16_t logo_idx, uint16_t header_idx, game_data_type_t game_data_type)
 {
-    add_emulator_ex(system, dirname, ext, (int16_t)logo_idx, (int16_t)header_idx, game_data_type, NULL, 0, 0);
+    add_emulator_ex(system, dirname, ext, (int16_t)logo_idx, (int16_t)header_idx, game_data_type,
+                    GNW_PARSE_ROM, NULL);
 }
 
 static void remove_extension(const char *path, char *new_path) {
@@ -618,9 +619,9 @@ static const char *get_extension(const char *filename) {
     return NULL;
 }
 
-static bool emulator_is_pcecd(const retro_emulator_t *emu)
+static bool emulator_is_cdrom(const retro_emulator_t *emu)
 {
-    return strcmp(emu->dirname, "pcecd") == 0;
+    return emu->parse_type == GNW_PARSE_CDROM;
 }
 
 /* Case-insensitive ".cue" — avoid snprintf/strtolower/strstr on every SD entry. */
@@ -706,7 +707,7 @@ static bool emulator_add_folder_row(retro_emulator_t *emu, const char *path,
 /* Prefer "<dirname>/<dirname>.cue" (Redump / Fullset layout) via f_stat — one
  * lookup instead of readdir through dozens of Track*.bin LFNs per game.
  * Fall back to a directory scan when the cue name differs from the folder. */
-static bool pcecd_collapse_game_dir(retro_emulator_t *emu, const char *path)
+static bool cdrom_collapse_game_dir(retro_emulator_t *emu, const char *path)
 {
     DIR dir;
     FILINFO fno;
@@ -758,10 +759,11 @@ static bool pcecd_collapse_game_dir(retro_emulator_t *emu, const char *path)
     return found;
 }
 
-/* Scan one PCE CD browse folder without nesting FatFs DIR handles and without
- * nesting FatFs DIR handles. Parent directory is scanned once, child names are
- * collected, then children are processed after parent close (FatFs LFN safety). */
-static void emulator_scan_pcecd_folder(retro_emulator_t *emu, const char *folder)
+/* Scan one CD-ROM browse folder (GNW_PARSE_CDROM systems, e.g. PC Engine CD)
+ * without nesting FatFs DIR handles. Parent directory is scanned once, child
+ * names are collected, then children are processed after parent close
+ * (FatFs LFN safety). */
+static void emulator_scan_cdrom_folder(retro_emulator_t *emu, const char *folder)
 {
     DIR dir;
     FILINFO fno;
@@ -817,7 +819,7 @@ static void emulator_scan_pcecd_folder(retro_emulator_t *emu, const char *folder
         if (folder_len + 1 + strlen(subdirs[i]) >= sizeof(fullpath))
             continue;
         snprintf(fullpath, sizeof(fullpath), "%s/%s", folder, subdirs[i]);
-        if (!pcecd_collapse_game_dir(emu, fullpath))
+        if (!cdrom_collapse_game_dir(emu, fullpath))
             emulator_add_folder_row(emu, fullpath, subdirs[i]);
     }
 
@@ -891,8 +893,8 @@ void emulator_init(retro_emulator_t *emu)
 
     emulator_browse_folder_path(emu, folder, sizeof(folder));
 #if SD_CARD == 1
-    if (emulator_is_pcecd(emu))
-        emulator_scan_pcecd_folder(emu, folder);
+    if (emulator_is_cdrom(emu))
+        emulator_scan_cdrom_folder(emu, folder);
     else
 #endif
         rg_storage_scandir(folder, scan_folder_cb, emu, 0);
@@ -907,8 +909,8 @@ void emulator_refresh_list(retro_emulator_t *emu)
 
     emulator_browse_folder_path(emu, folder, sizeof(folder));
 #if SD_CARD == 1
-    if (emulator_is_pcecd(emu))
-        emulator_scan_pcecd_folder(emu, folder);
+    if (emulator_is_cdrom(emu))
+        emulator_scan_cdrom_folder(emu, folder);
     else
 #endif
         rg_storage_scandir(folder, scan_folder_cb, emu, 0);
@@ -934,28 +936,52 @@ static void path_dirname_copy(const char *path, char *out, size_t out_size)
     out[len] = '\0';
 }
 
-/* True when cue lives in a per-game folder under /roms/pcecd/<game>/… */
-static bool pcecd_cue_in_game_folder(const char *cue_path, char *parent_out, size_t parent_size)
+/* Extracts the "<dirname>" segment out of a "/roms/<dirname>/…" path. Used
+ * to generalize the old pcecd-only delete logic to any GNW_PARSE_CDROM
+ * system without needing a dirname field on rom_system_t. */
+static bool cdrom_extract_dirname(const char *path, char *dirname_out, size_t dirname_size)
+{
+    static const char root[] = RG_BASE_PATH_ROMS "/";
+    const size_t root_len = sizeof(root) - 1;
+    const char *p, *slash;
+    size_t len;
+
+    if (strncmp(path, root, root_len) != 0)
+        return false;
+    p = path + root_len;
+    slash = strchr(p, '/');
+    if (!slash)
+        return false;
+    len = (size_t)(slash - p);
+    if (len == 0 || len >= dirname_size)
+        return false;
+    memcpy(dirname_out, p, len);
+    dirname_out[len] = '\0';
+    return true;
+}
+
+/* True when cue lives in a per-game folder under /roms/<dirname>/<game>/… */
+static bool cdrom_cue_in_game_folder(const char *cue_path, const char *dirname, char *parent_out, size_t parent_size)
 {
     char root[RG_PATH_MAX];
     size_t root_len;
 
     path_dirname_copy(cue_path, parent_out, parent_size);
-    snprintf(root, sizeof(root), "%s/pcecd", RG_BASE_PATH_ROMS);
+    snprintf(root, sizeof(root), "%s/%s", RG_BASE_PATH_ROMS, dirname);
     if (strcmp(parent_out, root) == 0)
-        return false; /* flat layout: cue directly under /roms/pcecd */
+        return false; /* flat layout: cue directly under /roms/<dirname> */
 
     root_len = strlen(root);
     if (strncmp(parent_out, root, root_len) != 0 || parent_out[root_len] != '/')
         return false;
-    /* Must be exactly one level under pcecd (…/pcecd/<game>), not deeper
-     * nested junk we might not want to wipe wholesale — still OK to delete
-     * that folder if the cue is there; collapse only uses one level. */
+    /* Must be exactly one level under dirname (…/<dirname>/<game>), not
+     * deeper nested junk we might not want to wipe wholesale — still OK to
+     * delete that folder if the cue is there; collapse only uses one level. */
     return true;
 }
 
-/* Flat PCE CD layout: delete FILE "…" siblings referenced by the cue, then the cue. */
-static void emulator_delete_pcecd_flat(const char *cue_path)
+/* Flat CD-ROM layout: delete FILE "…" siblings referenced by the cue, then the cue. */
+static void emulator_delete_cdrom_flat(const char *cue_path)
 {
     char parent[RG_PATH_MAX];
     char line[512];
@@ -996,23 +1022,24 @@ static void emulator_delete_pcecd_flat(const char *cue_path)
     rg_storage_delete(cue_path);
 }
 
-/* Delete ROM storage for a list entry. PCE CD games are multi-file (cue+bins,
- * often in a per-game folder); a plain unlink of the .cue would leave orphans. */
+/* Delete ROM storage for a list entry. CD-ROM games (GNW_PARSE_CDROM, e.g.
+ * PC Engine CD) are multi-file (cue+bins, often in a per-game folder); a
+ * plain unlink of the .cue would leave orphans. */
 static void emulator_delete_rom_storage(retro_emulator_file_t *file)
 {
     char parent[RG_PATH_MAX];
-    char pcecd_prefix[64];
+    char dirname[16];
 
     if (!file || !file->path[0])
         return;
 
-    snprintf(pcecd_prefix, sizeof(pcecd_prefix), "%s/pcecd/", RG_BASE_PATH_ROMS);
     if (file->ext && strcasecmp(file->ext, "cue") == 0 &&
-        strncmp(file->path, pcecd_prefix, strlen(pcecd_prefix)) == 0) {
-        if (pcecd_cue_in_game_folder(file->path, parent, sizeof(parent)))
+        file->system && file->system->parse_type == GNW_PARSE_CDROM &&
+        cdrom_extract_dirname(file->path, dirname, sizeof(dirname))) {
+        if (cdrom_cue_in_game_folder(file->path, dirname, parent, sizeof(parent)))
             rg_storage_delete(parent);
         else
-            emulator_delete_pcecd_flat(file->path);
+            emulator_delete_cdrom_flat(file->path);
         return;
     }
 
@@ -1490,15 +1517,20 @@ static void run_gwhb_homebrew(size_t copied, uint8_t load_state, uint8_t start_p
 #if SD_CARD == 1
 
 /* Reads only the CORE header + gnw_core_meta_t (not the payload) from
- * `path`. Returns true and fills *out_meta on success. Rejects anything
- * that isn't a "CORE"-magic, GNW_CORE_META_VERSION container, or that
- * asks for more ABI than this firmware provides — silently (this runs
- * over every file under /cores/ at boot, including pico8.bin/pico8_stub.bin
- * which intentionally don't carry this metadata). */
-static bool gnw_core_probe(const char *path, gnw_core_meta_t *out_meta)
+ * `path`. Returns true and fills *out_meta on success, and *out_header_length
+ * with the raw header_length field (callers that need to locate the payload
+ * — i.e. run_dynamic_core() — compute payload_offset = CORE_HEADER_MIN_SIZE +
+ * *out_header_length; pass NULL if not needed). Rejects anything that isn't
+ * a "CORE"-magic, GNW_CORE_META_VERSION container, that asks for more ABI
+ * than this firmware provides, or whose segments/systems counts or regions
+ * are out of range — silently (this runs over every file under /cores/ at
+ * boot, including pico8.bin/pico8_stub.bin which intentionally don't carry
+ * this metadata). */
+static bool gnw_core_probe(const char *path, gnw_core_meta_t *out_meta, uint16_t *out_header_length)
 {
     uint8_t fixed_header[CORE_HEADER_MIN_SIZE];
     bool ok = false;
+    uint16_t header_length = 0;
 
     FILE *file = fopen(path, "rb");
     if (!file)
@@ -1506,11 +1538,14 @@ static bool gnw_core_probe(const char *path, gnw_core_meta_t *out_meta)
 
     if (fread(fixed_header, 1, sizeof(fixed_header), file) != sizeof(fixed_header))
         goto done;
+    /* Silent for a non-"CORE" magic (also runs over pico8.bin/pico8_stub.bin
+     * etc. which intentionally don't carry this format — logging here would
+     * be pure noise on every boot). */
     if (memcmp(fixed_header, CORE_HEADER_MAGIC_EXTERNAL, 4) != 0)
         goto done;
 
     uint16_t header_version = read_u16_le(&fixed_header[4]);
-    uint16_t header_length  = read_u16_le(&fixed_header[6]);
+    header_length = read_u16_le(&fixed_header[6]);
     if (header_version != GNW_CORE_META_VERSION || header_length < sizeof(*out_meta))
         goto done;
 
@@ -1523,13 +1558,28 @@ static bool gnw_core_probe(const char *path, gnw_core_meta_t *out_meta)
         goto done;
     }
 
-    out_meta->system_name[sizeof(out_meta->system_name) - 1] = '\0';
-    out_meta->dirname[sizeof(out_meta->dirname) - 1] = '\0';
-    out_meta->extensions[sizeof(out_meta->extensions) - 1] = '\0';
+    if (out_meta->segments_count < 1 || out_meta->segments_count > GNW_CORE_MAX_SEGMENTS ||
+        out_meta->systems_count  < 1 || out_meta->systems_count  > GNW_CORE_MAX_SYSTEMS)
+        goto done;
+    if (out_meta->segments[0].region != GNW_CORE_REGION_RAM_EMU)
+        goto done;
+    for (uint32_t i = 0; i < out_meta->segments_count; i++) {
+        if (out_meta->segments[i].region == GNW_CORE_REGION_DTCM)
+            goto done;
+    }
+
+    for (uint32_t i = 0; i < out_meta->systems_count; i++) {
+        gnw_core_system_t *sys = &out_meta->systems[i];
+        sys->system_name[sizeof(sys->system_name) - 1] = '\0';
+        sys->dirname[sizeof(sys->dirname) - 1] = '\0';
+        sys->extensions[sizeof(sys->extensions) - 1] = '\0';
+    }
     ok = true;
 
 done:
     fclose(file);
+    if (ok && out_header_length)
+        *out_header_length = header_length;
     return ok;
 }
 
@@ -1556,30 +1606,40 @@ static const retro_logo_image *gnw_core_load_logo(const char *path, uint32_t off
     return img;
 }
 
+/* Registers one launcher tab per system described in `meta` (up to
+ * GNW_CORE_MAX_SYSTEMS), all sharing the same core_path — this is how one
+ * core binary (e.g. pce.bin) can expose several tabs (PC Engine + PC Engine
+ * CD), each with its own dirname/extensions/logos/parse_type. The core
+ * itself is responsible for telling its systems apart at runtime (typically
+ * via ACTIVE_FILE->ext), same as the old compile-time build did. */
 static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_path)
 {
-    if (emulators_count >= MAX_EMULATORS) {
-        printf("CORE: '%s' ignored, MAX_EMULATORS reached\n", core_path);
-        return;
+    for (uint32_t i = 0; i < meta->systems_count; i++) {
+        const gnw_core_system_t *sys = &meta->systems[i];
+
+        if (emulators_count >= MAX_EMULATORS) {
+            printf("CORE: '%s' system '%s' ignored, MAX_EMULATORS reached\n", core_path, sys->system_name);
+            return;
+        }
+
+        int16_t pad_idx = RG_LOGO_EMPTY, header_idx = RG_LOGO_EMPTY;
+        if (sys->pad_logo_size)
+            pad_idx = rg_register_dynamic_logo(gnw_core_load_logo(core_path, sys->pad_logo_offset, sys->pad_logo_size));
+        if (sys->header_logo_size)
+            header_idx = rg_register_dynamic_logo(gnw_core_load_logo(core_path, sys->header_logo_offset, sys->header_logo_size));
+
+        add_emulator_ex(sys->system_name, sys->dirname, sys->extensions, pad_idx, header_idx,
+                        NO_GAME_DATA, sys->parse_type, core_path);
+
+        printf("CORE: registered '%s' (%s) from %s, parse_type=%lu\n",
+              sys->system_name, sys->dirname, core_path, (unsigned long)sys->parse_type);
     }
-
-    int16_t pad_idx = RG_LOGO_EMPTY, header_idx = RG_LOGO_EMPTY;
-    if (meta->pad_logo_size)
-        pad_idx = rg_register_dynamic_logo(gnw_core_load_logo(core_path, meta->pad_logo_offset, meta->pad_logo_size));
-    if (meta->header_logo_size)
-        header_idx = rg_register_dynamic_logo(gnw_core_load_logo(core_path, meta->header_logo_offset, meta->header_logo_size));
-
-    add_emulator_ex(meta->system_name, meta->dirname, meta->extensions, pad_idx, header_idx,
-                    NO_GAME_DATA, core_path, meta->code_size, meta->bss_size);
-
-    printf("CORE: registered '%s' (%s) from %s, code=%luB bss=%luB\n",
-          meta->system_name, meta->dirname, core_path,
-          (unsigned long)meta->code_size, (unsigned long)meta->bss_size);
 }
 
-/* Scans /cores/*.bin (FatFs) and registers one tab per probe-able core.
- * Files that aren't a "CORE"/GNW_CORE_META_VERSION container (pico8.bin,
- * pico8_stub.bin, pico8.ro, ...) are silently skipped. */
+/* Scans /cores/*.bin (FatFs) and registers one tab per system in each
+ * probe-able core. Files that aren't a "CORE"/GNW_CORE_META_VERSION
+ * container (pico8.bin, pico8_stub.bin, pico8.ro, ...) are silently
+ * skipped. */
 static void emulators_scan_cores(void)
 {
     DIR dir;
@@ -1598,7 +1658,7 @@ static void emulators_scan_cores(void)
             continue;
 
         snprintf(path, sizeof(path), "/cores/%s", fno.fname);
-        if (gnw_core_probe(path, &meta))
+        if (gnw_core_probe(path, &meta, NULL))
             add_emulator_dynamic(&meta, path);
     }
 
@@ -1607,41 +1667,115 @@ static void emulators_scan_cores(void)
 
 #endif /* SD_CARD == 1 */
 
-/* Loads `core_path`'s payload to __RAM_EMU_START__ (via the existing
- * CORE-header loader), zeroes `bss_size` bytes right after it, and jumps
- * to offset 0 | 1 — same offset-0-Thumb-trampoline convention as GWHB and
- * PICO-8. Unlike run_internal_emu() (removed), the entry symbol is never
- * resolved at firmware link time: the core provides its own trampoline
- * (see cores/_template) because it is a completely separate ELF. */
-__attribute__((noinline))
-static void run_dynamic_core(const char *core_path, uint32_t code_size, uint32_t bss_size,
-                             uint8_t load_state, uint8_t start_paused, int8_t save_slot)
+/* Resolves segment region `region` to its fixed base address + max usable
+ * length (see gnw_core_region_t / ld/gnw_itcm_core.ld / ld/gnw_ahb_core.ld).
+ * Returns NULL (and *out_max_len = 0) for an unsupported region (DTCM is
+ * already rejected earlier, by gnw_core_probe()).
+ *
+ * CAUTION: the returned base pointer is NOT a valid "unsupported region"
+ * sentinel by itself — GNW_CORE_REGION_ITCM's real base is 0x00000000
+ * (Cortex-M7 maps ITCM at address 0), which is bit-identical to the NULL
+ * this function returns for a genuinely unsupported region. Callers MUST
+ * check *out_max_len == 0, not `!base`, to detect failure (see the bug this
+ * comment replaced in run_dynamic_core()). */
+static uint8_t *dynamic_core_region_base(uint32_t region, uint32_t *out_max_len)
 {
-    uint8_t *base = (uint8_t *)&__RAM_EMU_START__;
-    const uint32_t ram_emu_len = ((uint32_t)&__RAM_EMU_END__) - (uint32_t)&__RAM_EMU_START__;
+    switch (region) {
+    case GNW_CORE_REGION_RAM_EMU:
+        if (out_max_len)
+            *out_max_len = (uint32_t)&__RAM_EMU_END__ - (uint32_t)&__RAM_EMU_START__;
+        return (uint8_t *)&__RAM_EMU_START__;
+    case GNW_CORE_REGION_ITCM:
+        if (out_max_len)
+            *out_max_len = (uint32_t)&__ITCM_CORE_LENGTH__;
+        return (uint8_t *)&__ITCM_CORE_START__;
+    case GNW_CORE_REGION_AHB:
+        if (out_max_len)
+            *out_max_len = (uint32_t)&__AHB_CORE_LENGTH__;
+        return (uint8_t *)&__AHB_CORE_START__;
+    default:
+        if (out_max_len)
+            *out_max_len = 0;
+        return NULL;
+    }
+}
 
-    if ((uint64_t)code_size + bss_size > ram_emu_len) {
-        printf("CORE: '%s' too big for RAM_EMU (%lu+%lu > %lu)\n",
-              core_path, (unsigned long)code_size, (unsigned long)bss_size, (unsigned long)ram_emu_len);
+/* Re-probes `core_path`'s gnw_core_meta_t at launch time (cheap header-only
+ * read, done instead of caching code/bss sizes in retro_emulator_t — see
+ * rg_emulators.h) to get the live segment list. For each segment: resolves
+ * its fixed region base address, bounded-reads `code_size` bytes from the
+ * right file offset into it, zeroes `bss_size` bytes right after. For
+ * ITCM/AHB segments, immediately bump-reserves that same code+bss span in
+ * the region's runtime allocator (itc_malloc/ahb_malloc, called right after
+ * itc_init()/ahb_init() by the caller) so the core's own later runtime
+ * allocations never collide with its fixed segment — same technique as
+ * PICO-8's ITCM back-page allocation (see docs/PICO8_EXTERNAL_MODULE.md).
+ * Segment 0 is always RAM_EMU and owns the entry trampoline at offset 0 —
+ * same offset-0-Thumb-jump convention as GWHB and PICO-8; the entry symbol
+ * is never resolved at firmware link time, the core provides its own
+ * trampoline (see cores/_template) because it is a completely separate ELF. */
+__attribute__((noinline))
+static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t start_paused, int8_t save_slot)
+{
+    gnw_core_meta_t meta;
+    uint16_t header_length;
+    uint8_t *entry_base = NULL;
+
+    if (!gnw_core_probe(core_path, &meta, &header_length)) {
         show_corrupted_installation_screen();
         return;
     }
 
-    size_t loaded = load_core_bin_with_header(core_path, base);
-    if (loaded == 0)
-        return; /* load_core_bin_with_header already showed an error screen */
-    if (loaded != code_size) {
-        printf("CORE: '%s' size changed since scan (%lu != %lu), refusing to run\n",
-              core_path, (unsigned long)loaded, (unsigned long)code_size);
-        show_corrupted_installation_screen();
-        return;
+    uint32_t file_offset = CORE_HEADER_MIN_SIZE + (uint32_t)header_length;
+
+    for (uint32_t i = 0; i < meta.segments_count; i++) {
+        const gnw_core_segment_t *seg = &meta.segments[i];
+        uint32_t region_len = 0;
+        uint8_t *base = dynamic_core_region_base(seg->region, &region_len);
+
+        /* region_len == 0, not !base: ITCM's legitimate base address is
+         * 0x00000000 (Cortex-M7 maps ITCM at address 0), numerically
+         * identical to the NULL sentinel dynamic_core_region_base() returns
+         * for an actually-unsupported region — a base-pointer check here
+         * would reject every valid ITCM segment (which is every core built
+         * with CORE_EXTRA_SEGMENTS=itcm:..., e.g. cores/pce) as "too big"
+         * and show the corrupted-installation screen. region_len is always
+         * a nonzero constant (0xB5000/0x10000/0x1e000) for the three real
+         * regions and is explicitly zeroed only in the `default:` case, so
+         * it's an unambiguous invalid-region sentinel. */
+        if (region_len == 0 || (uint64_t)seg->code_size + seg->bss_size > region_len) {
+            show_corrupted_installation_screen();
+            return;
+        }
+
+        size_t loaded = seg->code_size
+            ? rg_storage_copy_file_range_to_ram((char *)core_path, base, file_offset, seg->code_size, NULL)
+            : 0;
+        if (seg->code_size && loaded != seg->code_size) {
+            show_corrupted_installation_screen();
+            return;
+        }
+
+        memset(base + seg->code_size, 0, seg->bss_size);
+        SCB_CleanDCache_by_Addr((uint32_t *)base, seg->code_size);
+        SCB_InvalidateICache();
+
+        if (i == 0) {
+            entry_base = base;
+        } else {
+            void *reserved = (seg->region == GNW_CORE_REGION_ITCM)
+                ? itc_malloc(seg->code_size + seg->bss_size)
+                : ahb_malloc(seg->code_size + seg->bss_size);
+            if (reserved != base) {
+                show_corrupted_installation_screen();
+                return;
+            }
+        }
+
+        file_offset += seg->code_size;
     }
 
-    memset(base + code_size, 0, bss_size);
-    SCB_CleanDCache_by_Addr((uint32_t *)base, code_size);
-    SCB_InvalidateICache();
-
-    ((void (*)(uint8_t, uint8_t, int8_t))((uintptr_t)base | 1))(load_state, start_paused, save_slot);
+    ((void (*)(uint8_t, uint8_t, int8_t))((uintptr_t)entry_base | 1))(load_state, start_paused, save_slot);
 }
 
 void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_paused, int8_t save_slot)
@@ -1660,14 +1794,31 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     strcpy(newfile->path,file->path);
     newfile->ext = get_extension(newfile->path);
 
-    const char *system_name = newfile->system->system_name;
-    /* Captured before newfile->system is nulled + ahb_init() below, same
-     * lifetime caveat as system_name (see comment there): these point
-     * into the AHB pool, whose *content* survives ahb_init()'s bump-reset
-     * until something else allocates over it. */
-    const char *dyn_core_path = newfile->system->core_path;
-    uint32_t dyn_core_code_size = newfile->system->core_code_size;
-    uint32_t dyn_core_bss_size = newfile->system->core_bss_size;
+    /* Snapshotted into local stack buffers, NOT kept as pointers into
+     * emulators[]/systems[]: those arrays are ahb_calloc()'d, and
+     * ahb_calloc() tries ram_malloc() (i.e. RAM_EMU, via the global
+     * `ram_start`) before falling back to real AHB SRAM — at menu boot
+     * `ram_start` is set to __RAM_EMU_START__ (see app_main()), so
+     * emulators[]/systems[] actually live IN RAM_EMU, not AHB. The very
+     * next thing run_dynamic_core() does is load the new core's segment 0
+     * on top of __RAM_EMU_START__, which would silently clobber a
+     * dangling pointer into system_name/core_path with the core's own
+     * code bytes. Copy the strings out before ahb_init()/ram_start=0 below
+     * instead of pointing into memory about to be overwritten.
+     *
+     * newfile->system is a rom_system_t*, whose system_name/core_path
+     * fields are `char *`/`const char *` (pointers aliasing the real
+     * fixed-size arrays in retro_emulator_t, see rom_manager.h) — sizing
+     * these buffers off newfile->system->system_name/core_path directly
+     * would take sizeof(a pointer) and truncate the copy after 3-4 bytes.
+     * Use retro_emulator_t's actual array sizes instead. */
+    char system_name[sizeof(((retro_emulator_t *)0)->system_name)];
+    char dyn_core_path_buf[sizeof(((retro_emulator_t *)0)->core_path)];
+    strncpy(system_name, newfile->system->system_name, sizeof(system_name) - 1);
+    system_name[sizeof(system_name) - 1] = '\0';
+    strncpy(dyn_core_path_buf, newfile->system->core_path, sizeof(dyn_core_path_buf) - 1);
+    dyn_core_path_buf[sizeof(dyn_core_path_buf) - 1] = '\0';
+    const char *dyn_core_path = dyn_core_path_buf[0] ? dyn_core_path_buf : NULL;
 
     ACTIVE_FILE = newfile;
 #if CHEAT_CODES == 1
@@ -1709,8 +1860,7 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     wdog_refresh();
 
     if (dyn_core_path) {
-      run_dynamic_core(dyn_core_path, dyn_core_code_size, dyn_core_bss_size,
-                       load_state, start_paused, save_slot);
+      run_dynamic_core(dyn_core_path, load_state, start_paused, save_slot);
     } else if(strcmp(system_name, "Homebrew") == 0)  {
       /* Bounded: refuses (returns 0) rather than overrunning RAM_EMU if the
        * file is bigger than the region. This used to be an unchecked

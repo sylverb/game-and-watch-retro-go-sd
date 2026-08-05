@@ -5,8 +5,11 @@
  * core is expected to call. Each simply forwards to the firmware through
  * gw_firmware_abi() — see gw_core_bridge.h for the overall design and
  * gw_core_bridge_redefine_syms.txt for the objcopy renaming that makes the
- * core's own code (which still calls "memcpy", "fopen", "lcd_swap", ...)
- * resolve to these instead of a real local implementation.
+ * core's own code (which still calls "fopen", "lcd_swap", ...) resolve to
+ * these instead of a real local implementation. The exception is
+ * memcpy/memset/memmove/__aeabi_mem* (see their own comment below): real
+ * local implementations, not ABI trampolines — too hot a path for the
+ * extra indirection.
  *
  * NOT implemented here (add if/when a future core needs them):
  *   - __aeabi_ldivmod / __aeabi_uldivmod: return a {quot,rem} pair in
@@ -93,9 +96,6 @@ const uint32_t GW_CORE_BUILT_ABI_SIZE = sizeof(gw_firmware_abi_t);
  * ==================================================================== */
 void  *core_memchr(const void *s, int c, size_t n) { return gw_firmware_abi()->memchr(s, c, n); }
 int    core_memcmp(const void *a, const void *b, size_t n) { return gw_firmware_abi()->memcmp(a, b, n); }
-void  *core_memcpy(void *d, const void *s, size_t n) { return gw_firmware_abi()->memcpy(d, s, n); }
-void  *core_memmove(void *d, const void *s, size_t n) { return gw_firmware_abi()->memmove(d, s, n); }
-void  *core_memset(void *s, int c, size_t n) { return gw_firmware_abi()->memset(s, c, n); }
 char  *core_strchr(const char *s, int c) { return gw_firmware_abi()->strchr(s, c); }
 int    core_strcmp(const char *a, const char *b) { return gw_firmware_abi()->strcmp(a, b); }
 size_t core_strlen(const char *s) { return gw_firmware_abi()->strlen(s); }
@@ -107,25 +107,122 @@ char  *core_strcpy(char *d, const char *s) { return gw_firmware_abi()->strcpy(d,
 long   core_strtol(const char *nptr, char **endptr, int base) { return gw_firmware_abi()->strtol(nptr, endptr, base); }
 double core_strtod(const char *nptr, char **endptr) { return gw_firmware_abi()->strtod(nptr, endptr); }
 
+/* ====================================================================
+ * memcpy/memset/memmove + the compiler-generated __aeabi_mem* family:
+ * LOCAL implementations, NOT routed through gw_firmware_abi() like
+ * everything else in this file.
+ *
+ * These are by far the hottest calls a classic emulator core makes —
+ * every scanline blit, DMA-style buffer fill, CD sector read (2048B),
+ * ADPCM/CD-DA sample buffer copy, etc. Going through the ABI indirection
+ * (redefine-syms rename -> real function call -> load abi->memcpy from
+ * the struct -> indirect branch -> firmware's memcpy) on every single one
+ * of those, even 4-byte ones the compiler would normally inline away,
+ * was measured to cause visible frameskip/audio glitches on PCE-CD (heavy
+ * memcpy use: SCSI sectors, ADPCM, CD-DA mixing) — hence local
+ * implementations that the linker resolves directly, no indirection, no
+ * ABI round-trip. This file is exempt from gw_core_bridge_redefine_syms.txt
+ * (see cores/_template/Makefile's `if "$@" != "$(BRIDGE_OBJECTS)"`), so
+ * these real-named definitions are what every other object in the core
+ * link's plain "memcpy"/"memset"/... calls resolve to.
+ *
+ * -mno-unaligned-access (must match the firmware's MCU flags, see
+ * cores/_template/Makefile) means Cortex-M7 unaligned word loads/stores
+ * are NOT assumed safe here — memcpy/memmove/memset fall back to a byte
+ * loop unless dst (and, for memcpy/memmove, dst-vs-src) is/are provably
+ * word-aligned. __aeabi_memcpy4/8 and __aeabi_memset4/8/__aeabi_memclr4/8
+ * are compiler-guaranteed 4/8-byte aligned by construction (the compiler
+ * only emits them when it has proven the alignment itself), so those skip
+ * the runtime check and go straight to the word-copy loop. */
+void *memcpy(void *dst, const void *src, size_t n)
+{
+    uint8_t *d = (uint8_t *)dst;
+    const uint8_t *s = (const uint8_t *)src;
+
+    if (n >= 4 && (((uintptr_t)d ^ (uintptr_t)s) & 3u) == 0) {
+        while (((uintptr_t)d & 3u) && n) { *d++ = *s++; n--; }
+        while (n >= 16) {
+            uint32_t *dw = (uint32_t *)d;
+            const uint32_t *sw = (const uint32_t *)s;
+            dw[0] = sw[0]; dw[1] = sw[1]; dw[2] = sw[2]; dw[3] = sw[3];
+            d += 16; s += 16; n -= 16;
+        }
+        while (n >= 4) {
+            *(uint32_t *)d = *(const uint32_t *)s;
+            d += 4; s += 4; n -= 4;
+        }
+    }
+    while (n--) *d++ = *s++;
+    return dst;
+}
+
+void *memmove(void *dst, const void *src, size_t n)
+{
+    uint8_t *d = (uint8_t *)dst;
+    const uint8_t *s = (const uint8_t *)src;
+
+    if (d == s || n == 0)
+        return dst;
+    if (d < s || d >= s + n)
+        return memcpy(dst, src, n); /* non-overlapping (or dst before src): forward copy is safe */
+
+    d += n; s += n;
+    while (n--) *--d = *--s;
+    return dst;
+}
+
+void *memset(void *dst, int c, size_t n)
+{
+    uint8_t *d = (uint8_t *)dst;
+    uint8_t b = (uint8_t)c;
+
+    if (n >= 4) {
+        while (((uintptr_t)d & 3u) && n) { *d++ = b; n--; }
+        uint32_t w = 0x01010101u * (uint32_t)b;
+        while (n >= 16) {
+            uint32_t *dw = (uint32_t *)d;
+            dw[0] = w; dw[1] = w; dw[2] = w; dw[3] = w;
+            d += 16; n -= 16;
+        }
+        while (n >= 4) { *(uint32_t *)d = w; d += 4; n -= 4; }
+    }
+    while (n--) *d++ = b;
+    return dst;
+}
+
 /* ARM EABI memory helpers the compiler emits instead of plain memcpy/
  * memset/memmove for struct copies, local-array init, etc. (AAPCS
- * __aeabi_mem* family, gcc/config/arm/aeabi-*). NOT simple aliases of the
- * trampolines above: the __aeabi_memset/memclr family takes (dest, n, c)
- * — n and c SWAPPED versus libc's memset(dest, c, n). Getting this wrong
- * silently corrupts memory instead of failing to link, so it gets its own
- * trampolines rather than reusing core_memset via the redefine-syms list. */
-void core_aeabi_memcpy(void *d, const void *s, size_t n) { gw_firmware_abi()->memcpy(d, s, n); }
-void core_aeabi_memcpy4(void *d, const void *s, size_t n) { gw_firmware_abi()->memcpy(d, s, n); }
-void core_aeabi_memcpy8(void *d, const void *s, size_t n) { gw_firmware_abi()->memcpy(d, s, n); }
-void core_aeabi_memmove(void *d, const void *s, size_t n) { gw_firmware_abi()->memmove(d, s, n); }
-void core_aeabi_memmove4(void *d, const void *s, size_t n) { gw_firmware_abi()->memmove(d, s, n); }
-void core_aeabi_memmove8(void *d, const void *s, size_t n) { gw_firmware_abi()->memmove(d, s, n); }
-void core_aeabi_memset(void *d, size_t n, int c) { gw_firmware_abi()->memset(d, c, n); }
-void core_aeabi_memset4(void *d, size_t n, int c) { gw_firmware_abi()->memset(d, c, n); }
-void core_aeabi_memset8(void *d, size_t n, int c) { gw_firmware_abi()->memset(d, c, n); }
-void core_aeabi_memclr(void *d, size_t n) { gw_firmware_abi()->memset(d, 0, n); }
-void core_aeabi_memclr4(void *d, size_t n) { gw_firmware_abi()->memset(d, 0, n); }
-void core_aeabi_memclr8(void *d, size_t n) { gw_firmware_abi()->memset(d, 0, n); }
+ * __aeabi_mem* family, gcc/config/arm/aeabi-*). NOT simple aliases:
+ * __aeabi_memset/memclr take (dest, n, c) — n and c SWAPPED versus libc's
+ * memset(dest, c, n). Getting this wrong silently corrupts memory instead
+ * of failing to link, so they're spelled out explicitly below. */
+void __aeabi_memcpy(void *d, const void *s, size_t n) { memcpy(d, s, n); }
+void __aeabi_memcpy4(void *d, const void *s, size_t n)
+{
+    uint32_t *dw = (uint32_t *)d;
+    const uint32_t *sw = (const uint32_t *)s;
+    while (n >= 4) { *dw++ = *sw++; n -= 4; }
+    uint8_t *db = (uint8_t *)dw;
+    const uint8_t *sb = (const uint8_t *)sw;
+    while (n--) *db++ = *sb++;
+}
+void __aeabi_memcpy8(void *d, const void *s, size_t n) { __aeabi_memcpy4(d, s, n); }
+void __aeabi_memmove(void *d, const void *s, size_t n) { memmove(d, s, n); }
+void __aeabi_memmove4(void *d, const void *s, size_t n) { memmove(d, s, n); }
+void __aeabi_memmove8(void *d, const void *s, size_t n) { memmove(d, s, n); }
+void __aeabi_memset(void *d, size_t n, int c) { memset(d, c, n); }
+void __aeabi_memset4(void *d, size_t n, int c)
+{
+    uint32_t *dw = (uint32_t *)d;
+    uint32_t w = 0x01010101u * (uint32_t)(uint8_t)c;
+    while (n >= 4) { *dw++ = w; n -= 4; }
+    uint8_t *db = (uint8_t *)dw;
+    while (n--) *db++ = (uint8_t)c;
+}
+void __aeabi_memset8(void *d, size_t n, int c) { __aeabi_memset4(d, n, c); }
+void __aeabi_memclr(void *d, size_t n) { memset(d, 0, n); }
+void __aeabi_memclr4(void *d, size_t n) { __aeabi_memset4(d, n, 0); }
+void __aeabi_memclr8(void *d, size_t n) { __aeabi_memset4(d, n, 0); }
 
 /* ====================================================================
  * libc: ctype.h
@@ -175,6 +272,12 @@ int core_printf(const char *fmt, ...)
     va_end(ap);
     return r;
 }
+
+/* Passthrough (not variadic): a caller building its own va_list (e.g. a
+ * printf-style wrapper like PCE's osd_log()) needs the real vprintf, not
+ * another variadic layer on top of it. */
+int core_vprintf(const char *fmt, va_list ap) { return gw_firmware_abi()->vprintf(fmt, ap); }
+int core_vfprintf(FILE *stream, const char *fmt, va_list ap) { return gw_firmware_abi()->vfprintf(stream, fmt, ap); }
 
 int core_sprintf(char *s, const char *fmt, ...)
 {
@@ -404,3 +507,23 @@ char *core_odroid_system_get_path(int type, const char *romPath)
 
 uint32_t core_lcd_get_pixel_position(void) { return gw_firmware_abi()->lcd_get_pixel_position(); }
 bool     core_lcd_sleep_while_swap_pending(void) { return gw_firmware_abi()->lcd_sleep_while_swap_pending(); }
+
+/* ====================================================================
+ * v2 append: PC Engine / PC Engine CD porting surface
+ * ==================================================================== */
+unsigned int core_crc32_le(unsigned int crc, const unsigned char *buf, unsigned int len) { return gw_firmware_abi()->crc32_le(crc, buf, len); }
+void     core_cpumon_sleep(void) { gw_firmware_abi()->cpumon_sleep(); }
+char    *core_strncat(char *dest, const char *src, size_t n) { return gw_firmware_abi()->strncat(dest, src, n); }
+bool     core_odroid_settings_ActiveGameGenieCodes_is_enabled(char *game_path, int code_index)
+{
+    return gw_firmware_abi()->odroid_settings_ActiveGameGenieCodes_is_enabled(game_path, code_index);
+}
+
+int core_sscanf(const char *str, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int r = gw_firmware_abi()->vsscanf(str, fmt, ap);
+    va_end(ap);
+    return r;
+}

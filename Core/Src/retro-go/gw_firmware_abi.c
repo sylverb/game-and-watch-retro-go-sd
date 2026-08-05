@@ -35,6 +35,7 @@
 #include "stm32h7xx_hal.h"
 #include "gw_malloc.h"     /* ram_start */
 #include "gw_ofw.h"
+#include "crc32.h"
 
 /* ABI keeps the historical 6-arg odroid_system_emu_init signature; Core
  * now takes a 7th cheat_update callback. Bridge here so old plugins keep
@@ -312,4 +313,14 @@ const gw_firmware_abi_t g_firmware_abi = {
     .lcd_sleep_while_swap_pending = lcd_sleep_while_swap_pending,
 
     .frame_counter_ptr = &frame_counter,
+
+    /* v2 append: PC Engine / PC Engine CD porting surface */
+    .crc32_le      = crc32_le,
+    .cpumon_sleep  = cpumon_sleep,
+    .vsscanf       = vsscanf,
+    .strncat       = strncat,
+    .odroid_settings_ActiveGameGenieCodes_is_enabled = odroid_settings_ActiveGameGenieCodes_is_enabled,
+
+    .dma_counter_ptr                 = &dma_counter,
+    .common_emu_sound_dma_marker_ptr = &common_emu_sound_dma_marker,
 };

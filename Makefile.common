@@ -1513,6 +1513,13 @@ cores_md:
 $(CORES_DIR)/md.bin: cores_md | create_sd_folders
 	@cp cores/md.bin $@
 
+.PHONY: cores_pce
+cores_pce:
+	$(V)$(MAKE) -C cores/pce
+
+$(CORES_DIR)/pce.bin: cores_pce | create_sd_folders
+	@cp cores/pce.bin $@
+
 create_sd_folders:
 	$(V)mkdir -p $(SD_FOLDER)
 	$(V)mkdir -p $(CORES_DIR)
@@ -1580,6 +1587,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(BUILD_DIR)/$(TARGET)_intflash.bin \
                      $(CORES_DIR)/wsv.bin \
                      $(CORES_DIR)/md.bin \
+                     $(CORES_DIR)/pce.bin \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
@@ -1658,6 +1666,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(SD_FOLDER)/bios/logo.bin --dest-path "/bios/" \
 		-- sdpush --file $(CORES_DIR)/wsv.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/md.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/pce.bin --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2118,6 +2127,7 @@ clean:
 	$(V)@$(MAKE) -C external/firmware_update clean
 	$(V)$(MAKE) -C cores/wsv clean
 	$(V)$(MAKE) -C cores/md clean
+	$(V)$(MAKE) -C cores/pce clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

@@ -73,6 +73,13 @@ __REMOTE_INPUT_RESERVE__ = DEFINED(REMOTE_INPUT) ? REMOTE_INPUT * 12 : 0;
  * core's linker script so the VMA a core is built for can never drift from
  * where the firmware actually loads it (see run_dynamic_core()). */
 INCLUDE ld/gnw_ram_emu.ld
+/* __ITCM_CORE_START__/__ITCM_CORE_LENGTH__ and __AHB_CORE_START__/
+ * __AHB_CORE_LENGTH__ come from these, shared with any standalone core's
+ * linker script that places a segment in ITCM/AHB (see cores/pce/pce_core.ld)
+ * — same reasoning as ld/gnw_ram_emu.ld. Checked against this firmware's own
+ * ITCMRAM/AHBRAM layout via ASSERTs below. */
+INCLUDE ld/gnw_itcm_core.ld
+INCLUDE ld/gnw_ahb_core.ld
 __AHBRAM_LENGTH__   = 128K;
 __AHBRAM_AUDIO_RESERVE__ = 8K; /* MPU non-cacheable slot for .audio DMA buffer at end of AHB SRAM */
 __FLASH_LENGTH__    = 256K; /* Bank 1 */
@@ -142,6 +149,9 @@ SECTIONS
     __itcram_hot_end__ = .;
     __itcram_end__ = .;
   } > ITCMRAM
+
+  ASSERT(__ITCM_CORE_START__ == __itcram_hot_start__,
+         "Error: ld/gnw_itcm_core.ld's __ITCM_CORE_START__ no longer matches __itcram_hot_start__ — a core's fixed ITCM segment would overlap firmware-resident ITCM data")
 
   /* Uncached and unbuffered LCD framebuffer pool. Sized for the largest
    * supported mode (2x RGB565 framebuffers = 300K). lcd_setup_framebuffers()
@@ -297,6 +307,11 @@ SECTIONS
     . = ALIGN(4);
     __ahbram_end__ = .;
   } > AHBRAM
+
+  ASSERT(__AHB_CORE_START__ == __ahbram_start__,
+         "Error: ld/gnw_ahb_core.ld's __AHB_CORE_START__ no longer matches __ahbram_start__ — a core's fixed AHB segment would overlap firmware-resident AHB data")
+  ASSERT(__AHB_CORE_LENGTH__ <= (__ahbram_audio_start__ - __ahbram_start__),
+         "Error: ld/gnw_ahb_core.ld's __AHB_CORE_LENGTH__ overlaps the .audio DMA reserve at the top of AHB SRAM")
 
   /* The startup code goes first into FLASH */
   .isr_vector :

@@ -71,11 +71,18 @@ typedef struct {
 
     /* Non-empty for a dynamically-discovered external core (see
      * emulators_scan_cores() / gnw_core_meta_t): path of the .bin on the
-     * SD card, and the code/bss sizes read from its embedded metadata.
+     * SD card. Multiple tabs (systems) can share the same core_path (e.g.
+     * PC Engine + PC Engine CD from one pce.bin). Segment sizes are no
+     * longer cached here: run_dynamic_core() re-probes the file's
+     * gnw_core_meta_t at launch time instead, so this struct doesn't go
+     * stale if the file changes between scan and launch.
      * Empty for the compile-time tabs (Homebrew, PICO-8). */
     char core_path[64];
-    uint32_t core_code_size;
-    uint32_t core_bss_size;
+
+    /* GNW_PARSE_ROM (plain per-file browse, scan_folder_cb) or
+     * GNW_PARSE_CDROM (.cue-based folder scan, emulator_scan_cdrom_folder)
+     * — see gnw_parse_type_t. Always GNW_PARSE_ROM for compile-time tabs. */
+    uint32_t parse_type;
 } retro_emulator_t;
 
 

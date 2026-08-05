@@ -31,6 +31,15 @@ extern uint32_t __itcram_hot_end__;
 // If this is not an array the compiler might put in a memory_chk with dest_size 1...
 extern void * __RAM_EMU_START__[];
 extern uint32_t __RAM_EMU_END__;
+
+/* From ld/gnw_itcm_core.ld / ld/gnw_ahb_core.ld — fixed base+length a
+ * dynamic core's non-RAM_EMU segments (see gnw_core_region_t) may target.
+ * Plain linker-script constants, not section symbols: read as
+ * (uint32_t)&__ITCM_CORE_START__ etc., same convention as __RAM_EMU_START__. */
+extern void * __ITCM_CORE_START__[];
+extern uint32_t __ITCM_CORE_LENGTH__;
+extern void * __AHB_CORE_START__[];
+extern uint32_t __AHB_CORE_LENGTH__;
 extern void * _OVERLAY_NES_LOAD_START[];
 extern uint8_t _OVERLAY_NES_SIZE;
 extern void * _OVERLAY_NES_BSS_START[];

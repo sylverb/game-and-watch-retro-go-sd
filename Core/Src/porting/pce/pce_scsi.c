@@ -307,12 +307,6 @@ void pce_scsi_set_disc(const pce_cd_toc_t *toc, bool present)
     diag("=== BUILD adpcmshift-1 ===\n");
     diag("MOUNT present=%d tracks=%d total_lba=%lu\n", s_present,
          toc ? toc->num_tracks : -1, (unsigned long)(toc ? toc->total_lba : 0));
-#ifndef LINUX_EMU
-    /* Prove the PCE-CD auto-OC engaged (280 = stock/OSPI1-guarded, ~353 = lvl2). */
-    { extern uint32_t HAL_RCC_GetSysClockFreq(void);
-      diag("clock=%lu MHz (auto-OC lvl2 requested)\n",
-           (unsigned long)(HAL_RCC_GetSysClockFreq() / 1000000)); }
-#endif
     /* Dump every track's computed start_lba — the harness showed device reads land 294
      * sectors below host for identical data, i.e. the per-track LBA computation diverges
      * on device. Compare this dump host-vs-device to find where the offset creeps in. */

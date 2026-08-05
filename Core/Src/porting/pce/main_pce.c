@@ -11,9 +11,7 @@
 #include <assert.h>
 #include <gfx.h>
 #include "main.h"
-#include "bilinear.h"
 #include "gw_lcd.h"
-#include "gw_linker.h"
 #include "gw_buttons.h"
 #include "rom_manager.h"
 #include "common.h"
@@ -22,10 +20,12 @@
 #include "pce_scsi.h"
 #include "pce_adpcm.h"
 #include "appid.h"
-#ifndef GNW_DISABLE_COMPRESSION
-#include "lzma.h"
-#endif
 #include "gw_malloc.h"
+/* Everything above is a normal firmware header (see gw_core_bridge.h's file
+ * header comment for why this ordering matters: common_emu_state/ram_start/
+ * dma_counter/etc. become live-ABI macros below, so their "real" extern
+ * declarations from common.h/gw_malloc.h/gw_audio.h must be parsed first). */
+#include "gw_core_bridge.h"
 
 //#define PCE_SHOW_DEBUG
 #define FPS_NTSC 60
@@ -66,8 +66,6 @@ static uint8_t pce_framebuffer[XBUF_WIDTH * XBUF_HEIGHT];
  * CD games crash -> Dynastic Hero is a genuine hard RAM limit; keep the working 200KB. */
 static uint8_t PCE_EXRAM_BUF[0x8000];
 
-// TODO: Move to lcd.c/h
-extern LTDC_HandleTypeDef hltdc;
 static char pce_log[100];
 
 /**
@@ -255,7 +253,13 @@ static void pce_sram_save_cb(void)
     pce_cd_close();
 }
 
-static bool SaveState(const char *savePathName) {
+/* Named PceSaveState/PceLoadState (not SaveState/LoadState) to avoid
+ * clashing with pce-go.h's unrelated `int SaveState/LoadState(const char*)`
+ * declarations (pce-go.c's own internal savestate helpers) — that .c file
+ * isn't compiled into this core, but its header is pulled in transitively
+ * via pce.h, and a same-name static definition with a different return
+ * type is a hard conflicting-types error even though nothing links it. */
+static bool PceSaveState(const char *savePathName) {
     size_t pos = 0;
     FILE *file = fopen(savePathName, "wb");
     if (file == NULL) {
@@ -322,7 +326,7 @@ static bool SaveState(const char *savePathName) {
  * successful state load; a failed/CRC-mismatched load keeps the boot injection. */
 static bool s_cd_state_loaded;
 
-static bool LoadState(const char *savePathName) {
+static bool PceLoadState(const char *savePathName) {
     /* Streams the state straight from the file into the live structures —
      * NEVER through save_buffer, which is CD RAM bank backing (0x81-0x87 on
      * device): the old staged reader overwrote those banks' live content with
@@ -429,8 +433,14 @@ static void pce_rom_full_patch()
 
 static void pce_rom_patch()
 {
-    unsigned char *dest = (unsigned char *)&_PCE_ROM_UNPACK_BUFFER;
-    uint32_t available_size = (uint32_t)&_PCE_ROM_UNPACK_BUFFER_SIZE;
+    /* Old flash-only build read a fixed linker-symbol scratch buffer
+     * (_PCE_ROM_UNPACK_BUFFER) sized to whatever RAM_EMU tail was left after
+     * this core's own BSS. Dynamic cores don't have that link-time constant
+     * (RAM_EMU usage varies per core/segment layout), so take the live
+     * bump-pointer position/remaining size instead — identical semantics:
+     * this is exactly where the NEXT ram_malloc() would start. */
+    unsigned char *dest = (unsigned char *)ram_start;
+    uint32_t available_size = ram_get_free_size();
 
     uint8_t *DynMEM[16]; //max 16*16=256k;  single bank is 8k but here must two bank batch move
     uint8_t DynCount = 0;
@@ -501,29 +511,11 @@ static void pce_rom_patch()
 size_t
 pce_osd_getromdata(unsigned char **data)
 {
-    /* src pointer to the ROM data in the external flash (raw or LZ4) */
-#ifndef GNW_DISABLE_COMPRESSION
-#if SD_CARD == 1
-#error "Roms compression is not supported on SD Card"
-#else
-    unsigned char *dest = (unsigned char *)&_PCE_ROM_UNPACK_BUFFER;
-    uint32_t available_size = (uint32_t)&_PCE_ROM_UNPACK_BUFFER_SIZE;
-    uint32_t src_size = 0;
-    const unsigned char *src = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &src_size, false);
-    if (src == NULL || src_size == 0) {
-        *data = NULL;
-        return 0;
-    }
-    if(strcmp(ACTIVE_FILE->ext, "lzma") == 0){
-        size_t n_decomp_bytes;
-        n_decomp_bytes = lzma_inflate(dest, available_size, src, src_size);
-        *data = dest;
-        return n_decomp_bytes;
-    }
-    else
-#endif
-#endif
-    ram_start = (uint32_t)&_OVERLAY_PCE_BSS_END;
+    /* Dynamic cores always self-manage ROM loading (SD_CARD=1: no compressed
+     * ROMs, see cores/_template/Makefile's -DGNW_DISABLE_COMPRESSION) — reset
+     * the shared RAM bump pointer to right past this core's own code+bss on
+     * every load, exactly like main_wsv.c/main_gwenesis.c. */
+    ram_start = (uint32_t)&__CORE_BSS_END__;
     if (strcmp(ACTIVE_FILE->ext, "cue") == 0) {
         /* PCE-CD: the "ROM" is the System Card BIOS (mapped at bank 0); the disc
          * image itself is streamed from SD separately. XIP it from flash like a
@@ -655,7 +647,7 @@ void LoadCartPCE() {
         PCE.MemoryMapW[0x00] = PCE.IOAREA;
 
     //pce_rom_patch
-    unsigned char *dest = (unsigned char *)&_PCE_ROM_UNPACK_BUFFER;
+    unsigned char *dest = (unsigned char *)ram_start;
     printf("Rom: %p %p \n", PCE.ROM, dest);
 
     if (PCE.ROM != dest)
@@ -671,8 +663,8 @@ void LoadCartPCE() {
      * game overwrites itself, then traps. Done last so it overrides the
      * System-Card ROM mirror that the bank loop left on 0x68-0x7F. */
     if (strcmp(ACTIVE_FILE->ext, "cue") == 0) {
-        uint8_t  *buf  = (uint8_t *)&_PCE_ROM_UNPACK_BUFFER;
-        uint32_t  room = (uint32_t)&_PCE_ROM_UNPACK_BUFFER_SIZE;
+        uint8_t  *buf  = (uint8_t *)ram_start;
+        uint32_t  room = ram_get_free_size();
         int total_banks = PCE_CD_RAM_LAST_BANK - PCE_CD_RAM_FIRST_BANK + 1;  /* 32 = 256KB */
         int buf_banks   = (int)(room / PCE_CD_RAM_BANK_SIZE);
         if (buf_banks > total_banks) buf_banks = total_banks;
@@ -981,7 +973,7 @@ int app_main_pce(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
     apply_cpu_clock();
 
     odroid_system_init(APPID_PCE, PCE_SAMPLE_RATE);
-    odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, &sleep_wake_up, &pce_sram_save_cb, NULL);
+    odroid_system_emu_init(&PceLoadState, &PceSaveState, &Screenshot, NULL, &sleep_wake_up, &pce_sram_save_cb, NULL);
     pce_log[0]=0;
 
     // Init Graphics
