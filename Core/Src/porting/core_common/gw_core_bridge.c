@@ -9,15 +9,23 @@
  * resolve to these instead of a real local implementation.
  *
  * NOT implemented here (add if/when a future core needs them):
- *   - setjmp/longjmp: can't be trampolined through a normal call (the
- *     wrapper would save/restore the wrong stack frame). PICO-8's bridge
- *     has a naked-asm implementation to copy if ever needed.
  *   - __aeabi_ldivmod / __aeabi_uldivmod: return a {quot,rem} pair in
  *     r0-r3 per AAPCS, which a plain C function pointer can't express.
  *     ldivmod_quot/ldivmod_rem (and the u* variants) ARE in the ABI for
  *     when this is needed — see docs/PICO8_EXTERNAL_MODULE.md.
- * If a core's link fails with "undefined reference to __aeabi_*" or
- * "to setjmp/longjmp", that core is the first to need one of the above.
+ * If a core's link fails with "undefined reference to __aeabi_*", that
+ * core is the first to need the above.
+ *
+ * setjmp/longjmp ARE implemented (see core_setjmp/core_longjmp below), but
+ * NOT as plain wrappers like everything else in this file: a normal C
+ * function calling gw_firmware_abi()->setjmp(env) would have setjmp save
+ * *its own* (the trampoline's) stack frame, which is gone by the time the
+ * m68k core (the first caller here — Musashi's read/write bus-error path)
+ * later calls longjmp, since core_setjmp already returned 0 to ITS caller
+ * on the direct-call path. They're naked asm tail calls instead (`bx`, no
+ * `bl`, no prologue/epilogue) so the real setjmp/longjmp execute with
+ * EXACTLY the original caller's r0-r3/LR/SP — indistinguishable from that
+ * caller having called the firmware's real setjmp/longjmp directly.
  */
 
 #include "gw_core_bridge.h"
@@ -28,6 +36,7 @@
 #include <stddef.h>
 #include <string.h>
 #include <ctype.h>
+#include <setjmp.h>
 
 /* newlib defines these as function-like macros (isalnum(c) -> ctype-table
  * lookup, feof(f)/ferror(f) -> flag-bit check on the FILE struct); left
@@ -50,6 +59,18 @@ void gw_core_bridge_init(void)
 {
     /* Nothing to snapshot yet — see gw_core_bridge.h. */
 }
+
+/* libm (linked directly via CORE_LDLIBS=-lm, see cores/md/Makefile) expects
+ * newlib's non-reentrant `errno` macro, `#define errno (*__errno())`. Its
+ * .a member (math_err.o) is prebuilt and never passes through this build's
+ * --redefine-syms pass (that only touches OUR object files, see
+ * gw_core_bridge_redefine_syms.txt's header comment), so unlike everything
+ * else in this file the real `__errno` symbol name must exist as-is — no
+ * `core_` trampoline/rename pair for this one. Purely local per-core state
+ * (single core running at a time, no threads), no need to round-trip
+ * through the firmware ABI either. */
+static int core_errno_storage;
+int *__errno(void) { return &core_errno_storage; }
 
 /* Baked-in record of the ABI surface this core was actually compiled
  * against — read by tools/pack_core.py (via `nm` + a raw byte read at this
@@ -144,6 +165,7 @@ int    core_feof(FILE *stream) { return gw_firmware_abi()->feof(stream); }
 int    core_ferror(FILE *stream) { return gw_firmware_abi()->ferror(stream); }
 char  *core_fgets(char *s, int size, FILE *stream) { return gw_firmware_abi()->fgets(s, size, stream); }
 int    core_remove(const char *path) { return gw_firmware_abi()->remove(path); }
+int    core_puts(const char *s) { return gw_firmware_abi()->puts(s); }
 
 int core_printf(const char *fmt, ...)
 {
@@ -182,6 +204,52 @@ void core_assert_func(const char *file, int line, const char *func, const char *
 }
 
 /* ====================================================================
+ * libc: setjmp.h — naked tail-call trampolines, see the file header
+ * comment for why these can't be plain wrapper functions.
+ *
+ * gw_firmware_abi() (gw_firmware_abi.h) is itself just
+ * `*(uint32_t *)GW_VTOR_ADDRESS + GW_FIRMWARE_ABI_OFFSET`; movw/movt build
+ * that same constant inline instead of calling the helper, since a naked
+ * function's body may contain nothing but asm. r0 (env) / r1 (val, for
+ * longjmp) are never touched, so they reach the real function exactly as
+ * the original caller set them up; r2/r3 are free per AAPCS (caller-saved,
+ * not yet used for an argument here).
+ * ==================================================================== */
+__attribute__((naked))
+int core_setjmp(jmp_buf env)
+{
+    (void)env;
+    __asm volatile(
+        "movw r2, #%[vtor_lo]\n"
+        "movt r2, #%[vtor_hi]\n"
+        "ldr  r2, [r2]\n"
+        "ldr  r1, [r2, %[off]]\n"
+        "bx   r1\n"
+        :
+        : [vtor_lo] "i" (GW_VTOR_ADDRESS & 0xFFFFu),
+          [vtor_hi] "i" (GW_VTOR_ADDRESS >> 16),
+          [off] "i" (GW_FIRMWARE_ABI_OFFSET + offsetof(gw_firmware_abi_t, setjmp))
+    );
+}
+
+__attribute__((naked, noreturn))
+void core_longjmp(jmp_buf env, int val)
+{
+    (void)env; (void)val;
+    __asm volatile(
+        "movw r2, #%[vtor_lo]\n"
+        "movt r2, #%[vtor_hi]\n"
+        "ldr  r2, [r2]\n"
+        "ldr  r3, [r2, %[off]]\n"
+        "bx   r3\n"
+        :
+        : [vtor_lo] "i" (GW_VTOR_ADDRESS & 0xFFFFu),
+          [vtor_hi] "i" (GW_VTOR_ADDRESS >> 16),
+          [off] "i" (GW_FIRMWARE_ABI_OFFSET + offsetof(gw_firmware_abi_t, longjmp))
+    );
+}
+
+/* ====================================================================
  * FatFs (ff.h)
  * ==================================================================== */
 FRESULT core_f_opendir(DIR *dp, const TCHAR *path) { return gw_firmware_abi()->f_opendir(dp, path); }
@@ -211,13 +279,19 @@ uint16_t core_audio_get_buffer_length(void) { return gw_firmware_abi()->audio_ge
 
 /* ====================================================================
  * G&W hardware: allocators
+ *
+ * All of these route through the single ABI entry point mem_alloc() (see
+ * gw_firmware_abi.h) — kept as separate trampolines/names here purely so
+ * core source code (main_wsv.c, main_gwenesis.c, external submodules)
+ * keeps calling the familiar itc_malloc()/ahb_calloc()/etc. names it
+ * always has, via the usual objcopy --redefine-syms indirection.
  * ==================================================================== */
-void  *core_itc_malloc(size_t size) { return gw_firmware_abi()->itc_malloc(size); }
-void  *core_itc_calloc(size_t count, size_t size) { return gw_firmware_abi()->itc_calloc(count, size); }
+void  *core_itc_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_ITC, 1, size); }
+void  *core_itc_calloc(size_t count, size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_ITC, count, size); }
 void   core_itc_init(void) { gw_firmware_abi()->itc_init(); }
-void  *core_ram_malloc(size_t size) { return gw_firmware_abi()->ram_malloc(size); }
+void  *core_ram_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_RAM, 1, size); }
 size_t core_ram_get_free_size(void) { return gw_firmware_abi()->ram_get_free_size(); }
-void  *core_dtcm_malloc(size_t size) { return gw_firmware_abi()->dtcm_malloc(size); }
+void  *core_dtcm_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_DTCM, 1, size); }
 
 /* ====================================================================
  * G&W hardware: watchdog + HAL
@@ -303,3 +377,30 @@ uint8_t core_common_emu_sound_get_volume(void) { return gw_firmware_abi()->commo
 bool    core_common_emu_sound_loop_is_muted(void) { return gw_firmware_abi()->common_emu_sound_loop_is_muted(); }
 void    core_common_emu_sound_sync(bool use_nops) { gw_firmware_abi()->common_emu_sound_sync(use_nops); }
 void    core_common_ingame_overlay(void) { gw_firmware_abi()->common_ingame_overlay(); }
+void    core_common_emu_enable_dwt_cycles(void) { gw_firmware_abi()->common_emu_enable_dwt_cycles(); }
+unsigned int core_common_emu_get_dwt_cycles(void) { return gw_firmware_abi()->common_emu_get_dwt_cycles(); }
+void    core_common_emu_clear_dwt_cycles(void) { gw_firmware_abi()->common_emu_clear_dwt_cycles(); }
+
+/* ====================================================================
+ * v1 append: Mega Drive / gwenesis porting surface
+ * ==================================================================== */
+void  *core_ahb_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_AHB, 1, size); }
+void  *core_ahb_calloc(size_t count, size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_AHB, count, size); }
+
+void core_odroid_audio_init(int sample_rate) { gw_firmware_abi()->odroid_audio_init(sample_rate); }
+int  core_odroid_audio_sample_rate_get(void) { return gw_firmware_abi()->odroid_audio_sample_rate_get(); }
+void core_audio_start_playing_full_length(uint16_t length) { gw_firmware_abi()->audio_start_playing_full_length(length); }
+uint16_t core_audio_get_buffer_full_length(void) { return gw_firmware_abi()->audio_get_buffer_full_length(); }
+
+uint8_t core_odroid_settings_cpu_oc_level_get(void) { return gw_firmware_abi()->odroid_settings_cpu_oc_level_get(); }
+void    core_SystemClock_Config(uint8_t new_oc_level) { gw_firmware_abi()->SystemClock_Config(new_oc_level); }
+
+bool core_get_ofw_is_mario(void) { return gw_firmware_abi()->get_ofw_is_mario(); }
+
+char *core_odroid_system_get_path(int type, const char *romPath)
+{
+    return gw_firmware_abi()->odroid_system_get_path(type, romPath);
+}
+
+uint32_t core_lcd_get_pixel_position(void) { return gw_firmware_abi()->lcd_get_pixel_position(); }
+bool     core_lcd_sleep_while_swap_pending(void) { return gw_firmware_abi()->lcd_sleep_while_swap_pending(); }

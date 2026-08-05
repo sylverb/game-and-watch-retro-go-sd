@@ -74,20 +74,50 @@ def extract_logo_from_c(spec):
     declaration (see tools/png_to_logo.py for the writer side) and returns
     the packed (width, height, bytes) retro_logo_image payload — i.e. the
     exact same bytes already compiled into the firmware for this logo, so a
-    core migrated to the dynamic model keeps a pixel-identical tab icon."""
+    core migrated to the dynamic model keeps a pixel-identical tab icon.
+
+    A few logos (e.g. header_gen, the Sega Genesis header) wrap their
+    width/height/bytes triple in a `#if INCLUDED_xx_xx == 1 ... #else ...
+    #endif` locale variant (a different bitmap is baked in when a CJK font
+    able to render it is compiled into the firmware). Since a standalone
+    core has no compile-time knowledge of which languages the *firmware*
+    it will run against was built with (same simplification already made
+    for all of a dynamic core's own UI strings — see main_wsv.c/
+    main_gwenesis.c, hardcoded English), we always take the `#else`
+    (default/international) branch here."""
     path_str, _, varname = spec.rpartition(":")
     if not path_str or not varname:
         raise ValueError(f"expected PATH:VARNAME, got {spec!r}")
     text = Path(path_str).read_text()
-    pattern = re.compile(
-        re.escape(varname) + r"\s+LOGO_DATA\s*=\s*\{\s*(\d+)\s*,\s*(\d+)\s*,\s*\{(.*?)\}\s*,\s*\}\s*;",
-        re.DOTALL,
-    )
-    m = pattern.search(text)
-    if not m:
+
+    decl = re.search(re.escape(varname) + r"\s+LOGO_DATA\s*=\s*\{", text)
+    if not decl:
         raise ValueError(f"could not find 'const retro_logo_image {varname} LOGO_DATA = ...' in {path_str}")
-    width, height = int(m.group(1)), int(m.group(2))
-    hex_bytes = re.findall(r"0x[0-9a-fA-F]{1,2}", m.group(3))
+
+    # Balanced-brace scan for the matching closing '}' of this initializer
+    # (the byte array itself is a nested { ... }, so a non-greedy regex
+    # can't tell an inner close-brace from the outer one).
+    depth = 1
+    i = decl.end()
+    while depth > 0:
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+        i += 1
+    block = text[decl.end():i - 1]
+
+    if "#if" in block:
+        branch = re.search(r"#else(.*?)#endif", block, re.DOTALL)
+        if not branch:
+            raise ValueError(f"{varname}: found '#if' with no '#else' branch to fall back to in {path_str}")
+        block = branch.group(1)
+
+    fields = re.match(r"\s*(\d+)\s*,\s*(\d+)\s*,\s*\{(.*?)\}\s*,?\s*$", block, re.DOTALL)
+    if not fields:
+        raise ValueError(f"{varname}: could not parse width/height/bytes in {path_str}")
+    width, height = int(fields.group(1)), int(fields.group(2))
+    hex_bytes = re.findall(r"0x[0-9a-fA-F]{1,2}", fields.group(3))
     data = bytes(int(h, 16) for h in hex_bytes)
     expected_len = ((width + 7) // 8) * height
     if len(data) != expected_len:

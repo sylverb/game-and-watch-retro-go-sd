@@ -24,6 +24,11 @@
 #   CORE_C_INCLUDES  extra -I flags, on top of the common set below
 #   CORE_C_DEFS      extra -D flags, on top of the common set below
 #   CORE_LDSCRIPT    defaults to $(TEMPLATE_DIR)/core_ram_emu.ld
+#   CORE_LDLIBS      extra -l flags, e.g. -lm (see cores/md/Makefile: gwenesis's
+#                    ym2612.c calls sin()/log() once at init time to build FM
+#                    tables — self-contained libm code with no firmware calls,
+#                    so it's simplest to link it in directly rather than route
+#                    it through gw_firmware_abi_t like everything else here)
 #   GCC_PATH         toolchain bin dir, same convention as the root Makefile
 #   OPT              optimization level, default -Os (code-size matters more
 #                     here than for the always-resident launcher: this is the
@@ -121,7 +126,7 @@ ASFLAGS = $(MCU) $(OPT) $(CORE_COMMON_C_DEFS) $(CORE_C_DEFS)
 # the "NOT implemented here" note in gw_core_bridge.c. It is entirely
 # self-contained (no firmware calls), so pulling it in costs code size but
 # never breaks the ABI boundary.
-LDFLAGS = $(MCU) -nostdlib -lgcc -T$(CORE_LDSCRIPT) -L$(ROOT_DIR)/ld \
+LDFLAGS = $(MCU) -nostdlib -lgcc $(CORE_LDLIBS) -T$(CORE_LDSCRIPT) -L$(ROOT_DIR)/ld \
 -Wl,-Map=$(BUILD_DIR)/$(CORE_NAME)_core.map,--cref -Wl,--gc-sections \
 -Wl,--no-check-sections
 

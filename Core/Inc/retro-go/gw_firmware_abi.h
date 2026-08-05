@@ -41,7 +41,7 @@ extern "C" {
 #endif
 
 /* Bump on any removal, reorder, or signature change. Append-only is safe. */
-#define GW_FIRMWARE_ABI_VERSION  1u
+#define GW_FIRMWARE_ABI_VERSION  2u
 
 /* Offset within intflash where the .firmware_abi section is pinned by
  * the linker. Chosen to sit after the ISR vector table (684 bytes at
@@ -56,6 +56,17 @@ extern "C" {
  * the currently-active vector table; for this firmware that's always
  * __flash_start__ (first byte of intflash). */
 #define GW_VTOR_ADDRESS           0xE000ED08u
+
+/* Memory pool selector for mem_alloc() below. Replaces what used to be one
+ * ABI function pointer per pool (itc_malloc/itc_calloc, ram_malloc,
+ * ahb_malloc/ahb_calloc, dtcm_malloc) with a single entry point, keeping
+ * the ABI table small — see mem_alloc's comment. */
+typedef enum {
+    GW_MEM_ITC  = 0,  /* 64KB ITCM pool, reset by the firmware's itc_init() */
+    GW_MEM_RAM  = 1,  /* RAM_EMU bump pool (this core's ram_start budget) */
+    GW_MEM_AHB  = 2,  /* AHB SRAM pool, reset by the firmware's ahb_init() */
+    GW_MEM_DTCM = 3,  /* DTCM newlib heap (free()-able) */
+} gw_mem_pool_t;
 
 typedef struct {
     /* Header — every plugin checks these before using the rest. */
@@ -196,11 +207,17 @@ typedef struct {
 
     /* ================================================================
      * G&W hardware: allocators
+     *
+     * mem_alloc() is the single entry point for every pool-based
+     * allocator (ITC/RAM_EMU/AHB/DTCM) — always zeroes the returned
+     * block (calloc semantics); pass count=1 for a plain malloc(size).
+     * gw_core_bridge.c re-exposes the historical per-pool names
+     * (itc_malloc, itc_calloc, ram_malloc, ahb_malloc, ahb_calloc,
+     * dtcm_malloc) as thin wrappers over this one function, so core
+     * source code is unaffected.
      * ================================================================ */
-    void  *(*itc_malloc)(size_t size);
-    void  *(*itc_calloc)(size_t count, size_t size);
+    void  *(*mem_alloc)(gw_mem_pool_t pool, size_t count, size_t size);
     void   (*itc_init)(void);
-    void  *(*ram_malloc)(size_t size);
     size_t (*ram_get_free_size)(void);
 
     /* ================================================================
@@ -289,11 +306,6 @@ typedef struct {
 
     /* =====[ APPEND-ONLY FROM HERE — bump version on any change above ]===== */
 
-    /* v1 append: DTCM heap allocator — engine calls this to get 64KB p8ram
-     * at runtime instead of relying on a fixed linker section.
-     * Freed implicitly by heap watermark reset between emulator launches. */
-    void                       *(*dtcm_malloc)(size_t size);
-
     /* v1 append: deferred state load. Engine calls this from main loop AFTER
      * the first frame body so cart_co is in a stable post-init state. Routed
      * through ABI (not a direct call) so future firmware can change the
@@ -336,6 +348,40 @@ typedef struct {
 
     size_t   (*odroid_overlay_cache_file_in_ram)(const char *file_path,
                                                  uint8_t *dest_address);
+
+    /* ================================================================
+     * v1 append: surface required to port the Mega Drive / Genesis
+     * (gwenesis) core to the external-core model. Identified by porting
+     * Core/Src/porting/gwenesis/main_gwenesis.c against this ABI.
+     * ================================================================ */
+    void     (*odroid_audio_init)(int sample_rate);
+    int      (*odroid_audio_sample_rate_get)(void);
+    void     (*audio_start_playing_full_length)(uint16_t length);
+    uint16_t (*audio_get_buffer_full_length)(void);
+
+    void         (*common_emu_enable_dwt_cycles)(void);
+    unsigned int (*common_emu_get_dwt_cycles)(void);
+    void         (*common_emu_clear_dwt_cycles)(void);
+
+    uint8_t  (*odroid_settings_cpu_oc_level_get)(void);
+    /* SystemClock_Config's argument is the CPU overclock level (0 = stock);
+     * see Core/Inc/main.h. */
+    void     (*SystemClock_Config)(uint8_t new_oc_level);
+
+    bool     (*get_ofw_is_mario)(void);
+
+    /* odroid_system_get_path's `type` is emu_path_type_t (odroid_system.h),
+     * exposed as `int` for the same reason as lcd_setup_framebuffers.
+     * Returns a strdup'd string the caller must free(). */
+    char    *(*odroid_system_get_path)(int type, const char *romPath);
+
+    uint32_t (*lcd_get_pixel_position)(void);
+    bool     (*lcd_sleep_while_swap_pending)(void);
+
+    /* frame_counter (gw_lcd.h): incremented by the LCD vsync ISR. Engine
+     * reads the live value through frame_counter_ptr instead of linking
+     * against the firmware's global directly. */
+    uint32_t                    *frame_counter_ptr;
 
 } gw_firmware_abi_t;
 

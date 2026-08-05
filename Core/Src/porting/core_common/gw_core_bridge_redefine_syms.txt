@@ -67,11 +67,15 @@ feof core_feof
 ferror core_ferror
 fgets core_fgets
 remove core_remove
+puts core_puts
 printf core_printf
 sprintf core_sprintf
 snprintf core_snprintf
 # --- libc: assert.h ---
 __assert_func core_assert_func
+# --- libc: setjmp.h (naked asm trampolines, see gw_core_bridge.c) ---
+setjmp core_setjmp
+longjmp core_longjmp
 # --- FatFs (ff.h) ---
 f_opendir core_f_opendir
 f_closedir core_f_closedir
@@ -127,3 +131,19 @@ common_emu_sound_get_volume core_common_emu_sound_get_volume
 common_emu_sound_loop_is_muted core_common_emu_sound_loop_is_muted
 common_emu_sound_sync core_common_emu_sound_sync
 common_ingame_overlay core_common_ingame_overlay
+common_emu_enable_dwt_cycles core_common_emu_enable_dwt_cycles
+common_emu_get_dwt_cycles core_common_emu_get_dwt_cycles
+common_emu_clear_dwt_cycles core_common_emu_clear_dwt_cycles
+# --- v1 append: Mega Drive / gwenesis porting surface ---
+ahb_malloc core_ahb_malloc
+ahb_calloc core_ahb_calloc
+odroid_audio_init core_odroid_audio_init
+odroid_audio_sample_rate_get core_odroid_audio_sample_rate_get
+audio_start_playing_full_length core_audio_start_playing_full_length
+audio_get_buffer_full_length core_audio_get_buffer_full_length
+odroid_settings_cpu_oc_level_get core_odroid_settings_cpu_oc_level_get
+SystemClock_Config core_SystemClock_Config
+get_ofw_is_mario core_get_ofw_is_mario
+odroid_system_get_path core_odroid_system_get_path
+lcd_get_pixel_position core_lcd_get_pixel_position
+lcd_sleep_while_swap_pending core_lcd_sleep_while_swap_pending

@@ -34,6 +34,7 @@
 #include "ff.h"
 #include "stm32h7xx_hal.h"
 #include "gw_malloc.h"     /* ram_start */
+#include "gw_ofw.h"
 
 /* ABI keeps the historical 6-arg odroid_system_emu_init signature; Core
  * now takes a 7th cheat_update callback. Bridge here so old plugins keep
@@ -65,6 +66,22 @@ extern struct _reent *_impure_ptr;
  * The engine needs the REAL libc fflush (for FILE* streams like stdout).
  * __real_fflush is provided by the linker's --wrap mechanism. */
 extern int __real_fflush(FILE *stream);
+
+/* Single entry point behind mem_alloc — see gw_firmware_abi.h's comment on
+ * that field. Dispatches to the pool-specific *_calloc() (gw_malloc.c),
+ * which all already implement "malloc + memset" — mem_alloc always zeroes,
+ * callers passing count=1 get plain malloc(size) semantics plus a free
+ * zero-init. */
+static void *abi_mem_alloc(gw_mem_pool_t pool, size_t count, size_t size)
+{
+    switch (pool) {
+    case GW_MEM_ITC:  return itc_calloc(count, size);
+    case GW_MEM_RAM:  return ram_calloc(count, size);
+    case GW_MEM_AHB:  return ahb_calloc(count, size);
+    case GW_MEM_DTCM: return dtcm_calloc(count, size);
+    default:          return NULL;
+    }
+}
 
 /* libgcc soft-integer helpers (exposed via typed wrappers below). */
 static int64_t  abi_ldivmod_quot (int64_t a, int64_t b)  { return a / b; }
@@ -187,10 +204,8 @@ const gw_firmware_abi_t g_firmware_abi = {
     .audio_clear_inactive_buffer = audio_clear_inactive_buffer,
 
     /* G&W allocators */
-    .itc_malloc        = itc_malloc,
-    .itc_calloc        = itc_calloc,
+    .mem_alloc         = abi_mem_alloc,
     .itc_init          = itc_init,
-    .ram_malloc        = ram_malloc,
     .ram_get_free_size = ram_get_free_size,
 
     /* G&W RTC */
@@ -249,8 +264,6 @@ const gw_firmware_abi_t g_firmware_abi = {
     .impure_ptr_ptr            = (void **)&_impure_ptr,
     .dtcm_p8ram_start          = NULL,  /* no longer a fixed section — use dtcm_malloc */
 
-    .dtcm_malloc               = dtcm_malloc,
-
     .odroid_system_emu_load_state = odroid_system_emu_load_state,
     .odroid_audio_mute            = odroid_audio_mute,
 
@@ -275,4 +288,28 @@ const gw_firmware_abi_t g_firmware_abi = {
     .odroid_display_get_filter_mode = (int (*)(void))odroid_display_get_filter_mode,
 
     .odroid_overlay_cache_file_in_ram = odroid_overlay_cache_file_in_ram,
+
+    /* v1 append: Mega Drive / gwenesis porting surface */
+    .odroid_audio_init             = odroid_audio_init,
+    .odroid_audio_sample_rate_get  = odroid_audio_sample_rate_get,
+    .audio_start_playing_full_length = audio_start_playing_full_length,
+    .audio_get_buffer_full_length     = audio_get_buffer_full_length,
+
+    .common_emu_enable_dwt_cycles = common_emu_enable_dwt_cycles,
+    .common_emu_get_dwt_cycles    = common_emu_get_dwt_cycles,
+    .common_emu_clear_dwt_cycles  = common_emu_clear_dwt_cycles,
+
+    .odroid_settings_cpu_oc_level_get = odroid_settings_cpu_oc_level_get,
+    .SystemClock_Config               = SystemClock_Config,
+
+    .get_ofw_is_mario = get_ofw_is_mario,
+
+    /* odroid_system_get_path takes emu_path_type_t (enum); see the `int`
+     * cast rationale above lcd_setup_framebuffers/odroid_display_get_filter_mode. */
+    .odroid_system_get_path = (char *(*)(int, const char *))odroid_system_get_path,
+
+    .lcd_get_pixel_position       = lcd_get_pixel_position,
+    .lcd_sleep_while_swap_pending = lcd_sleep_while_swap_pending,
+
+    .frame_counter_ptr = &frame_counter,
 };

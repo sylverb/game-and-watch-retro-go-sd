@@ -50,6 +50,11 @@ extern "C" {
  * (both firmware-side, see below) see the same live value. */
 #define ram_start (*(gw_firmware_abi()->ram_start_ptr))
 
+/* frame_counter (gw_lcd.h): incremented by the LCD vsync ISR (firmware-side,
+ * always-resident). Only Mega Drive (gwenesis) reads this live value so far
+ * (A/V-sync overflow detection); read-only from a core's point of view. */
+#define frame_counter (*(gw_firmware_abi()->frame_counter_ptr))
+
 /* Defined by every core's own linker script (cores/_template/core_ram_emu.ld)
  * right after the loaded code+data and right after BSS, respectively.
  * tools/pack_core.py reads these two (via `nm`) to compute code_size/
