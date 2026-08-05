@@ -17,14 +17,42 @@
 
 static retro_logo_image** logo_image_cache;
 
+/* Registry for logos loaded at runtime from a dynamic core's metadata
+ * (see gnw_core_meta.h). Indices handed out here are negative and start
+ * well below RG_LOGO_EMPTY(-1) so they can never collide with a
+ * compile-time RG_LOGO_* enum value, yet still round-trip cleanly through
+ * add_emulator()'s uint16_t/tab_t's int16_t logo_idx/header_idx fields. */
+#define RG_LOGO_DYNAMIC_BASE (-1000)
+#define RG_LOGO_DYNAMIC_MAX  32
+static const retro_logo_image *dynamic_logos[RG_LOGO_DYNAMIC_MAX];
+static int dynamic_logo_count = 0;
+
 void rg_reset_logo_buffers() {
     logo_image_cache = NULL;
+    /* Dynamic logos live in the AHB pool alongside emulators[]/systems[]
+     * and are rebuilt by emulators_scan_cores() on the next boot into the
+     * menu; drop stale pointers now so a corrupted install screen can't
+     * accidentally resolve one after ahb_init() reuses that memory. */
+    dynamic_logo_count = 0;
+}
+
+int16_t rg_register_dynamic_logo(const retro_logo_image *img) {
+    if (!img || dynamic_logo_count >= RG_LOGO_DYNAMIC_MAX)
+        return RG_LOGO_EMPTY;
+    dynamic_logos[dynamic_logo_count] = img;
+    return (int16_t)(RG_LOGO_DYNAMIC_BASE - dynamic_logo_count++);
 }
 
 retro_logo_image *rg_get_logo(int16_t logo_index) {
     uint8_t header[4];
     uint16_t width, height;
     size_t read;
+
+    if (logo_index <= RG_LOGO_DYNAMIC_BASE) {
+        int slot = RG_LOGO_DYNAMIC_BASE - logo_index;
+        return (slot >= 0 && slot < dynamic_logo_count) ? (retro_logo_image *)dynamic_logos[slot] : NULL;
+    }
+
     if (logo_index < 0)
         return NULL;
 

@@ -2,19 +2,22 @@
 
 #include <assert.h>
 #include "gw_lcd.h"
-#include "gw_linker.h"
-#include "gw_buttons.h"
 #include "rom_manager.h"
 #include "common.h"
 #ifndef GNW_DISABLE_COMPRESSION
 #include "lzma.h"
 #endif
 #include "gw_malloc.h"
-#include "rg_storage.h"
 #include "odroid_overlay.h"
 #include "appid.h"
 #include "bilinear.h"
-#include "rg_i18n.h"
+
+/* This core is built standalone (see cores/wsv/) and talks to the firmware
+ * only through gw_firmware_abi_t — see Core/Src/porting/core_common/. Must
+ * come after the includes above so their `extern` declarations of
+ * common_emu_state/ACTIVE_FILE/ram_start are parsed before this header
+ * turns later *uses* of those identifiers into live ABI-pointer accesses. */
+#include "gw_core_bridge.h"
 
 #include "wsv_sound.h"
 #include "memorymap.h"
@@ -430,17 +433,21 @@ static void blit(void) {
 }
 
 
+/* No i18n for this core yet (curr_lang lives in the firmware, not exposed
+ * over the ABI) — labels are hardcoded English, matching the strings this
+ * menu already used (see rg_i18n_en_us.c: s_wsv_palette_Default and
+ * friends, and s_Palette). */
 static bool palette_update_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
 
     const char *palette_names[] = {
-        curr_lang->s_wsv_palette_Default, 
-        curr_lang->s_wsv_palette_Amber, 
-        curr_lang->s_wsv_palette_Green, 
-        curr_lang->s_wsv_palette_Blue, 
-        curr_lang->s_wsv_palette_BGB, 
-        curr_lang->s_wsv_palette_Wataroo};
-    
+        "Default",
+        "Amber",
+        "Green",
+        "Blue",
+        "BGB",
+        "Wataroo"};
+
     int8 wsv_pal = supervision_get_color_scheme();
     int max = SV_COLOR_SCHEME_COUNT - 1;
 
@@ -448,7 +455,7 @@ static bool palette_update_cb(odroid_dialog_choice_t *option, odroid_dialog_even
     if (event == ODROID_DIALOG_NEXT) wsv_pal = wsv_pal < max ? wsv_pal + 1 : 0;
 
     if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
-        odroid_settings_Palette_set(wsv_pal);
+        odroid_settings_app_int32_set("Palette", wsv_pal);
         supervision_set_color_scheme(wsv_pal);
     }
 
@@ -497,7 +504,7 @@ size_t wsv_getromdata(unsigned char **data) {
     }
 #endif
 #else
-    ram_start = (uint32_t)&_OVERLAY_WSV_BSS_END;
+    ram_start = (uint32_t)&__CORE_BSS_END__;
     uint32_t size = ACTIVE_FILE->size;
     if (size > ram_get_free_size()) {
         *data = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &size, false);
@@ -518,7 +525,7 @@ int app_main_wsv(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     uint8 *rom_ptr = NULL;
     odroid_gamepad_state_t joystick;
     odroid_dialog_choice_t options[] = {
-        {100, curr_lang->s_Palette, pal_name, 1, &palette_update_cb},
+        {100, "Palette", pal_name, 1, &palette_update_cb},
         ODROID_DIALOG_CHOICE_LAST
     };
 

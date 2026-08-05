@@ -68,6 +68,14 @@ typedef struct {
     char browse_subpath[96];
     bool initialized;
     rom_system_t *system;
+
+    /* Non-empty for a dynamically-discovered external core (see
+     * emulators_scan_cores() / gnw_core_meta_t): path of the .bin on the
+     * SD card, and the code/bss sizes read from its embedded metadata.
+     * Empty for the compile-time tabs (Homebrew, PICO-8). */
+    char core_path[64];
+    uint32_t core_code_size;
+    uint32_t core_bss_size;
 } retro_emulator_t;
 
 

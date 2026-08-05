@@ -86,6 +86,13 @@ $(TAMP_DIR)/tamp/decompressor.c
 CXX_SOURCES = \
 Core/Src/heap.cpp \
 
+# --- Legacy monolithic cores: disabled while migrating to standalone
+#     cores/<system>/ builds loaded dynamically via the firmware ABI
+#     (see cores externes avec ABI plan). Re-enabling a core here without
+#     also restoring its linker overlay section and rg_emulators.c
+#     dispatch will not produce a working build; these blocks are kept
+#     only as reference while each system is migrated one at a time. ---
+ifeq (1,0)
 GNUBOY_C_SOURCES = 
 TGBDUAL_C_SOURCES = 
 TGBDUAL_CXX_SOURCES = 
@@ -103,9 +110,11 @@ $(CORE_TGBDUAL)/gb_core/tgbdual_lcd.cpp \
 $(CORE_TGBDUAL)/gb_core/tgbdual_mbc.cpp \
 $(CORE_TGBDUAL)/gb_core/tgbdual_rom.cpp \
 $(CORE_TGBDUAL)/gb_core/tgbdual_sgb.cpp
+endif
 
 NES_C_SOURCES = 
 
+ifeq (1,0)
 NES_FCEU_C_SOURCES = 
 CORE_FCEUMM = external/fceumm-go
 NES_FCEU_C_SOURCES += \
@@ -407,7 +416,9 @@ $(CORE_FCEUMM)/src/palette.c \
 $(CORE_FCEUMM)/src/ppu.c \
 $(CORE_FCEUMM)/src/video.c \
 $(CORE_FCEUMM)/src/x6502.c
+endif
 
+ifeq (1,0)
 SMSPLUSGX_C_SOURCES = 
 
 SMSPLUSGX_C_SOURCES += \
@@ -427,7 +438,9 @@ retro-go-stm32/smsplusgx-go/components/smsplus/sound/sn76489.c \
 retro-go-stm32/smsplusgx-go/components/smsplus/sound/sms_sound.c \
 retro-go-stm32/smsplusgx-go/components/smsplus/sound/ym2413.c \
 Core/Src/porting/smsplusgx/main_smsplusgx.c
+endif
 
+ifeq (1,0)
 PCE_C_SOURCES = 
 
 PCE_C_SOURCES += \
@@ -439,7 +452,9 @@ Core/Src/porting/pce/pce_cd.c \
 Core/Src/porting/pce/pce_scsi.c \
 Core/Src/porting/pce/pce_adpcm.c \
 Core/Src/porting/pce/main_pce.c
+endif
 
+ifeq (1,0)
 MSX_C_SOURCES = 
 
 CORE_MSX = external/blueMSX-go
@@ -514,7 +529,9 @@ $(CORE_MSX)/Src/Input/InputEvent.c \
 Core/Src/porting/msx/main_msx.c \
 Core/Src/porting/msx/msx_database.c \
 Core/Src/porting/msx/save_msx.c
+endif
 
+ifeq (1,0)
 GW_C_SOURCES = 
 
 CORE_GW = external/LCD-Game-Emulator
@@ -532,20 +549,13 @@ $(CORE_GW)/src/gw_sys/gw_romloader.c \
 $(CORE_GW)/src/gw_sys/gw_graphic.c \
 $(CORE_GW)/src/gw_sys/gw_system.c \
 Core/Src/porting/gw/main_gw.c
+endif
 
-WSV_C_SOURCES = 
-
+# Watara Supervision (WSV) now builds as a standalone core — see cores/wsv/.
+# CORE_WSV is still referenced by cores/wsv/Makefile.
 CORE_WSV = external/potator
-WSV_C_SOURCES += \
-$(CORE_WSV)/common/controls.c \
-$(CORE_WSV)/common/gpu.c \
-$(CORE_WSV)/common/m6502/m6502.c \
-$(CORE_WSV)/common/memorymap.c \
-$(CORE_WSV)/common/timer.c \
-$(CORE_WSV)/common/watara.c \
-$(CORE_WSV)/common/wsv_sound.c \
-Core/Src/porting/wsv/main_wsv.c
 
+ifeq (1,0)
 MD_C_SOURCES = 
 
 CORE_GWENESIS = external/gwenesis
@@ -563,7 +573,9 @@ $(CORE_GWENESIS)/src/vdp/gwenesis_vdp_mem.c \
 $(CORE_GWENESIS)/src/vdp/gwenesis_vdp_gfx.c \
 $(CORE_GWENESIS)/src/savestate/gwenesis_savestate.c \
 Core/Src/porting/gwenesis/main_gwenesis.c
+endif
 
+ifeq (1,0)
 A2600_C_SOURCES =
 A2600_CXX_SOURCES =
 
@@ -633,7 +645,9 @@ $(CORE_A2600)/stella/src/emucore/Paddles.cxx \
 $(CORE_A2600)/stella/src/emucore/TrackBall.cxx \
 $(CORE_A2600)/stella/src/emucore/StellaGenesis.cxx \
 $(CORE_A2600)/stella/src/emucore/StellaKeyboard.cxx
+endif
 
+ifeq (1,0)
 LYNX_C_SOURCES =
 LYNX_CXX_SOURCES =
 
@@ -646,7 +660,9 @@ $(CORE_LYNX)/lynxdec.cpp \
 $(CORE_LYNX)/mikie.cpp \
 $(CORE_LYNX)/susie.cpp \
 $(CORE_LYNX)/system.cpp
+endif
 
+ifeq (1,0)
 A7800_C_SOURCES = 
 
 CORE_PROSYSTEM = external/prosystem-go
@@ -665,7 +681,9 @@ $(CORE_PROSYSTEM)/core/Riot.c \
 $(CORE_PROSYSTEM)/core/Sally.c \
 $(CORE_PROSYSTEM)/core/Tia.c \
 Core/Src/porting/a7800/main_a7800.c
+endif
 
+ifeq (1,0)
 AMSTRAD_C_SOURCES = 
 
 CORE_AMSTRAD = external/caprice32-go
@@ -682,6 +700,7 @@ Core/Src/porting/amstrad/amstrad_catalog.c \
 Core/Src/porting/amstrad/amstrad_format.c \
 Core/Src/porting/amstrad/amstrad_loader.c \
 Core/Src/porting/amstrad/amstrad_video8bpp.c
+endif
 
 VIDEOPAC_C_SOURCES = 
 
@@ -707,6 +726,7 @@ $(CORE_O2EM)/src/vkeyb/vkeyb_layout.c \
 Core/Src/porting/videopac/main_videopac.c
 endif
 
+ifeq (1,0)
 TAMA_C_SOURCES = 
 
 CORE_TAMA = external/tamalib
@@ -716,7 +736,9 @@ $(CORE_TAMA)/tamalib_hw.c \
 $(CORE_TAMA)/tamalib.c \
 Core/Src/porting/tama/state_tama.c \
 Core/Src/porting/tama/main_tama.c
+endif
 
+ifeq (1,0)
 PKMINI_C_SOURCES = 
 
 CORE_PKMINI = external/PokeMini-go
@@ -744,7 +766,9 @@ $(CORE_PKMINI)/source/Video_x3.c \
 $(CORE_PKMINI)/source/Video.c \
 $(CORE_PKMINI)/resource/PokeMini_ColorPal.c \
 Core/Src/porting/pkmini/main_pkmini.c
+endif
 
+ifeq (1,0)
 CELESTE_C_SOURCES = 
 
 CORE_CCLESTE = external/ccleste-go
@@ -752,17 +776,23 @@ CELESTE_C_SOURCES += \
 $(CORE_CCLESTE)/celeste.c \
 $(CORE_CCLESTE)/celeste_audio.c \
 Core/Src/porting/celeste/main_celeste.c
+endif
 
-# PICO-8 stub only — the engine is distributed separately as binary files
-# (pico8.bin, pico8.ro, pico8_itcm.bin) placed on the SD card under /cores/.
-# The stub is built as pico8_stub.bin; rg_emulators.c loads pico8.bin first
-# and falls back to pico8_stub.bin if the full engine is not on the SD card.
+# PICO-8 stub disabled: the engine is distributed separately as binary
+# files (pico8.bin, pico8.ro, pico8_itcm.bin) placed on the SD card under
+# /cores/ — rg_emulators.c loads /cores/pico8.bin directly and no longer
+# falls back to a firmware-compiled install-prompt stub if it is missing
+# (see Core/Src/porting/pico8/main_pico8_stub.c, kept for reference but not
+# built). The "PICO-8" tab and pico8.bin dispatch path are unaffected.
+ifeq (1,0)
 PICO8_C_SOURCES = \
 Core/Src/porting/pico8/main_pico8_stub.c
+endif
 
 PICO8_CXX_STUBS =
 PICO8_CXX_SOURCES =
 
+ifeq (1,0)
 CORE_ZELDA3 = external/zelda3
 ZELDA3_C_SOURCES = \
 $(CORE_ZELDA3)/zelda_rtl.c \
@@ -793,7 +823,9 @@ $(CORE_ZELDA3)/third_party/opus-1.3.1-stripped/opus_decoder_amalgam.c \
 $(CORE_ZELDA3)/tile_detect.c \
 $(CORE_ZELDA3)/overlord.c \
 Core/Src/porting/zelda3/main_zelda3.c
+endif
 
+ifeq (1,0)
 CORE_SMW = external/smw
 SMW_C_SOURCES = \
 $(CORE_SMW)/src/smw_rtl.c \
@@ -823,6 +855,7 @@ $(CORE_SMW)/src/snes/cpu.c \
 $(CORE_SMW)/src/snes/cart.c \
 $(CORE_SMW)/src/tracing.c \
 Core/Src/porting/smw/main_smw.c
+endif
 
 # Game Boy Advance (gpSP). NOT compiled:
 #   cpu_threaded.c  the dynamic recompiler — its backends are x86/A32/A64/MIPS,
@@ -838,6 +871,7 @@ Core/Src/porting/smw/main_smw.c
 #
 # cpu.cc and video.cc are C++ only in name — they are C compiled as C++ (no
 # classes, no globals with constructors), so no .init_array runs for this core.
+ifeq (1,0)
 CORE_GBA = external/gpsp
 GBA_C_SOURCES = \
 $(CORE_GBA)/gba_memory.c \
@@ -867,6 +901,7 @@ $(CORE_GBA)/video.cc
 # along in the XIP blob instead.
 GBA_ASM_SOURCES = \
 Core/Src/porting/gba/gba_bios.S
+endif
 
 GNUBOY_C_INCLUDES +=  \
 -ICore/Inc \

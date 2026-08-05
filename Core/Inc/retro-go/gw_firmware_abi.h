@@ -314,6 +314,29 @@ typedef struct {
     void                        (*lcd_set_clut)(const uint32_t *clut,
                                                 uint16_t count);
 
+    /* ================================================================
+     * v1 append: surface required to port a "classic" emulator core
+     * (e.g. Watara Supervision) to the external-core model. Identified
+     * by porting Core/Src/porting/wsv/main_wsv.c against this ABI.
+     * ================================================================ */
+    char    *(*strcpy)(char *, const char *);
+    void    *(*malloc)(size_t size);
+
+    void     (*lcd_wait_for_vblank)(void);
+    void     (*lcd_set_refresh_rate)(uint32_t frequency);
+    void     (*lcd_clear_buffers)(void);
+
+    uint16_t (*audio_get_buffer_length)(void);
+
+    /* odroid_display_get_filter_mode returns odroid_display_filter_t
+     * (enum); exposed as `int` for the same reason as
+     * lcd_setup_framebuffers — avoids pulling odroid_display.h's enum
+     * into every core that only needs to forward the value. */
+    int      (*odroid_display_get_filter_mode)(void);
+
+    size_t   (*odroid_overlay_cache_file_in_ram)(const char *file_path,
+                                                 uint8_t *dest_address);
+
 } gw_firmware_abi_t;
 
 /* The firmware publishes this instance at GW_FIRMWARE_ABI_ADDRESS via the

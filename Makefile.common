@@ -796,6 +796,14 @@ CXXLIBS = -lstdc++
 LIBDIR +=
 LDFLAGS += $(MCU) -specs=nano.specs -T$(LDSCRIPT) $(LIBDIR) $(LIBS) $(CXXLIBS) -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections
 LDFLAGS += -Wl,--wrap=fflush
+# __overlay_pico8_vma intentionally lives inside the ._ram_uc VMA range (the
+# LUT8 "bonus pool" carved out of the framebuffer at runtime — see the
+# comment above it in the linker script, and RAM_EMU/CORES section removal
+# while migrating emulators to standalone cores/<system>/ builds); ld's
+# overlap check flags by-design overlaps like this depending on what else
+# happens to sort next to it in its internal address ordering. Disable the
+# check rather than depend on incidental section ordering to keep it quiet.
+LDFLAGS += -Wl,--no-check-sections
 
 # default action: build all (FrogFS has no gw_*_extflash.bin payload — flash frogfs.bin instead)
 ifeq ($(DOCKER),1)
@@ -973,7 +981,7 @@ $(BUILD_DIR)/memcpy-armv7m.o: Core/Src/memcpy-armv7m.s Makefile.common Makefile 
 	$(V)$(ECHO) [ AS ] $(notdir $<)
 	$(V)$(AS) -c $(CFLAGS) $< -o $@
 
-$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(GBA_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
+$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(GBA_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(LDSCRIPT)
 	$(V)$(ECHO) [ LD ] $(notdir $@)
 	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(GBA_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
 
@@ -1482,6 +1490,22 @@ $(MAPPERS_BUILD_DIR)/mapper_%.bin: $(BUILD_DIR)/$(TARGET).elf | create_sd_folder
 
 MAPPER_BINS := $(addprefix $(MAPPERS_BUILD_DIR)/mapper_, $(addsuffix .bin, $(MAPPER_NAMES)))
 
+#######################################
+# Standalone "core" binaries (cores/<name>/, see cores/_template/): built by
+# their own self-contained sub-make (own toolchain flags, own linker script,
+# no dependency on this project's object files) then copied next to the
+# legacy $(CORES_DIR) blobs so create_sd_data/flash_sd/release treat them
+# identically. cores_<name> is phony (unconditionally re-invokes the
+# sub-make, same convention as firmware_update below) — the sub-make's own
+# incremental build makes repeat invocations cheap.
+#######################################
+.PHONY: cores_wsv
+cores_wsv:
+	$(V)$(MAKE) -C cores/wsv
+
+$(CORES_DIR)/wsv.bin: cores_wsv | create_sd_folders
+	@cp cores/wsv.bin $@
+
 create_sd_folders:
 	$(V)mkdir -p $(SD_FOLDER)
 	$(V)mkdir -p $(CORES_DIR)
@@ -1547,44 +1571,10 @@ create_sd_data: $(SD_CONTENT_STAMP)
 
 $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(BUILD_DIR)/$(TARGET)_intflash.bin \
-                     $(MAPPER_BINS) \
-                     scripts/gen_mappers_pack.py \
-                     external/fceumm-go/gen_mappers_table.py \
-                     external/fceumm-go/gen_ines_database.py \
-                     tools/gen_fceu_palettes_table.py \
-                     external/stella2014-go/convert_defprops.py \
-                     external/blueMSX-go/create_compact_database_file.py \
+                     $(CORES_DIR)/wsv.bin \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
-	@$(PYTHON3) scripts/gen_mappers_pack.py --bins-dir $(MAPPERS_BUILD_DIR) --output $(MAPPERS_PACK)
-	@$(PYTHON3) external/fceumm-go/gen_ines_database.py $(MAPPERS_DIR)/ines_correct.bin
-	@$(PYTHON3) tools/gen_fceu_palettes_table.py $(SD_FOLDER)/bios/nes/palettes.bin
-	@$(PYTHON3) external/stella2014-go/convert_defprops.py external/stella2014-go/stella/src/emucore/DefProps.hxx $(CORES_DIR)/a2600_defprops.bin
-	@$(PYTHON3) external/blueMSX-go/create_compact_database_file.py external/blueMSX-go/system/bluemsx/Databases/msxromdb.xml $(SD_FOLDER)/bios/msx/msxromdb.bin
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_nes_fceu,$(CORES_DIR)/nes_fceu.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_tgb,$(CORES_DIR)/tgb.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_sms,$(CORES_DIR)/sms.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_pce --only-section=.overlay_pce_itc,$(CORES_DIR)/pce.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_gba --only-section=.overlay_gba_itc,$(CORES_DIR)/gba.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_msx,$(CORES_DIR)/msx.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_wsv,$(CORES_DIR)/wsv.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_gw,$(CORES_DIR)/gw.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_md,$(CORES_DIR)/md.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_a2600,$(CORES_DIR)/a2600.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_lynx,$(CORES_DIR)/lynx.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_a7800,$(CORES_DIR)/a7800.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_amstrad,$(CORES_DIR)/amstrad.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_videopac,$(CORES_DIR)/videopac.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_tama,$(CORES_DIR)/tama.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_pkmini,$(CORES_DIR)/pkmini.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_pico8,$(CORES_DIR)/pico8_stub.bin)
-	@$(CP) -O binary --only-section=.overlay_celeste $(BUILD_DIR)/$(TARGET).elf $(HOMEBREWS_FOLDER)/celeste.bin
-	@$(CP) -O binary --only-section=.overlay_zelda3 $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/Zelda 3.bin"
-	@$(CP) -O binary --only-section=.rodata_zelda3 $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/zelda3.ro"
-	@$(CP) -O binary --only-section=.overlay_smw $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/Super Mario World.bin"
-	@$(CP) -O binary --only-section=.xip_gba --only-section=.rodata_gba $(BUILD_DIR)/$(TARGET).elf "$(CORES_DIR)/gba.xip"
-	@$(CP) -O binary --only-section=.coleco_bios_data $(BUILD_DIR)/$(TARGET).elf $(SD_FOLDER)/bios/coleco/coleco.bin
 	@$(CP) -O binary --only-section=.overlay_graphics $(BUILD_DIR)/$(TARGET).elf $(SD_FOLDER)/bios/logo.bin
 	@rm -f $(FONTS_DIR)/cp1251_*.bin $(FONTS_DIR)/cp1252_*.bin $(FONTS_DIR)/unicode_*.bin
 ifeq ($(RU_RU),1)
@@ -1657,34 +1647,8 @@ flash_sd: FORCE
 else
 flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
 	@$(GNWMANAGER) flash $(INTFLASH_ADDRESS) $(BUILD_DIR)/$(TARGET)_intflash.bin \
-		-- sdpush --file $(CORES_DIR)/nes_fceu.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/tgb.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/sms.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/pce.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/gba.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/msx.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/wsv.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/gw.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/md.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/a2600.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/a2600_defprops.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/lynx.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/a7800.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/amstrad.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/videopac.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/tama.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/pkmini.bin --dest-path "/cores/" \
 		-- sdpush --file $(SD_FOLDER)/bios/logo.bin --dest-path "/bios/" \
-		-- sdpush --file $(HOMEBREWS_FOLDER)/celeste.bin --dest-path "/roms/homebrew/" \
-		-- sdpush --file "$(HOMEBREWS_FOLDER)/Super Mario World.bin" --dest-path "/roms/homebrew/" \
-		-- sdpush --file "$(CORES_DIR)/gba.xip" --dest-path "/cores/" \
-		-- sdpush --file "$(HOMEBREWS_FOLDER)/Zelda 3.bin" --dest-path "/roms/homebrew/" \
-		-- sdpush --file "$(HOMEBREWS_FOLDER)/zelda3.ro" --dest-path "/roms/homebrew/" \
-		-- sdpush --file $(MAPPERS_PACK) --dest-path "/cores/mappers/" \
-		-- sdpush --file $(MAPPERS_DIR)/ines_correct.bin --dest-path "/cores/mappers/" \
-		-- sdpush --file $(SD_FOLDER)/bios/nes/palettes.bin --dest-path "/bios/nes/" \
-		-- sdpush --file $(SD_FOLDER)/bios/coleco/coleco.bin --dest-path "/bios/coleco/" \
-		-- sdpush --file $(SD_FOLDER)/bios/msx/msxromdb.bin --dest-path "/bios/msx/" \
+		-- sdpush --file $(CORES_DIR)/wsv.bin --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2143,6 +2107,7 @@ clean:
 	$(V)$(MAKE) -C external/zelda3 clean
 	$(V)$(MAKE) -C external/smw clean
 	$(V)@$(MAKE) -C external/firmware_update clean
+	$(V)$(MAKE) -C cores/wsv clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

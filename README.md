@@ -60,6 +60,7 @@ If you are looking for the mod without SD Card (Flash mod only), check https://g
     - [Covers](#covers)
   - [Developer info](#developer-info)
     - [Build and flash using Docker](#build-and-flash-using-docker)
+    - [Creating a new emulator core from scratch](#creating-a-new-emulator-core-from-scratch)
   - [Discord, support and discussion](#discord-support-and-discussion)
   - [License](#license)
 
@@ -710,6 +711,71 @@ gnwmanager sdpush --file sd_content/cores/nes.bin --dest-path /cores/
   make docker
   ```
   The install/update file will be available in release/retro-go_update.bin
+
+</details>
+
+### Creating a new emulator core from scratch
+
+<details>
+  <summary>
+    Want to port a new emulator/system to Retro-Go-SD? Expand this section for a step-by-step guide to the "standalone core" model.
+  </summary>
+
+Emulator cores (NES, MSX, Watara Supervision, PICO-8, ...) are **not** linked into the main firmware ELF. Each one is built as its own small, freestanding binary, communicates with the firmware exclusively through a stable, versioned function table (the "ABI"), and is discovered automatically at boot by scanning `/cores/*.bin` on the SD card — no compile-time list of systems lives in the launcher. This keeps the firmware small and lets every core use the entire ~1MB "free RAM" budget for itself (only one core is ever resident in memory at a time).
+
+The [Watara Supervision core](cores/wsv/) is the reference implementation to copy from. The full technical guide (ABI extension checklist, linker script internals, every gotcha hit while writing the SDK) lives in [`Core/Src/porting/core_common/CLAUDE.md`](Core/Src/porting/core_common/CLAUDE.md) — this section is a shorter overview to get you oriented before diving into that file.
+
+**1. Understand the moving pieces**
+
+| Piece | Path | Role |
+| ----- | ---- | ---- |
+| ABI (function table) | `Core/Inc/retro-go/gw_firmware_abi.h` | Every libc/hardware/retro-go function a core is allowed to call, exposed as function pointers at a fixed address. Append-only and versioned so old cores keep working on newer firmware. |
+| Bridge SDK | `Core/Src/porting/core_common/` | Generic trampolines that forward calls through the ABI, plus the symbol-renaming list and entry-point assembly shared by every core. |
+| Build template | `cores/_template/` | The Makefile and linker script every core's own `cores/<name>/Makefile` includes — handles toolchain flags, the ABI symbol-renaming step, and linking at the fixed RAM address cores load into. |
+| Packaging tool | `tools/pack_core.py` | Turns a linked core ELF into `cores/<name>.bin`: a small header (system name, ROM folder, supported extensions, required ABI version, code/BSS size) followed by optional pad/console logo images and the core's code. |
+| Metadata struct | `Core/Inc/retro-go/gnw_core_meta.h` | Defines that header (`gnw_core_meta_t`) so the launcher can read it back. |
+| Discovery + launch | `Core/Src/retro-go/rg_emulators.c` (`emulators_scan_cores`, `run_dynamic_core`) | At boot, probes every `/cores/*.bin`, registers one tab per valid core; at launch, loads the core's code into RAM, zeroes its BSS, and jumps to it. |
+
+**2. Write the porting layer**
+
+Create `Core/Src/porting/<system>/main_<system>.c` (or adapt an existing one). This is where ROM loading, input mapping, video/audio bridging, and savestate hooks live — mirror `Core/Src/porting/wsv/main_wsv.c`. Two things are specific to the standalone-core model:
+
+- `#include "gw_core_bridge.h"` **after** the normal firmware headers (`common.h`, `rom_manager.h`, `gw_malloc.h`, ...). It turns shared globals like `common_emu_state`, `ACTIVE_FILE`, and `ram_start` into live reads/writes through the ABI instead of direct firmware symbols.
+- There's no access to the launcher's translated strings (i18n) yet from a standalone core, so any menu text your port needs has to be a hardcoded English string for now.
+
+**3. Set up the build**
+
+Create `cores/<system>/Makefile` modeled on [`cores/wsv/Makefile`](cores/wsv/Makefile):
+
+```makefile
+CORE_NAME  := <system>
+CORE_ENTRY := app_main_<system>   # must be a real function defined in your sources
+
+CORE_C_SOURCES := \
+external/<engine>/some_file.c \
+../../Core/Src/porting/<system>/main_<system>.c
+
+include ../_template/Makefile
+```
+
+Then build it standalone:
+
+```bash
+cd cores/<system>
+make
+```
+
+If the link fails with an undefined reference to a libc/hardware/retro-go function, that function needs to be added to the ABI (or, if it's already in `gw_firmware_abi_t`, just needs a trampoline + rename entry in `Core/Src/porting/core_common/`). Both cases are documented step by step in the "Extending the ABI" and "Porting a new core: checklist" sections of [`Core/Src/porting/core_common/CLAUDE.md`](Core/Src/porting/core_common/CLAUDE.md).
+
+A successful `make` produces `cores/<system>.bin`, packaged automatically via `tools/pack_core.py`.
+
+**4. Wire it into the main build**
+
+In `Makefile.common`, add a small block modeled on the existing `wsv` one (search for `cores_wsv`): a phony target that builds your core's sub-Makefile, a rule that copies its packaged `.bin` into `sd_content/cores/`, and one `sdpush` line in `flash_sd`. Add `$(MAKE) -C cores/<system> clean` to the top-level `clean` target too.
+
+**5. Test**
+
+`make release` (or `make flash create_sd_data`, see [Fast-iteration workflow](#fast-iteration-workflow) above) builds the firmware and your new core together. Push the SD content, boot the console, and your system's tab should appear in the launcher automatically — no other firmware change required.
 
 </details>
 

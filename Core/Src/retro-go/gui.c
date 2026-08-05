@@ -467,7 +467,14 @@ void gui_draw_header(tab_t *tab)
 
     odroid_overlay_draw_fill_rect(0, ODROID_SCREEN_HEIGHT - IMAGE_BANNER_HEIGHT - 15, ODROID_SCREEN_WIDTH, 32, curr_colors->main_c);
 
-    if (tab->header_idx > 0)
+    /* != RG_LOGO_EMPTY, not > 0: dynamically-registered logos (see
+     * rg_register_dynamic_logo()) return negative indices below
+     * RG_LOGO_DYNAMIC_BASE, and RG_LOGO_RGO is a legit index 0. A plain
+     * "> 0" check silently skipped both, so a core loaded from /cores/*.bin
+     * (e.g. Watara Supervision) never drew its console-name header logo
+     * even though its pad logo (tab->logo_idx, checked with a truthy test
+     * below) worked fine. */
+    if (tab->header_idx != RG_LOGO_EMPTY)
         odroid_overlay_draw_logo(8, ODROID_SCREEN_HEIGHT - IMAGE_BANNER_HEIGHT - 15 + 7, tab->header_idx, curr_colors->sel_c);
 
     if (tab->logo_idx) {

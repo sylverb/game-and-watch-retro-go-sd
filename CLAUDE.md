@@ -43,6 +43,8 @@ A single ELF (`build/gw_retro_go.elf`) is partitioned by linker sections into th
 
 Adding a new emulator means: add its sources to `Makefile`, give it a `.overlay_<name>` section in the linker script, and add a `--only-section=.overlay_<name>` extraction line to `create_sd_data` plus an `sdpush` line in `flash_sd`.
 
+**This monolithic-overlay model is being phased out in favor of standalone "core" binaries** built entirely outside the firmware ELF and discovered dynamically from `/cores/*.bin` at boot (`emulators_scan_cores()` in `Core/Src/retro-go/rg_emulators.c`) instead of a compile-time dispatch table. Watara Supervision (`cores/wsv/`) is the first core migrated this way — see [Core/Src/porting/core_common/CLAUDE.md](Core/Src/porting/core_common/CLAUDE.md) for the full model and the checklist for porting the next one. Classic cores not yet migrated (and PICO-8, which already used a related but distinct external-module pattern — `docs/PICO8_EXTERNAL_MODULE.md`) still follow the description above.
+
 ### Source tree layout
 
 - `Core/Src/main.c`, `Core/Src/gw_*.c` — STM32 HAL bring-up, LCD, audio (SAI), buttons, SD driver, RTC, battery (BQ24072), flash chip access, low-level memory allocator. Headers in `Core/Inc/`.
@@ -86,5 +88,6 @@ Detailed debugging guides live next to each porting layer (not in this file — 
 | System | Guide |
 |--------|-------|
 | PCE / PCE CD | [Core/Src/porting/pce/CLAUDE.md](Core/Src/porting/pce/CLAUDE.md) — harness `linux/Makefile.pce` |
+| Standalone "core" SDK (dynamic cores, e.g. Watara Supervision) | [Core/Src/porting/core_common/CLAUDE.md](Core/Src/porting/core_common/CLAUDE.md) — ABI bridge, `cores/_template/`, `tools/pack_core.py` |
 
 Add a `CLAUDE.md` under `Core/Src/porting/<system>/` (and optionally `.cursor/rules/<system>.mdc`) when an emulator accumulates non-obvious debug knowledge.

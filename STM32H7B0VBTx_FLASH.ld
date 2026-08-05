@@ -658,40 +658,15 @@ INCLUDE build/fceumm_mappers.ld
   }
   _OVERLAY_CELESTE_BSS_SIZE = SIZEOF(.overlay_celeste_bss);
 
-  /* PICO-8 stub overlay → RAM, placed at the LOW end of the LCD bonus
-     area. Same VMA as the runtime-loaded pico8.bin so engine RAM refs
-     resolve. In SD_CARD=0 builds the SD-built pico8.bin/.ro/_itcm.bin
-     blobs are bundled into FrogFS/LittleFS and loaded at runtime to
-     this same address; firmware switches LCD to LUT8 before load.
-     Keep _PICO8_FB_OFFSET in sync with the SD repo's linker script. */
+  /* PICO-8 engine load address (RAM), at the LOW end of the LCD bonus
+     area. No firmware-compiled stub occupies this VMA anymore (the GPL
+     install-prompt stub, main_pico8_stub.c, was removed from the build).
+     In SD_CARD=0 builds the SD-built pico8.bin/.ro/_itcm.bin blobs are
+     bundled into FrogFS/LittleFS and loaded at runtime to this same
+     address; firmware switches LCD to LUT8 before load. Keep
+     _PICO8_FB_OFFSET in sync with the SD repo's linker script. */
   _PICO8_FB_OFFSET = 2 * 320 * 240;          /* LUT8 framebuffer = 154 KB */
   __overlay_pico8_vma = __RAM_UC_START__ + _PICO8_FB_OFFSET;
-
-  .overlay_pico8 __overlay_pico8_vma : {
-    . = ALIGN(4);
-    __ram_emu_pico8_start__ = .;
-    KEEP(*(.pico8_entry))
-    _PICO8_MAIN_CODE_START = .;
-    build/pico8/main_pico8_stub.o (.text .text* .data .data* .rodata .rodata*)
-    _PICO8_MAIN_CODE_END = .;
-    . = ALIGN(4);
-    _OVERLAY_PICO8_LOAD_END = .;
-  }
-  _OVERLAY_PICO8_LOAD_START = LOADADDR(.overlay_pico8);
-  _OVERLAY_PICO8_SIZE = SIZEOF(.overlay_pico8);
-
-  .overlay_pico8_bss _OVERLAY_PICO8_LOAD_END : {
-    . = ALIGN(4);
-    _OVERLAY_PICO8_BSS_START = .;
-    build/pico8/*.o (.bss .bss*)
-    . = ALIGN(4);
-    build/pico8/*.o (COMMON)
-    __ram_emu_pico8_end__ = .;
-    _OVERLAY_PICO8_BSS_END = .;
-    ASSERT(ABSOLUTE(_OVERLAY_PICO8_BSS_END) <= __RAM_EMU_END__,
-           "Error: PICO8 engine + BSS would overflow RAM_EMU and leave no room for the TLSF pool");
-  }
-  _OVERLAY_PICO8_BSS_SIZE = SIZEOF(.overlay_pico8_bss);
 
   .overlay_tama __RAM_EMU_START__ : {
     . = ALIGN(4);

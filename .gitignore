@@ -2,7 +2,10 @@ build
 
 Drivers
 
-Makefile
+# Root Makefile only (already tracked; this is defensive against local
+# regeneration) — NOT anchored bare "Makefile" would also swallow the
+# per-core build files under cores/<name>/Makefile (see cores/_template/).
+/Makefile
 Core/Inc/rom_info.h
 Core/Inc/gittag.h
 roms
@@ -26,6 +29,14 @@ linux/loaded_gwenesis_rom.c
 linux/loaded_lynx_rom.c
 
 save_states
+
+# cores/<name>/ mixes tracked source (Makefile, linker script) with build
+# output — the generated package (cores/<name>.bin) and build dir are
+# already caught by the generic *.bin / build rules below, spelled out
+# here so it's obvious at a glance nothing under cores/ needs manual
+# cleanup before a commit.
+cores/*.bin
+cores/*/build
 
 venv
 

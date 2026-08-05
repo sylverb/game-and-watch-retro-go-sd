@@ -8,6 +8,7 @@
 #include "gw_malloc.h"
 #include "gw_firmware_abi.h"
 #include "gwhb.h"
+#include "gnw_core_meta.h"
 #include "rg_emulators.h"
 #include "rg_storage.h"
 #include "rg_i18n.h"
@@ -17,26 +18,12 @@
 #include "rom_manager.h"
 #include "gw_lcd.h"
 #include "main.h"
-#include "main_gb_tgbdual.h"
-#include "main_nes_fceu.h"
-#include "main_smsplusgx.h"
-#include "main_pce.h"
-#include "main_msx.h"
-#include "main_gw.h"
-#include "main_wsv.h"
-#include "main_gwenesis.h"
-#include "main_a7800.h"
-#include "main_amstrad.h"
-#include "main_zelda3.h"
-#include "main_smw.h"
-#include "main_videopac.h"
-#include "main_celeste.h"
+/* Per-system porting headers (main_gb_tgbdual.h, main_wsv.h, main_gba.h, ...)
+ * were removed here while migrating those emulators to standalone
+ * cores/<system>/ builds — rg_emulators.c no longer calls their app_main_*
+ * entry points directly (see emulators_scan_cores() / run_dynamic_core()).
+ * main_pico8.h stays: PICO-8 is out of scope for this migration. */
 #include "main_pico8.h"
-#include "main_tama.h"
-#include "main_pkmini.h"
-#include "main_a2600.h"
-#include "main_lynx.h"
-#include "main_gba.h"
 #include "rg_rtc.h"
 #include "gittag.h"
 #include "heap.hpp"
@@ -556,8 +543,12 @@ const rom_system_t *rg_emulators_system_for_dir(const char *dirname, size_t len)
     return NULL;
 }
 
-static void add_emulator(const char *system, const char *dirname, const char* ext,
-                         uint16_t logo_idx, uint16_t header_idx, game_data_type_t game_data_type)
+/* core_path/core_code_size/core_bss_size are non-NULL/non-zero only for a
+ * dynamically-discovered external core (see emulators_scan_cores()); pass
+ * NULL/0/0 for the compile-time tabs (Homebrew, PICO-8). */
+static void add_emulator_ex(const char *system, const char *dirname, const char* ext,
+                            int16_t logo_idx, int16_t header_idx, game_data_type_t game_data_type,
+                            const char *core_path, uint32_t core_code_size, uint32_t core_bss_size)
 {
     assert(emulators_count < MAX_EMULATORS);
     retro_emulator_t *p = &emulators[emulators_count];
@@ -577,14 +568,32 @@ static void add_emulator(const char *system, const char *dirname, const char* ex
     p->roms.files = shared_files;
     p->initialized = false;
     p->system = s;
+    p->core_path[0] = '\0';
+    p->core_code_size = core_code_size;
+    p->core_bss_size = core_bss_size;
+    if (core_path)
+        strncpy(p->core_path, core_path, sizeof(p->core_path) - 1);
 
-    s->extension = (char *)ext;
+    /* Alias the copies just made above (p->system_name, not the caller's
+     * `system`) so these pointers stay valid even when the caller's own
+     * string is transient (e.g. a stack-local gnw_core_meta_t while
+     * scanning /cores/*.bin — see add_emulator_dynamic()). */
+    s->extension = p->exts;
     s->roms = p->roms.files;
     s->roms_count = p->roms.count;
-    s->system_name = (char *)system;
+    s->system_name = p->system_name;
     s->game_data_type = game_data_type;
+    s->core_path = p->core_path[0] ? p->core_path : NULL;
+    s->core_code_size = core_code_size;
+    s->core_bss_size = core_bss_size;
 
     gui_add_tab(dirname, logo_idx, header_idx, p, event_handler);
+}
+
+static void add_emulator(const char *system, const char *dirname, const char* ext,
+                         uint16_t logo_idx, uint16_t header_idx, game_data_type_t game_data_type)
+{
+    add_emulator_ex(system, dirname, ext, (int16_t)logo_idx, (int16_t)header_idx, game_data_type, NULL, 0, 0);
 }
 
 static void remove_extension(const char *path, char *new_path) {
@@ -1382,46 +1391,13 @@ bool emulator_show_file_menu(retro_emulator_file_t *file)
 typedef int func(void);
 extern LTDC_HandleTypeDef hltdc;
 
-/* Internal-emulator dispatch table. Most emulator launches follow an
- * identical pattern (load core to RAM_EMU_START, zero BSS, cache flush,
- * call entry); consolidating into a helper + table saves ~30 bytes per
- * dispatch in FLASH vs the previously inlined form.
- *
- * cpp_heap_end != 0 triggers cpp_heap_init (C++ emulators: TGB, A2600).
- * Special cases that don't fit (NES_FCEU loads to __RAM_FCEUMM_START__,
- * SMS-family multi-engine, GW with a 2-arg entry, Homebrew with
- * cache_file_in_ram, PICO-8) keep their explicit blocks below. */
-typedef struct {
-    const char *path;
-    void       *bss_start;
-    uint32_t    bss_size;
-    uint32_t    code_size;
-    uint32_t    cpp_heap_end;   /* 0 = no cpp_heap_init() */
-    void      (*entry)(uint8_t, uint8_t, int8_t);
-    /* Optional ITCM hot-code image appended to the core bin. The image is
-     * loaded into RAM_EMU at itc_lma_off (which overlaps the BSS VMA), so it
-     * MUST be copied to ITCM before the BSS memset wipes it. itc_size == 0
-     * means the core has no ITCM section. */
-    void       *itc_dest;
-    uint32_t    itc_lma_off;
-    uint32_t    itc_size;
-} emu_dispatch_t;
-
-__attribute__((noinline))
-static void run_internal_emu(const emu_dispatch_t *e,
-                             uint8_t load_state, uint8_t start_paused, int8_t save_slot)
-{
-    if (load_core_bin_with_header(e->path, (uint8_t *)&__RAM_EMU_START__)) {
-        if (e->itc_size) {
-            memcpy(e->itc_dest, (uint8_t *)&__RAM_EMU_START__ + e->itc_lma_off, e->itc_size);
-            __DSB(); __ISB();   /* TCM stores drained before any fetch from ITCM */
-        }
-        memset(e->bss_start, 0, e->bss_size);
-        SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, e->code_size);
-        if (e->cpp_heap_end) cpp_heap_init(e->cpp_heap_end);
-        e->entry(load_state, start_paused, save_slot);
-    }
-}
+/* The compile-time dispatch table that used to live here (emu_dispatch_t /
+ * run_internal_emu) was removed while migrating every classic emulator to
+ * standalone cores/<system>/ builds loaded dynamically from /cores/*.bin
+ * (see "Cores externes avec ABI" plan). Its replacement, a header-driven
+ * loader, is introduced alongside emulators_scan_cores(). Homebrew (GWHB)
+ * and PICO-8 are untouched by this migration and keep their explicit
+ * blocks below. */
 
 /* --- Universal Homebrew Header (GWHB) loader ---------------------------
  *
@@ -1495,34 +1471,178 @@ static void run_gwhb_homebrew(size_t copied, uint8_t load_state, uint8_t start_p
         (load_state, start_paused, save_slot);
 }
 
-/* Entry-pointer casts: app_main_* signatures vary in return type
- * (void/int) and save_slot type (int8_t/uint8_t). All are ARM
- * calling-convention compatible (same register layout, return value
- * ignored); the cast just satisfies C type strictness. */
-#define EMU_ENTRY(fn) ((void (*)(uint8_t, uint8_t, int8_t))(fn))
+/* --- Dynamic external cores (/cores/*.bin, see gnw_core_meta.h) -------
+ *
+ * A classic emulator core (e.g. Watara Supervision) is built as a
+ * standalone ELF against the same firmware ABI as PICO-8/GWHB, linked at
+ * __RAM_EMU_START__, packaged with a "CORE" header whose header_data is a
+ * gnw_core_meta_t (+ optional inline logo blobs). Unlike GWHB, the core
+ * does not need to know how to zero its own BSS or pick an LCD mode: the
+ * firmware does the former using the size read from metadata at scan
+ * time, and classic cores always use the default RGB565 framebuffers.
+ *
+ * emulators_scan_cores() probes every /cores/*.bin at boot and registers
+ * one tab per valid core (see add_emulator_dynamic()); run_dynamic_core()
+ * does the load+zero+jump dance at launch time, mirroring the old
+ * per-system run_internal_emu() but with metadata read from the file
+ * instead of compile-time linker symbols. */
 
-static const emu_dispatch_t emu_tgb     = { "/cores/tgb.bin",     &_OVERLAY_TGB_BSS_START,     (uint32_t)&_OVERLAY_TGB_BSS_SIZE,     (uint32_t)&_OVERLAY_TGB_SIZE,     (uint32_t)&_OVERLAY_TGB_BSS_END,     EMU_ENTRY(app_main_gb_tgbdual) };
-extern uint8_t __ram_itc_pce_start__[];
-extern uint8_t _OVERLAY_PCE_ITC_LMA_OFFSET;
-extern uint8_t _OVERLAY_PCE_ITC_SIZE;
-static const emu_dispatch_t emu_pce     = { "/cores/pce.bin",     &_OVERLAY_PCE_BSS_START,     (uint32_t)&_OVERLAY_PCE_BSS_SIZE,     (uint32_t)&_OVERLAY_PCE_SIZE,     0, EMU_ENTRY(app_main_pce),
-                                            __ram_itc_pce_start__, (uint32_t)&_OVERLAY_PCE_ITC_LMA_OFFSET, (uint32_t)&_OVERLAY_PCE_ITC_SIZE };
-static const emu_dispatch_t emu_msx     = { "/cores/msx.bin",     &_OVERLAY_MSX_BSS_START,     (uint32_t)&_OVERLAY_MSX_BSS_SIZE,     (uint32_t)&_OVERLAY_MSX_SIZE,     0, EMU_ENTRY(app_main_msx) };
-static const emu_dispatch_t emu_wsv     = { "/cores/wsv.bin",     &_OVERLAY_WSV_BSS_START,     (uint32_t)&_OVERLAY_WSV_BSS_SIZE,     (uint32_t)&_OVERLAY_WSV_SIZE,     0, EMU_ENTRY(app_main_wsv) };
-static const emu_dispatch_t emu_md      = { "/cores/md.bin",      &_OVERLAY_MD_BSS_START,      (uint32_t)&_OVERLAY_MD_BSS_SIZE,      (uint32_t)&_OVERLAY_MD_SIZE,      0, EMU_ENTRY(app_main_gwenesis) };
-static const emu_dispatch_t emu_a2600   = { "/cores/a2600.bin",   &_OVERLAY_A2600_BSS_START,   (uint32_t)&_OVERLAY_A2600_BSS_SIZE,   (uint32_t)&_OVERLAY_A2600_SIZE,   (uint32_t)&_OVERLAY_A2600_BSS_END, EMU_ENTRY(app_main_a2600) };
-static const emu_dispatch_t emu_lynx    = { "/cores/lynx.bin",    &_OVERLAY_LYNX_BSS_START,    (uint32_t)&_OVERLAY_LYNX_BSS_SIZE,    (uint32_t)&_OVERLAY_LYNX_SIZE,    (uint32_t)&_OVERLAY_LYNX_BSS_END, EMU_ENTRY(app_main_lynx) };
-static const emu_dispatch_t emu_a7800   = { "/cores/a7800.bin",   &_OVERLAY_A7800_BSS_START,   (uint32_t)&_OVERLAY_A7800_BSS_SIZE,   (uint32_t)&_OVERLAY_A7800_SIZE,   0, EMU_ENTRY(app_main_a7800) };
-static const emu_dispatch_t emu_amstrad = { "/cores/amstrad.bin", &_OVERLAY_AMSTRAD_BSS_START, (uint32_t)&_OVERLAY_AMSTRAD_BSS_SIZE, (uint32_t)&_OVERLAY_AMSTRAD_SIZE, 0, EMU_ENTRY(app_main_amstrad) };
-static const emu_dispatch_t emu_tama    = { "/cores/tama.bin",    &_OVERLAY_TAMA_BSS_START,    (uint32_t)&_OVERLAY_TAMA_BSS_SIZE,    (uint32_t)&_OVERLAY_TAMA_SIZE,    0, EMU_ENTRY(app_main_tama) };
-static const emu_dispatch_t emu_pkmini  = { "/cores/pkmini.bin",  &_OVERLAY_PKMINI_BSS_START,  (uint32_t)&_OVERLAY_PKMINI_BSS_SIZE,  (uint32_t)&_OVERLAY_PKMINI_SIZE,  0, EMU_ENTRY(app_main_pkmini) };
 #if SD_CARD == 1
-extern uint8_t __gba_itc_start__[];
-extern uint8_t _OVERLAY_GBA_ITC_LMA_OFFSET;
-extern uint8_t _OVERLAY_GBA_ITC_SIZE;
-static const emu_dispatch_t emu_gba     = { "/cores/gba.bin",     &_OVERLAY_GBA_BSS_START,     (uint32_t)&_OVERLAY_GBA_BSS_SIZE,     (uint32_t)&_OVERLAY_GBA_SIZE,     0, EMU_ENTRY(app_main_gba),
-                                            __gba_itc_start__, (uint32_t)&_OVERLAY_GBA_ITC_LMA_OFFSET, (uint32_t)&_OVERLAY_GBA_ITC_SIZE };
-#endif
+
+/* Reads only the CORE header + gnw_core_meta_t (not the payload) from
+ * `path`. Returns true and fills *out_meta on success. Rejects anything
+ * that isn't a "CORE"-magic, GNW_CORE_META_VERSION container, or that
+ * asks for more ABI than this firmware provides — silently (this runs
+ * over every file under /cores/ at boot, including pico8.bin/pico8_stub.bin
+ * which intentionally don't carry this metadata). */
+static bool gnw_core_probe(const char *path, gnw_core_meta_t *out_meta)
+{
+    uint8_t fixed_header[CORE_HEADER_MIN_SIZE];
+    bool ok = false;
+
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return false;
+
+    if (fread(fixed_header, 1, sizeof(fixed_header), file) != sizeof(fixed_header))
+        goto done;
+    if (memcmp(fixed_header, CORE_HEADER_MAGIC_EXTERNAL, 4) != 0)
+        goto done;
+
+    uint16_t header_version = read_u16_le(&fixed_header[4]);
+    uint16_t header_length  = read_u16_le(&fixed_header[6]);
+    if (header_version != GNW_CORE_META_VERSION || header_length < sizeof(*out_meta))
+        goto done;
+
+    if (fread(out_meta, 1, sizeof(*out_meta), file) != sizeof(*out_meta))
+        goto done;
+
+    if (out_meta->required_abi_version > GW_FIRMWARE_ABI_VERSION ||
+        out_meta->required_abi_min_size > g_firmware_abi.size) {
+        printf("CORE: '%s' needs a newer firmware ABI, skipping\n", path);
+        goto done;
+    }
+
+    out_meta->system_name[sizeof(out_meta->system_name) - 1] = '\0';
+    out_meta->dirname[sizeof(out_meta->dirname) - 1] = '\0';
+    out_meta->extensions[sizeof(out_meta->extensions) - 1] = '\0';
+    ok = true;
+
+done:
+    fclose(file);
+    return ok;
+}
+
+/* Loads a `retro_logo_image` blob (raw width/height/packed-1bpp bytes,
+ * see bitmaps.h) at absolute file offset `offset`/`size` into a freshly
+ * ahb_calloc'd buffer — persists for the lifetime of the menu, same as
+ * the compile-time logos baked into /bios/logo.bin. */
+static const retro_logo_image *gnw_core_load_logo(const char *path, uint32_t offset, uint32_t size)
+{
+    if (size < sizeof(retro_logo_image) || size > 8192)
+        return NULL;
+
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return NULL;
+
+    retro_logo_image *img = NULL;
+    if (fseek(file, (long)offset, SEEK_SET) == 0) {
+        img = ahb_calloc(1, size);
+        if (img && fread(img, 1, size, file) != size)
+            img = NULL; /* leaked in the AHB bump pool, reclaimed at next ahb_init() */
+    }
+    fclose(file);
+    return img;
+}
+
+static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_path)
+{
+    if (emulators_count >= MAX_EMULATORS) {
+        printf("CORE: '%s' ignored, MAX_EMULATORS reached\n", core_path);
+        return;
+    }
+
+    int16_t pad_idx = RG_LOGO_EMPTY, header_idx = RG_LOGO_EMPTY;
+    if (meta->pad_logo_size)
+        pad_idx = rg_register_dynamic_logo(gnw_core_load_logo(core_path, meta->pad_logo_offset, meta->pad_logo_size));
+    if (meta->header_logo_size)
+        header_idx = rg_register_dynamic_logo(gnw_core_load_logo(core_path, meta->header_logo_offset, meta->header_logo_size));
+
+    add_emulator_ex(meta->system_name, meta->dirname, meta->extensions, pad_idx, header_idx,
+                    NO_GAME_DATA, core_path, meta->code_size, meta->bss_size);
+
+    printf("CORE: registered '%s' (%s) from %s, code=%luB bss=%luB\n",
+          meta->system_name, meta->dirname, core_path,
+          (unsigned long)meta->code_size, (unsigned long)meta->bss_size);
+}
+
+/* Scans /cores/*.bin (FatFs) and registers one tab per probe-able core.
+ * Files that aren't a "CORE"/GNW_CORE_META_VERSION container (pico8.bin,
+ * pico8_stub.bin, pico8.ro, ...) are silently skipped. */
+static void emulators_scan_cores(void)
+{
+    DIR dir;
+    FILINFO fno;
+    gnw_core_meta_t meta;
+    char path[128];
+
+    if (f_opendir(&dir, "/cores") != FR_OK)
+        return;
+
+    while (f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != 0) {
+        if (fno.fattrib & AM_DIR)
+            continue;
+        const char *ext = get_extension(fno.fname);
+        if (!ext || strcasecmp(ext, "bin") != 0)
+            continue;
+
+        snprintf(path, sizeof(path), "/cores/%s", fno.fname);
+        if (gnw_core_probe(path, &meta))
+            add_emulator_dynamic(&meta, path);
+    }
+
+    f_closedir(&dir);
+}
+
+#endif /* SD_CARD == 1 */
+
+/* Loads `core_path`'s payload to __RAM_EMU_START__ (via the existing
+ * CORE-header loader), zeroes `bss_size` bytes right after it, and jumps
+ * to offset 0 | 1 — same offset-0-Thumb-trampoline convention as GWHB and
+ * PICO-8. Unlike run_internal_emu() (removed), the entry symbol is never
+ * resolved at firmware link time: the core provides its own trampoline
+ * (see cores/_template) because it is a completely separate ELF. */
+__attribute__((noinline))
+static void run_dynamic_core(const char *core_path, uint32_t code_size, uint32_t bss_size,
+                             uint8_t load_state, uint8_t start_paused, int8_t save_slot)
+{
+    uint8_t *base = (uint8_t *)&__RAM_EMU_START__;
+    const uint32_t ram_emu_len = ((uint32_t)&__RAM_EMU_END__) - (uint32_t)&__RAM_EMU_START__;
+
+    if ((uint64_t)code_size + bss_size > ram_emu_len) {
+        printf("CORE: '%s' too big for RAM_EMU (%lu+%lu > %lu)\n",
+              core_path, (unsigned long)code_size, (unsigned long)bss_size, (unsigned long)ram_emu_len);
+        show_corrupted_installation_screen();
+        return;
+    }
+
+    size_t loaded = load_core_bin_with_header(core_path, base);
+    if (loaded == 0)
+        return; /* load_core_bin_with_header already showed an error screen */
+    if (loaded != code_size) {
+        printf("CORE: '%s' size changed since scan (%lu != %lu), refusing to run\n",
+              core_path, (unsigned long)loaded, (unsigned long)code_size);
+        show_corrupted_installation_screen();
+        return;
+    }
+
+    memset(base + code_size, 0, bss_size);
+    SCB_CleanDCache_by_Addr((uint32_t *)base, code_size);
+    SCB_InvalidateICache();
+
+    ((void (*)(uint8_t, uint8_t, int8_t))((uintptr_t)base | 1))(load_state, start_paused, save_slot);
+}
 
 void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_paused, int8_t save_slot)
 {
@@ -1541,6 +1661,13 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     newfile->ext = get_extension(newfile->path);
 
     const char *system_name = newfile->system->system_name;
+    /* Captured before newfile->system is nulled + ahb_init() below, same
+     * lifetime caveat as system_name (see comment there): these point
+     * into the AHB pool, whose *content* survives ahb_init()'s bump-reset
+     * until something else allocates over it. */
+    const char *dyn_core_path = newfile->system->core_path;
+    uint32_t dyn_core_code_size = newfile->system->core_code_size;
+    uint32_t dyn_core_bss_size = newfile->system->core_bss_size;
 
     ACTIVE_FILE = newfile;
 #if CHEAT_CODES == 1
@@ -1581,98 +1708,22 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     // Refresh watchdog here in case previous actions did not refresh it
     wdog_refresh();
 
-    if((strcmp(system_name, "Nintendo Gameboy") == 0) ||
-       (strcmp(system_name, "Nintendo Gameboy Color") == 0)) {
-        run_internal_emu(&emu_tgb, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "Nintendo Entertainment System") == 0) {
-        /* NES_FCEU is special: loads to __RAM_FCEUMM_START__ not RAM_EMU_START. */
-        if (load_core_bin_with_header("/cores/nes_fceu.bin", (uint8_t *)&__RAM_FCEUMM_START__)) {
-            memset(&_OVERLAY_NES_FCEU_BSS_START, 0x0, (size_t)&_OVERLAY_NES_FCEU_BSS_SIZE);
-            SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_NES_FCEU_SIZE);
-            app_main_nes_fceu(load_state, start_paused, save_slot);
-        }
-    } else if(strcmp(system_name, "Sega Master System") == 0 ||
-              strcmp(system_name, "Sega Game Gear") == 0     ||
-              strcmp(system_name, "Sega SG-1000") == 0       ||
-              strcmp(system_name, "Colecovision") == 0 ) {
-        if (load_core_bin_with_header("/cores/sms.bin", (uint8_t *)&__RAM_EMU_START__)) {
-            memset(&_OVERLAY_SMS_BSS_START, 0x0, (size_t)&_OVERLAY_SMS_BSS_SIZE);
-            SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_SMS_SIZE);
-            if (! strcmp(system_name, "Colecovision")) app_main_smsplusgx(load_state, start_paused, save_slot, SMSPLUSGX_ENGINE_COLECO);
-            else
-            if (! strcmp(system_name, "Sega SG-1000")) app_main_smsplusgx(load_state, start_paused, save_slot, SMSPLUSGX_ENGINE_SG1000);
-            else                                            app_main_smsplusgx(load_state, start_paused, save_slot, SMSPLUSGX_ENGINE_OTHERS);
-        }
-    } else if(strcmp(system_name, "Game & Watch") == 0 ) {
-        if (load_core_bin_with_header("/cores/gw.bin", (uint8_t *)&__RAM_EMU_START__)) {
-            memset(&_OVERLAY_GW_BSS_START, 0x0, (size_t)&_OVERLAY_GW_BSS_SIZE);
-            SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_GW_SIZE);
-            app_main_gw(load_state, save_slot);
-        }
-    } else if(strcmp(system_name, "PC Engine") == 0 ||
-              strcmp(system_name, "PC Engine CD") == 0) {
-        run_internal_emu(&emu_pce, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "MSX") == 0) {
-        run_internal_emu(&emu_msx, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "Watara Supervision") == 0) {
-        run_internal_emu(&emu_wsv, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "Sega Genesis") == 0)  {
-        run_internal_emu(&emu_md, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "Atari 2600") == 0) {
-        run_internal_emu(&emu_a2600, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "Atari Lynx") == 0) {
-        run_internal_emu(&emu_lynx, load_state, start_paused, save_slot);
-#if SD_CARD == 1
-    } else if(strcmp(system_name, "Nintendo Gameboy Advance") == 0) {
-        run_internal_emu(&emu_gba, load_state, start_paused, save_slot);
-#endif
-    } else if(strcmp(system_name, "Atari 7800") == 0)  {
-        run_internal_emu(&emu_a7800, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "Amstrad CPC") == 0)  {
-        run_internal_emu(&emu_amstrad, load_state, start_paused, save_slot);
-#if 0
-    } else if(strcmp(system_name, "Philips Vectrex") == 0)  {
-#ifdef ENABLE_EMULATOR_VIDEOPAC
-      if (load_core_bin_with_header("/cores/videopac.bin", (uint8_t *)&__RAM_EMU_START__)) {
-        memset(&_OVERLAY_VIDEOPAC_BSS_START, 0x0, (size_t)&_OVERLAY_VIDEOPAC_BSS_SIZE);
-        SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_VIDEOPAC_SIZE);
-        app_main_videopac(load_state, start_paused, save_slot);
-      }
-#endif
-#endif
+    if (dyn_core_path) {
+      run_dynamic_core(dyn_core_path, dyn_core_code_size, dyn_core_bss_size,
+                       load_state, start_paused, save_slot);
     } else if(strcmp(system_name, "Homebrew") == 0)  {
       /* Bounded: refuses (returns 0) rather than overrunning RAM_EMU if the
        * file is bigger than the region. This used to be an unchecked
        * odroid_overlay_cache_file_in_ram() call; every branch below
-       * (including the legacy named engines) shares that fix now. */
+       * shares that fix now. */
       const uint32_t ram_emu_len = ((uint32_t)&__RAM_EMU_END__) - (uint32_t)&__RAM_EMU_START__;
       size_t homebrew_bytes = rg_storage_copy_file_to_ram_bounded(
           ACTIVE_FILE->path, (uint8_t *)&__RAM_EMU_START__, 0, ram_emu_len, NULL);
       if (homebrew_bytes) {
-        if (strcmp(newfile->name,"celeste") == 0) {
-            memset(&_OVERLAY_CELESTE_BSS_START, 0x0, (size_t)&_OVERLAY_CELESTE_BSS_SIZE);
-            SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_CELESTE_SIZE);
-            app_main_celeste(load_state, start_paused, save_slot);
-        } else if (strcmp(newfile->name,"Zelda 3") == 0) {
-            memset(&_OVERLAY_ZELDA3_BSS_START, 0x0, (size_t)&_OVERLAY_ZELDA3_BSS_SIZE);
-            SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_ZELDA3_SIZE);
-            app_main_zelda3(load_state, start_paused, save_slot);
-        } else if (strcmp(newfile->name,"Super Mario World") == 0) {
-            memset(&_OVERLAY_SMW_BSS_START, 0x0, (size_t)&_OVERLAY_SMW_BSS_SIZE);
-            SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, (size_t)&_OVERLAY_SMW_SIZE);
-            app_main_smw(load_state, start_paused, save_slot);
-        } else {
-            /* Not one of the legacy named engines above, so check for a
-             * generic Universal Homebrew Header (GWHB) instead. */
-            run_gwhb_homebrew(homebrew_bytes, load_state, start_paused, save_slot);
-        }
+          run_gwhb_homebrew(homebrew_bytes, load_state, start_paused, save_slot);
       } else {
         show_incompatible_homebrew_screen();
       }
-    } else if(strcmp(system_name, "Tamagotchi") == 0) {
-        run_internal_emu(&emu_tama, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "Pokemon Mini") == 0) {
-        run_internal_emu(&emu_pkmini, load_state, start_paused, save_slot);
     } else if(strcmp(system_name, "PICO-8") == 0) {
       /* PICO-8 engine loads at a FIXED address inside the LCD bonus area
        * (__overlay_pico8_vma = __RAM_UC_START__ + LUT8 framebuffer size).
@@ -1739,14 +1790,14 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
         /* Dispatch via entry trampoline at overlay offset 0 — it zeroes
          * its own BSS then jumps to app_main_pico8. */
         ((void (*)(uint8_t, uint8_t, int8_t))((uintptr_t)pico8_load_addr | 1))(load_state, start_paused, save_slot);
-      } else if ((pico8_bin_size = load_core_bin_with_header("/cores/pico8_stub.bin", pico8_temp_addr))) {
-        /* Last resort: GPL stub. Same two-stage load. */
-        lcd_setup_framebuffers(LCD_MODE_LUT8);
-        memcpy(pico8_load_addr, pico8_temp_addr, pico8_bin_size);
-        SCB_CleanDCache_by_Addr((uint32_t *)pico8_load_addr, pico8_bin_size);
-        SCB_InvalidateICache();
-        ((void (*)(uint8_t, uint8_t, int8_t))((uintptr_t)pico8_load_addr | 1))(load_state, start_paused, save_slot);
       }
+      /* No engine on the SD card: load_core_bin_with_header() already
+       * showed an error screen (missing-file case) or the ABI/size check
+       * failed silently (see its own checks) — there used to be a
+       * firmware-compiled GPL install-prompt fallback here
+       * (/cores/pico8_stub.bin, main_pico8_stub.c); it has been removed
+       * from the build, so a missing pico8.bin now simply does not
+       * launch anything. */
     }
 
 #if CHEAT_CODES == 1
@@ -1781,39 +1832,26 @@ void emulators_init()
     /* ★ Favorites must be the FIRST tab (index 0), before every system tab. */
     rg_favorites_register_tab();
 
-    add_emulator("Nintendo Gameboy", "gb", "gb gbc lzma", RG_LOGO_PAD_GB, RG_LOGO_HEADER_GB, NO_GAME_DATA);
-    add_emulator("Nintendo Gameboy Color", "gbc", "gb gbc lzma", RG_LOGO_PAD_GB, RG_LOGO_HEADER_GBC, NO_GAME_DATA);
-#if SD_CARD == 1
-    /* GBA: ROM (up to 32MB) stays memory-mapped in external flash; the core
-     * caches it itself. SD-only — FrogFS cannot relocate gba.xip nor hold the cart. */
-    add_emulator("Nintendo Gameboy Advance", "gba", "gba", RG_LOGO_PAD_GBA, RG_LOGO_HEADER_GBA, NO_GAME_DATA);
-#endif
-    add_emulator("Nintendo Entertainment System", "nes", "nes fds nsf lzma", RG_LOGO_PAD_NES, RG_LOGO_HEADER_NES, NO_GAME_DATA);
-    add_emulator("Game & Watch", "gw", "gw", RG_LOGO_PAD_GW, RG_LOGO_HEADER_GW, NO_GAME_DATA);
-    add_emulator("PC Engine", "pce", "pce lzma", RG_LOGO_PAD_PCE, RG_LOGO_HEADER_PCE, NO_GAME_DATA);
-    /* PC Engine CD: same pce overlay; disc streamed from SD, System Card BIOS at boot. */
-#if SD_CARD == 1
-    add_emulator("PC Engine CD", "pcecd", "cue", RG_LOGO_PAD_PCE, RG_LOGO_HEADER_PCECD, NO_GAME_DATA);
-#endif
-    add_emulator("Sega Game Gear", "gg", "gg lzma", RG_LOGO_PAD_GG, RG_LOGO_HEADER_GG, NO_GAME_DATA);
-    add_emulator("Sega Master System", "sms", "sms lzma", RG_LOGO_PAD_SMS, RG_LOGO_HEADER_SMS, NO_GAME_DATA);
-    add_emulator("Sega Genesis", "md", "md gen bin lzma", RG_LOGO_PAD_GEN, RG_LOGO_HEADER_GEN, GAME_DATA_BYTESWAP_16);
-    add_emulator("Sega SG-1000", "sg", "sg lzma", RG_LOGO_PAD_SG1000, RG_LOGO_HEADER_SG1000, NO_GAME_DATA);
-    add_emulator("Colecovision", "col", "col lzma", RG_LOGO_PAD_COL, RG_LOGO_HEADER_COL, NO_GAME_DATA);
-    add_emulator("Watara Supervision", "wsv", "wsv sv bin lzma", RG_LOGO_PAD_WSV, RG_LOGO_HEADER_WSV, NO_GAME_DATA);
-    add_emulator("MSX", "msx", "dsk rom mx1 mx2 cdk lzma", RG_LOGO_PAD_MSX, RG_LOGO_HEADER_MSX, NO_GAME_DATA);
-    add_emulator("Atari 2600", "a2600", "a26 bin lzma", RG_LOGO_PAD_A2600, RG_LOGO_HEADER_A2600, NO_GAME_DATA);
-    add_emulator("Atari 7800", "a7800", "a78 bin lzma", RG_LOGO_PAD_A7800, RG_LOGO_HEADER_A7800, NO_GAME_DATA);
-    add_emulator("Atari Lynx", "lynx", "lnx lyx lzma", RG_LOGO_PAD_LYNX, RG_LOGO_HEADER_LYNX, NO_GAME_DATA);
-    add_emulator("Amstrad CPC", "amstrad", "dsk cdk", RG_LOGO_PAD_AMSTRAD, RG_LOGO_HEADER_AMSTRAD, NO_GAME_DATA);
-//    add_emulator("Philips Vectrex", "videopac", "bin lzma", RG_LOGO_PAD_VIDEOPAC, RG_LOGO_HEADER_AMSTRAD, NO_GAME_DATA); // TODO : change graphics
-    add_emulator("Tamagotchi", "tama", "b", RG_LOGO_PAD_TAMA, RG_LOGO_HEADER_TAMA, NO_GAME_DATA);
-    add_emulator("Pokemon Mini", "mini", "min", RG_LOGO_PAD_PKMINI, RG_LOGO_HEADER_PKMINI, NO_GAME_DATA);
+    /* Every classic emulator (gb, gba, nes, sms family, msx, genesis, pce,
+     * wsv, atari family, tama, pkmini, amstrad, gw) and the legacy
+     * zelda3/smw/celeste "homebrew" used to be registered here via
+     * add_emulator(...) with compile-time logos/extensions/dirname. They
+     * are being migrated to standalone cores/<system>/ builds, discovered
+     * dynamically at boot from /cores/*.bin (see emulators_scan_cores(),
+     * "Cores externes avec ABI" plan). Until a system is migrated it has
+     * no tab at all. */
     add_emulator("Homebrew", "homebrew", "bin", RG_LOGO_EMPTY, RG_LOGO_HEADER_HOMEBREW, NO_GAME_DATA);
     /* PICO-8: carts (.p8 / .p8.png) live under /roms/pico8/. The engine
      * itself (pico8.bin) is a separately-distributed overlay loaded at
      * runtime; see the stub in Core/Src/porting/pico8/main_pico8.c. */
     add_emulator("PICO-8", "pico8", "p8 png", RG_LOGO_EMPTY, RG_LOGO_HEADER_PICO8, GAME_DATA);
+
+#if SD_CARD == 1
+    /* Migrated systems (Watara Supervision, ...) register themselves here
+     * by dropping a packaged .bin under /cores/ on the SD card — no
+     * firmware rebuild needed to add/update/remove one. */
+    emulators_scan_cores();
+#endif
 }
 
 static bool browse_subpath_is_safe(const char *s)

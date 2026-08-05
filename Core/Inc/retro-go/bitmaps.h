@@ -78,6 +78,15 @@ void odroid_overlay_draw_logo(uint16_t x_pos, uint16_t y_pos, int16_t logo_idx, 
 void rg_reset_logo_buffers();
 retro_logo_image *rg_get_logo(int16_t logo_index);
 
+/* Registers a logo image loaded at runtime (e.g. from a dynamic core's
+ * metadata, see gnw_core_meta.h) and returns a negative "logo index" that
+ * can be passed to add_emulator()/gui_add_tab() and later resolved back
+ * by rg_get_logo() exactly like a compile-time RG_LOGO_* index. Returns
+ * RG_LOGO_EMPTY if the registry is full or img is NULL. The image is not
+ * copied — the caller must keep it alive (e.g. ahb_calloc) for as long as
+ * the tab exists. */
+int16_t rg_register_dynamic_logo(const retro_logo_image *img);
+
 extern const retro_logo_image logo_rgo;
 //extern const retro_logo_image logo_flash;
 extern const retro_logo_image logo_rgw;

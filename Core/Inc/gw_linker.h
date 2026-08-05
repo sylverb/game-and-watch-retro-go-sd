@@ -122,15 +122,13 @@ extern void * _OVERLAY_CELESTE_LOAD_START[];
 extern uint8_t _OVERLAY_CELESTE_SIZE;
 extern void * _OVERLAY_CELESTE_BSS_START[];
 extern uint8_t _OVERLAY_CELESTE_BSS_SIZE;
-extern void * _OVERLAY_PICO8_LOAD_START[];
-extern uint8_t _OVERLAY_PICO8_SIZE;
-extern void * _OVERLAY_PICO8_BSS_START[];
-extern void * _OVERLAY_PICO8_BSS_END[];
-extern uint8_t _OVERLAY_PICO8_BSS_SIZE;
-extern void * __pico8_code_start__[];
-extern void * __pico8_code_end__[];
-extern void * _PICO8_MAIN_CODE_START[];
-extern void * _PICO8_MAIN_CODE_END[];
+/* _OVERLAY_PICO8_LOAD_START/_SIZE/_BSS_START/_BSS_END/_BSS_SIZE removed:
+ * they only ever existed for the firmware-compiled GPL install-prompt
+ * stub (main_pico8_stub.c), which is no longer built — see the
+ * .overlay_pico8 removal in STM32H7B0VBTx_SDCARD.ld/_FLASH.ld. The real
+ * engine loads at the plain symbol __overlay_pico8_vma (extern'd directly
+ * in rg_emulators.c, not via this header) and computes its own BSS
+ * layout at link time. */
 extern void * _OVERLAY_TAMA_LOAD_START[];
 extern uint8_t _OVERLAY_TAMA_SIZE;
 extern void * _OVERLAY_TAMA_BSS_START[];

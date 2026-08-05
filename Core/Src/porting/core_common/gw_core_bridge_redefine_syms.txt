@@ -1,0 +1,129 @@
+# core_common symbol renaming (objcopy --redefine-syms), shared by every
+# standalone core built from cores/_template/. Applied to every object file
+# that makes up a core EXCEPT gw_core_bridge.o itself (which defines the
+# core_<name> targets below) — see cores/_template/Makefile.
+#
+# Format: OLD_NAME NEW_NAME (one per line). NOTE: objcopy's parser does not
+# tolerate blank lines in this file (fails with "missing new symbol name"),
+# only '#' comment lines and NAME NEW_NAME lines — keep it that way.
+#
+# Add a line here + a trampoline in gw_core_bridge.c whenever a core's link
+# fails with "undefined reference to <libc/firmware function>". See
+# Core/Src/porting/core_common/gw_core_bridge.c header comment for what is
+# intentionally NOT covered yet (setjmp/longjmp, __aeabi_ldivmod/uldivmod).
+# --- libc: string.h ---
+memchr core_memchr
+memcmp core_memcmp
+memcpy core_memcpy
+memmove core_memmove
+memset core_memset
+strchr core_strchr
+strcmp core_strcmp
+strlen core_strlen
+strncmp core_strncmp
+strncpy core_strncpy
+strrchr core_strrchr
+strstr core_strstr
+strcpy core_strcpy
+strtol core_strtol
+strtod core_strtod
+# --- ARM EABI memory helpers (compiler-generated, see gw_core_bridge.c) ---
+__aeabi_memcpy core_aeabi_memcpy
+__aeabi_memcpy4 core_aeabi_memcpy4
+__aeabi_memcpy8 core_aeabi_memcpy8
+__aeabi_memmove core_aeabi_memmove
+__aeabi_memmove4 core_aeabi_memmove4
+__aeabi_memmove8 core_aeabi_memmove8
+__aeabi_memset core_aeabi_memset
+__aeabi_memset4 core_aeabi_memset4
+__aeabi_memset8 core_aeabi_memset8
+__aeabi_memclr core_aeabi_memclr
+__aeabi_memclr4 core_aeabi_memclr4
+__aeabi_memclr8 core_aeabi_memclr8
+# --- libc: ctype.h ---
+isalnum core_isalnum
+isalpha core_isalpha
+isspace core_isspace
+isupper core_isupper
+islower core_islower
+isxdigit core_isxdigit
+tolower core_tolower
+toupper core_toupper
+# --- libc: stdlib.h ---
+abort core_abort
+qsort core_qsort
+pow core_pow
+malloc core_malloc
+free core_free
+realloc core_realloc
+# --- libc: stdio.h ---
+fopen core_fopen
+fclose core_fclose
+fread core_fread
+fwrite core_fwrite
+fseek core_fseek
+ftell core_ftell
+feof core_feof
+ferror core_ferror
+fgets core_fgets
+remove core_remove
+printf core_printf
+sprintf core_sprintf
+snprintf core_snprintf
+# --- libc: assert.h ---
+__assert_func core_assert_func
+# --- FatFs (ff.h) ---
+f_opendir core_f_opendir
+f_closedir core_f_closedir
+f_readdir core_f_readdir
+# --- G&W hardware: LCD ---
+lcd_swap core_lcd_swap
+lcd_get_active_buffer core_lcd_get_active_buffer
+lcd_get_inactive_buffer core_lcd_get_inactive_buffer
+lcd_clear_active_buffer core_lcd_clear_active_buffer
+lcd_clear_inactive_buffer core_lcd_clear_inactive_buffer
+lcd_wait_for_vblank core_lcd_wait_for_vblank
+lcd_set_refresh_rate core_lcd_set_refresh_rate
+lcd_clear_buffers core_lcd_clear_buffers
+# --- G&W hardware: audio ---
+audio_start_playing core_audio_start_playing
+audio_get_active_buffer core_audio_get_active_buffer
+audio_clear_active_buffer core_audio_clear_active_buffer
+audio_clear_inactive_buffer core_audio_clear_inactive_buffer
+audio_get_buffer_length core_audio_get_buffer_length
+# --- G&W hardware: allocators ---
+itc_malloc core_itc_malloc
+itc_calloc core_itc_calloc
+itc_init core_itc_init
+ram_malloc core_ram_malloc
+ram_get_free_size core_ram_get_free_size
+dtcm_malloc core_dtcm_malloc
+# --- G&W hardware: watchdog + HAL ---
+wdog_refresh core_wdog_refresh
+HAL_Delay core_HAL_Delay
+HAL_GetTick core_HAL_GetTick
+# --- retro-go: system ---
+odroid_system_init core_odroid_system_init
+odroid_system_emu_init core_odroid_system_emu_init
+odroid_system_emu_load_state core_odroid_system_emu_load_state
+odroid_audio_mute core_odroid_audio_mute
+# --- retro-go: input / display ---
+odroid_input_read_gamepad core_odroid_input_read_gamepad
+odroid_display_get_scaling_mode core_odroid_display_get_scaling_mode
+odroid_display_set_scaling_mode core_odroid_display_set_scaling_mode
+odroid_display_get_filter_mode core_odroid_display_get_filter_mode
+# --- retro-go: overlay / SD / settings ---
+odroid_overlay_draw_text core_odroid_overlay_draw_text
+odroid_overlay_cache_file_in_flash core_odroid_overlay_cache_file_in_flash
+odroid_overlay_cache_file_in_ram core_odroid_overlay_cache_file_in_ram
+odroid_sdcard_mkdir core_odroid_sdcard_mkdir
+odroid_settings_app_int32_get core_odroid_settings_app_int32_get
+odroid_settings_app_int32_set core_odroid_settings_app_int32_set
+# --- retro-go: common emulator loop ---
+common_emu_frame_loop core_common_emu_frame_loop
+common_emu_input_loop core_common_emu_input_loop
+common_emu_input_loop_handle_turbo core_common_emu_input_loop_handle_turbo
+common_emu_sound_get_volume core_common_emu_sound_get_volume
+common_emu_sound_loop_is_muted core_common_emu_sound_loop_is_muted
+common_emu_sound_sync core_common_emu_sound_sync
+common_ingame_overlay core_common_ingame_overlay

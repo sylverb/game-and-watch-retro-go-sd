@@ -30,6 +30,7 @@
 #include "odroid_overlay.h"
 #include "odroid_sdcard.h"
 #include "odroid_settings.h"
+#include "odroid_display.h"
 #include "ff.h"
 #include "stm32h7xx_hal.h"
 #include "gw_malloc.h"     /* ram_start */
@@ -260,4 +261,18 @@ const gw_firmware_abi_t g_firmware_abi = {
     .lcd_setup_framebuffers       = (void (*)(int))lcd_setup_framebuffers,
     .lcd_get_bonus_pool           = lcd_get_bonus_pool,
     .lcd_set_clut                 = lcd_set_clut,
+
+    /* v1 append: classic-core porting surface (see gw_firmware_abi.h) */
+    .strcpy  = strcpy,
+    .malloc  = malloc,
+
+    .lcd_wait_for_vblank  = lcd_wait_for_vblank,
+    .lcd_set_refresh_rate = lcd_set_refresh_rate,
+    .lcd_clear_buffers    = lcd_clear_buffers,
+
+    .audio_get_buffer_length = audio_get_buffer_length,
+
+    .odroid_display_get_filter_mode = (int (*)(void))odroid_display_get_filter_mode,
+
+    .odroid_overlay_cache_file_in_ram = odroid_overlay_cache_file_in_ram,
 };
