@@ -1549,6 +1549,15 @@ $(CORES_DIR)/a2600.bin: cores_a2600 | create_sd_folders
 $(CORES_DIR)/a2600_defprops.bin: cores_a2600 | create_sd_folders
 	@cp cores/a2600_defprops.bin $@
 
+.PHONY: cores_sms
+cores_sms:
+	$(V)$(MAKE) -C cores/sms
+
+# sms.bin: SMS + Game Gear + SG-1000 + Colecovision share this one core
+# (see cores/sms/Makefile and scripts/sd_cores_pack.py).
+$(CORES_DIR)/sms.bin: cores_sms | create_sd_folders
+	@cp cores/sms.bin $@
+
 # | $(BUILD_DIR): MAPPERS_BUILD_DIR lives under $(BUILD_DIR) (build/nes_mappers)
 # — without this order-only prereq, a parallel (-j) build can have this
 # phony target's `mkdir -p $(MAPPERS_BUILD_DIR)` create build/ as a side
@@ -1627,6 +1636,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(CORES_DIR)/lynx.bin \
                      $(CORES_DIR)/a2600.bin \
                      $(CORES_DIR)/a2600_defprops.bin \
+                     $(CORES_DIR)/sms.bin \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
@@ -1710,6 +1720,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/lynx.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/a2600.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/a2600_defprops.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/sms.bin --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2174,6 +2185,7 @@ clean:
 	$(V)$(MAKE) -C cores/gb_tgbdual clean
 	$(V)$(MAKE) -C cores/lynx clean
 	$(V)$(MAKE) -C cores/a2600 clean
+	$(V)$(MAKE) -C cores/sms clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

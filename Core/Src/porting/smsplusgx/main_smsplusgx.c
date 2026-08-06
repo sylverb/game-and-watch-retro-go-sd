@@ -1,21 +1,26 @@
+/* This core is built standalone (see cores/sms/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their `extern` declarations of common_emu_state/
+ * ACTIVE_FILE/ram_start are parsed first. */
 #include <odroid_system.h>
 #include <string.h>
+#include <stdio.h>
 
-#include "main.h"
-#include "bilinear.h"
 #include "gw_lcd.h"
-#include "gw_linker.h"
 #include "gw_buttons.h"
 #include "shared.h"
 #include "rom_manager.h"
 #include "common.h"
 #include "main_smsplusgx.h"
 #include "appid.h"
-#include "rg_i18n.h"
 #ifndef GNW_DISABLE_COMPRESSION
 #include "lzma.h"
 #endif
 #include "gw_malloc.h"
+#include "odroid_overlay.h"
+
+#include "gw_core_bridge.h"
 
 #define SMS_WIDTH 256
 #define SMS_HEIGHT 192
@@ -40,20 +45,24 @@ static bool consoleIsSMS = false;
 static bool consoleIsCOL = false;
 static bool consoleIsSG  = false;
 
-// TODO: Move to lcd.c/h
-extern LTDC_HandleTypeDef hltdc;
-
 void set_config();
 unsigned int crc32_le(unsigned int crc, unsigned char const * buf,unsigned int len);
 
-// --- MAIN
 #ifndef GNW_DISABLE_COMPRESSION
 #define SMSROM_RAM_BUFFER_LENGTH (60*1024)
 static uint8_t *ROMinRAM_DATA;
-
 #endif
 
 static void blit_console();
+
+static uint8_t sms_engine_from_ext(void)
+{
+    if (strcmp(ACTIVE_FILE->ext, "col") == 0)
+        return SMSPLUSGX_ENGINE_COLECO;
+    if (strcmp(ACTIVE_FILE->ext, "sg") == 0)
+        return SMSPLUSGX_ENGINE_SG1000;
+    return SMSPLUSGX_ENGINE_OTHERS;
+}
 
 static int
 load_rom_from_flash(uint8_t emu_engine)
@@ -89,7 +98,7 @@ load_rom_from_flash(uint8_t emu_engine)
     }
 #endif
 #else
-    ram_start = (uint32_t)&_OVERLAY_SMS_BSS_END;
+    ram_start = (uint32_t)&__CORE_BSS_END__;
     uint32_t size = ACTIVE_FILE->size;
     if (size > ram_get_free_size()) {
         cart.rom = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &size, false);
@@ -101,6 +110,7 @@ load_rom_from_flash(uint8_t emu_engine)
     }
     cart.size = size;
 #endif
+
     if (cart.rom == NULL) {
         return 0;
     }
@@ -124,7 +134,16 @@ load_rom_from_flash(uint8_t emu_engine)
     {
         coleco.rom = (uint8*)ahb_malloc(0x2000); // 8KB bios
         printf("Loading Coleco BIOS %p\n", coleco.rom);
-        odroid_sdcard_read_file("/bios/coleco/coleco.bin", coleco.rom, 0x2000);
+        /* Compose via fopen/fread — odroid_sdcard_read_file is not on the ABI. */
+        FILE *bios = fopen("/bios/coleco/coleco.bin", "rb");
+        if (bios != NULL) {
+            size_t n = fread(coleco.rom, 1, 0x2000, bios);
+            fclose(bios);
+            if (n != 0x2000)
+                printf("Coleco BIOS short read (%u)\n", (unsigned)n);
+        } else {
+            printf("Coleco BIOS missing at /bios/coleco/coleco.bin\n");
+        }
     }
     return 1;
 }
@@ -417,7 +436,7 @@ static void sms_update_keys( odroid_gamepad_state_t* joystick )
 
 
 int
-app_main_smsplusgx(uint8_t load_state, uint8_t start_paused, int8_t save_slot, uint8_t is_coleco)
+app_main_smsplusgx(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
     if (start_paused) {
         common_emu_state.pause_after_frames = 2;
@@ -430,7 +449,7 @@ app_main_smsplusgx(uint8_t load_state, uint8_t start_paused, int8_t save_slot, u
     odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL, NULL);
 
     system_reset_config();
-    load_rom_from_flash( is_coleco );
+    load_rom_from_flash(sms_engine_from_ext());
 
     sms.use_fm = 0;
 
@@ -445,8 +464,6 @@ app_main_smsplusgx(uint8_t load_state, uint8_t start_paused, int8_t save_slot, u
         bitmap.pitch = bitmap.width;
         bitmap.data = fb_buffer;
     }
-
-    // sms.dummy = framebuffer[0]; //A normal cart shouldn't access this memory ever. Point it to vram just in case.
 
     option.sndrate = AUDIO_SAMPLE_RATE;
     option.overscan = 0;
