@@ -90,7 +90,12 @@ SECTIONS
    * C++ destructors, exception unwinding/RTTI tables. cores/gb_tgbdual (and
    * any future C++ core) builds with -fno-exceptions -fno-rtti precisely
    * so nothing ever lands in .ARM.exidx/.ARM.extab in the first place —
-   * discarding them here is a safety net, not the primary mechanism. */
+   * discarding them here is a safety net, not the primary mechanism.
+   * Stella (cores/a2600) still pulls libgcc unwind via -lstdc++; empty
+   * __exidx_* bounds keep get_eit_entry() happy with a zero-length table. */
+  __exidx_start = .;
+  __exidx_end = .;
+
   /DISCARD/ :
   {
     *(.fini_array*)

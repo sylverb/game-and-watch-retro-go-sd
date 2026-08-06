@@ -596,3 +596,97 @@ void *core_calloc(size_t nmemb, size_t size)
 {
     return gw_firmware_abi()->mem_alloc(GW_MEM_DTCM, nmemb, size);
 }
+
+/* ====================================================================
+ * Atari 2600 (Stella) helpers composed from existing ABI entries —
+ * atoi via strtol; strcasecmp/strncasecmp via tolower. No ABI append.
+ * ==================================================================== */
+int core_atoi(const char *nptr)
+{
+    return (int)gw_firmware_abi()->strtol(nptr, NULL, 10);
+}
+
+int core_strcasecmp(const char *s1, const char *s2)
+{
+    const gw_firmware_abi_t *abi = gw_firmware_abi();
+    while (*s1 && *s2) {
+        int c1 = abi->tolower((unsigned char)*s1++);
+        int c2 = abi->tolower((unsigned char)*s2++);
+        if (c1 != c2)
+            return c1 - c2;
+    }
+    return abi->tolower((unsigned char)*s1) - abi->tolower((unsigned char)*s2);
+}
+
+int core_strncasecmp(const char *s1, const char *s2, size_t n)
+{
+    const gw_firmware_abi_t *abi = gw_firmware_abi();
+    while (n-- > 0) {
+        int c1 = abi->tolower((unsigned char)*s1++);
+        int c2 = abi->tolower((unsigned char)*s2++);
+        if (c1 != c2)
+            return c1 - c2;
+        if (c1 == 0)
+            return 0;
+    }
+    return 0;
+}
+
+int core_fputc(int c, FILE *stream)
+{
+    unsigned char ch = (unsigned char)c;
+    return (gw_firmware_abi()->fwrite(&ch, 1, 1, stream) == 1) ? (int)ch : EOF;
+}
+
+void core_rewind(FILE *stream)
+{
+    (void)gw_firmware_abi()->fseek(stream, 0, SEEK_SET);
+}
+
+char *core_getenv(const char *name)
+{
+    (void)name;
+    return NULL;
+}
+
+unsigned long core_strtoul(const char *nptr, char **endptr, int base)
+{
+    return (unsigned long)gw_firmware_abi()->strtol(nptr, endptr, base);
+}
+
+/* ====================================================================
+ * Un-renamed libc exports for archives that still call malloc/strlen/...
+ * by their real names (notably toolchain libstdc++.a when a core sets
+ * CORE_LDLIBS=-lstdc++). Core .o files go through --redefine-syms so they
+ * call core_*; this bridge object does NOT, so these wrappers stay as
+ * malloc/free/... and satisfy libstdc++ without dragging in newlib.
+ * ==================================================================== */
+void  *malloc(size_t size) { return core_malloc(size); }
+void   free(void *ptr) { core_free(ptr); }
+void  *realloc(void *ptr, size_t size) { return core_realloc(ptr, size); }
+void   abort(void) { core_abort(); }
+int    memcmp(const void *a, const void *b, size_t n) { return core_memcmp(a, b, n); }
+char  *strchr(const char *s, int c) { return core_strchr(s, c); }
+int    strcmp(const char *a, const char *b) { return core_strcmp(a, b); }
+size_t strlen(const char *s) { return core_strlen(s); }
+int    strncmp(const char *a, const char *b, size_t n) { return core_strncmp(a, b, n); }
+int    sprintf(char *s, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int r = gw_firmware_abi()->vsprintf(s, fmt, ap);
+    va_end(ap);
+    return r;
+}
+size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream)
+{
+    return core_fwrite(ptr, size, nmemb, stream);
+}
+int    fputs(const char *s, FILE *stream) { return core_fputs(s, stream); }
+int    fputc(int c, FILE *stream) { return core_fputc(c, stream); }
+void   rewind(FILE *stream) { core_rewind(stream); }
+char  *getenv(const char *name) { return core_getenv(name); }
+unsigned long strtoul(const char *nptr, char **endptr, int base)
+{
+    return core_strtoul(nptr, endptr, base);
+}

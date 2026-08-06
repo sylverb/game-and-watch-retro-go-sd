@@ -38,6 +38,7 @@
  */
 #include <cstddef>
 #include <cstring>
+#include <sys/reent.h>
 
 extern "C" {
 #include "gw_malloc.h"
@@ -119,9 +120,58 @@ extern "C" void __cxa_pure_virtual()
     while (1) { }
 }
 
-extern "C" void *__dso_handle = (void *)&__dso_handle;
+extern "C" {
+void *__dso_handle = (void *)&__dso_handle;
+}
 
 extern "C" int __cxa_atexit(void (*)(void *), void *, void *)
 {
     return 0;
+}
+
+/* ====================================================================
+ * Exception / unwind stubs for cores that link -lstdc++ (Stella).
+ *
+ * Toolchain libstdc++.a is built WITH exceptions; even with our own
+ * -fno-exceptions, string/length_error paths still reference the EH
+ * runtime. We never throw (new never fails into bad_alloc here — OOM
+ * returns NULL and Stella doesn't check every allocation), so these
+ * stubs just abort if somehow reached, and keep --gc-sections from
+ * pulling the full personality/demangle objects when possible.
+ * ==================================================================== */
+extern "C" void abort(void);
+
+extern "C" void *__cxa_allocate_exception(size_t) { abort(); return nullptr; }
+extern "C" void  __cxa_free_exception(void *) { abort(); }
+extern "C" void  __cxa_throw(void *, void *, void (*)(void *)) { abort(); }
+extern "C" void  __cxa_rethrow(void) { abort(); }
+extern "C" void *__cxa_begin_catch(void *) { abort(); return nullptr; }
+extern "C" void  __cxa_end_catch(void) { abort(); }
+extern "C" void *__cxa_get_exception_ptr(void *) { return nullptr; }
+extern "C" void  __cxa_call_unexpected(void *) { abort(); }
+extern "C" char *__cxa_demangle(const char *, char *, size_t *, int *status)
+{
+    if (status)
+        *status = -2; /* invalid mangled name / unsupported */
+    return nullptr;
+}
+
+/* libgcc provides the real _Unwind_* / __gnu_unwind_frame — do not stub
+ * those here (multiple-definition with -lgcc). Empty __exidx_start/end
+ * are PROVIDEd by cores/_template/core_ram_emu.ld (exidx is /DISCARD/). */
+
+extern "C" int __gxx_personality_v0(int, int, unsigned long long, void *, void *)
+{
+    abort();
+    return 0;
+}
+
+/* newlib's FILE* table pointer — only referenced by verbose terminate. */
+static struct _reent s_impure_data;
+extern "C" {
+struct _reent *_impure_ptr = &s_impure_data;
+}
+
+namespace __gnu_cxx {
+void __verbose_terminate_handler() { abort(); }
 }

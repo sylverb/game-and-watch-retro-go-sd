@@ -26,32 +26,30 @@
 # Optional:
 #   CORE_C_INCLUDES  extra -I flags, on top of the common set below
 #   CORE_C_DEFS      extra -D flags, on top of the common set below
-#   CORE_CXX_SOURCES .cpp files to build (e.g. cores/gb_tgbdual/Makefile) —
-#                    compiled with $(CXX)/$(CXXFLAGS) instead of $(CC)/
-#                    $(CFLAGS), everything else (redefine-syms pass, vpath,
-#                    flat build/ dir) identical to CORE_C_SOURCES. Setting
-#                    this non-empty also pulls in
+#   CORE_CXX_SOURCES .cpp/.cxx files to build (e.g. cores/gb_tgbdual/Makefile,
+#                    cores/a2600/Makefile) — compiled with $(CXX)/$(CXXFLAGS)
+#                    instead of $(CC)/$(CFLAGS), everything else (redefine-syms
+#                    pass, vpath, flat build/ dir) identical to CORE_C_SOURCES.
+#                    Setting this non-empty also pulls in
 #                    Core/Src/porting/core_common/gw_core_cxx_support.cpp
 #                    (operator new/delete, __cxa_pure_virtual, the
 #                    heap_alloc_mem() family — see that file's header
 #                    comment) automatically, same way BRIDGE_C_SOURCES is
-#                    always pulled in below. A C++ core builds WITHOUT
-#                    libstdc++ (no -lstdc++ in LDFLAGS, see cores/gb_tgbdual/
-#                    Makefile's header comment on why) — stick to classes/
+#                    always pulled in below. Most C++ cores build WITHOUT
+#                    libstdc++ (no -lstdc++ in LDFLAGS) — stick to classes/
 #                    virtual dispatch/new/delete; avoid STL containers,
 #                    exceptions (CXXFLAGS below passes -fno-exceptions,
 #                    so `throw`/`try`/`catch` are hard compile errors, not
 #                    silent runtime breakage) and RTTI (-fno-rtti, `dynamic_cast`/
-#                    `typeid` likewise won't compile).
+#                    `typeid` likewise won't compile). Exception: Stella
+#                    (cores/a2600) needs std::string and sets
+#                    CORE_LDLIBS += -lstdc++.
 #   CORE_LDSCRIPT    defaults to $(TEMPLATE_DIR)/core_ram_emu.ld. Point this
 #                    at your own script (INCLUDE-ing ld/gnw_itcm_core.ld /
 #                    ld/gnw_ahb_core.ld as needed) if you use CORE_EXTRA_SEGMENTS
 #                    — see cores/pce/pce_core.ld for an ITCM example.
-#   CORE_LDLIBS      extra -l flags, e.g. -lm (see cores/md/Makefile: gwenesis's
-#                    ym2612.c calls sin()/log() once at init time to build FM
-#                    tables — self-contained libm code with no firmware calls,
-#                    so it's simplest to link it in directly rather than route
-#                    it through gw_firmware_abi_t like everything else here)
+#   CORE_LDLIBS      extra -l flags, e.g. -lm (cores/md) or -lstdc++
+#                    (cores/a2600: Stella's std::string). Linked after -lgcc.
 #   CORE_EXTRA_SEGMENTS  space-separated "region:section" pairs for code/data
 #                    that must land in a fixed memory region other than
 #                    RAM_EMU (segment 0, always produced by TARGET_BIN below)
@@ -178,7 +176,10 @@ CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-
 # the "NOT implemented here" note in gw_core_bridge.c. It is entirely
 # self-contained (no firmware calls), so pulling it in costs code size but
 # never breaks the ABI boundary.
-LDFLAGS = $(MCU) -nostdlib -lgcc $(CORE_LDLIBS) -T$(CORE_LDSCRIPT) -L$(ROOT_DIR)/ld \
+# CORE_LDLIBS (e.g. -lstdc++) before -lgcc so EH helpers resolve against our
+# stubs in gw_core_cxx_support.cpp / libgcc rather than leaving dangling
+# libstdc++→libgcc unwind refs unsatisfied.
+LDFLAGS = $(MCU) -nostdlib $(CORE_LDLIBS) -lgcc -T$(CORE_LDSCRIPT) -L$(ROOT_DIR)/ld \
 -Wl,-Map=$(BUILD_DIR)/$(CORE_NAME)_core.map,--cref -Wl,--gc-sections \
 -Wl,--no-check-sections
 
@@ -198,12 +199,14 @@ endif
 ALL_C_SOURCES   := $(CORE_C_SOURCES) $(BRIDGE_C_SOURCES)
 ALL_CXX_SOURCES := $(CORE_CXX_SOURCES)
 C_OBJECTS   := $(addprefix $(BUILD_DIR)/,$(notdir $(ALL_C_SOURCES:.c=.o)))
-CXX_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(ALL_CXX_SOURCES:.cpp=.o)))
+# Accept both .cpp (handy-go / tgbdual) and .cxx (Stella / a2600).
+CXX_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(patsubst %.cxx,%.o,$(patsubst %.cpp,%.o,$(ALL_CXX_SOURCES)))))
 ASM_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(BRIDGE_ASM_SOURCES:.S=.o)))
 BRIDGE_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(BRIDGE_C_SOURCES:.c=.o)))
 
 vpath %.c $(sort $(dir $(ALL_C_SOURCES)))
 vpath %.cpp $(sort $(dir $(ALL_CXX_SOURCES)))
+vpath %.cxx $(sort $(dir $(ALL_CXX_SOURCES)))
 vpath %.S $(sort $(dir $(BRIDGE_ASM_SOURCES)))
 
 TARGET_ELF := $(BUILD_DIR)/$(CORE_NAME)_core.elf
@@ -250,6 +253,12 @@ $(BUILD_DIR)/%.o: %.S | $(BUILD_DIR)
 # etc. to resolve against the C bridge, so it's a normal core source file
 # from this rule's point of view).
 $(BUILD_DIR)/%.o: %.cpp $(REDEFINE_SYMS_FILE) | $(BUILD_DIR)
+	$(CXX) -c $(CXXFLAGS) $< -o $@
+	$(CP) --redefine-syms=$(REDEFINE_SYMS_FILE) $@
+
+# Stella (and a few other older C++ ports) use .cxx rather than .cpp —
+# identical compile/redefine-syms path.
+$(BUILD_DIR)/%.o: %.cxx $(REDEFINE_SYMS_FILE) | $(BUILD_DIR)
 	$(CXX) -c $(CXXFLAGS) $< -o $@
 	$(CP) --redefine-syms=$(REDEFINE_SYMS_FILE) $@
 

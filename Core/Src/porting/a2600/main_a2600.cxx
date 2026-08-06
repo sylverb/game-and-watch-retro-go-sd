@@ -1,26 +1,27 @@
+/* This core is built standalone (see cores/a2600/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their own `extern` declarations are parsed first and
+ * only later *uses* of common_emu_state/ACTIVE_FILE/ram_start turn into
+ * live ABI-pointer accesses — see Core/Src/porting/core_common/CLAUDE.md. */
 extern "C"
 {
 #include <odroid_system.h>
 #include <string.h>
 #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-#include "main.h"
-#include "bilinear.h"
 #include "gw_lcd.h"
-#include "gw_linker.h"
-#include "rg_i18n.h"
-#include "gw_buttons.h"
 #include "common.h"
 #include "rom_manager.h"
 #include "appid.h"
-#include "cpp_init_array.h"
-#ifndef GNW_DISABLE_COMPRESSION
-#include "lzma.h"
-#endif
+#include "main_a2600.h"
 #include "heap.hpp"
+#include "odroid_overlay.h"
 #include "DefPropsBin.h"
 
-extern void __libc_init_array(void);
+#include "gw_core_bridge.h"
 }
 
 #include "Console.hxx"
@@ -97,32 +98,7 @@ bool a2600_fastscbios = false;
 
 static string cartType = "AUTO";
 
-#ifndef GNW_DISABLE_COMPRESSION
-// Memory to handle compressed roms
-#define ROM_BUFF_LENGTH 131072 // 128kB
-static uint8_t rom_memory[ROM_BUFF_LENGTH];
-#endif
-
 static size_t getromdata(unsigned char **data) {
-#ifndef GNW_DISABLE_COMPRESSION
-#if SD_CARD == 1
-#error "Roms compression is not supported on SD Card"
-#else
-    uint32_t src_size = 0;
-    const unsigned char *src = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &src_size, false);
-    unsigned char *dest = (unsigned char *)rom_memory;
-
-    if(strcmp(ACTIVE_FILE->ext, "lzma") == 0){
-        size_t n_decomp_bytes;
-        n_decomp_bytes = lzma_inflate(dest, ROM_BUFF_LENGTH, src, src_size);
-        *data = dest;
-        return n_decomp_bytes;
-    } else {
-        *data = (unsigned char *)src;
-        return src_size;
-    }
-#endif
-#else
     uint32_t size = ACTIVE_FILE->size;
     if (size > (heap_free_mem())) {
         *data = (uint8_t *)odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &size, false);
@@ -133,7 +109,6 @@ static size_t getromdata(unsigned char **data) {
         }
     }
     return size;
-#endif
 }
 
 void fill_stella_config(string md5string)
@@ -224,12 +199,6 @@ void update_joystick(odroid_gamepad_state_t *joystick)
     ev.set(Event::Type(Event::JoystickZeroLeft), joystick->values[ODROID_INPUT_LEFT] ? 1 : 0);
     ev.set(Event::Type(Event::JoystickZeroRight), joystick->values[ODROID_INPUT_RIGHT] ? 1 : 0);
     ev.set(Event::Type(Event::JoystickZeroFire), joystick->values[ODROID_INPUT_A] ? 1 : 0);
-    /*    ev.set(Event::Type(Event::ConsoleLeftDiffA),  joystick_state & (1 << RETRO_DEVICE_ID_JOYPAD_L));
-        ev.set(Event::Type(Event::ConsoleLeftDiffB),  joystick_state & (1 << RETRO_DEVICE_ID_JOYPAD_L2));
-        ev.set(Event::Type(Event::ConsoleColor),      joystick_state & (1 << RETRO_DEVICE_ID_JOYPAD_L3));
-        ev.set(Event::Type(Event::ConsoleRightDiffA), joystick_state & (1 << RETRO_DEVICE_ID_JOYPAD_R));
-        ev.set(Event::Type(Event::ConsoleRightDiffB), joystick_state & (1 << RETRO_DEVICE_ID_JOYPAD_R2));
-        ev.set(Event::Type(Event::ConsoleBlackWhite), joystick_state & (1 << RETRO_DEVICE_ID_JOYPAD_R3));*/
     ev.set(Event::Type(Event::ConsoleSelect), joystick->values[ODROID_INPUT_SELECT] || joystick->values[ODROID_INPUT_Y]);
     ev.set(Event::Type(Event::ConsoleReset), joystick->values[ODROID_INPUT_START] || joystick->values[ODROID_INPUT_X]);
 
@@ -310,7 +279,9 @@ static void blit()
     blend_frames_16(console->tia().currentFrameBuffer(), console->tia().width(), console->tia().height());
 }
 
-static void app_main_a2600_cpp(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
+/* CORE_ENTRY (cores/a2600/Makefile) — gw_core_entry.S runs this core's
+ * C++ global constructor table (.init_array) before branching here. */
+extern "C" void app_main_a2600(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
     odroid_gamepad_state_t joystick;
     odroid_dialog_choice_t options[] = {
@@ -332,7 +303,6 @@ static void app_main_a2600_cpp(uint8_t load_state, uint8_t start_paused, int8_t 
     printf("cartType = %s\n", cartType.c_str());
     string cartId;
     settings = new Settings(&osystem);
-    //   settings->setValue("romloadcount", false);
 
     rom_length = getromdata(&rom_ptr);
     if (rom_ptr == NULL) {
@@ -393,15 +363,7 @@ static void app_main_a2600_cpp(uint8_t load_state, uint8_t start_paused, int8_t 
         common_emu_frame_loop();
         odroid_input_read_gamepad(&joystick);
         common_emu_input_loop(&joystick, options, &blit);
-
-        uint8_t turbo_buttons = odroid_settings_turbo_buttons_get();
-        bool turbo_a = (joystick.values[ODROID_INPUT_A] && (turbo_buttons & 1));
-        bool turbo_b = (joystick.values[ODROID_INPUT_B] && (turbo_buttons & 2));
-        bool turbo_button = odroid_button_turbos();
-        if (turbo_a)
-            joystick.values[ODROID_INPUT_A] = turbo_button;
-        if (turbo_b)
-            joystick.values[ODROID_INPUT_B] = !turbo_button;
+        common_emu_input_loop_handle_turbo(&joystick);
 
         update_joystick(&joystick);
 
@@ -414,15 +376,4 @@ static void app_main_a2600_cpp(uint8_t load_state, uint8_t start_paused, int8_t 
 
         common_emu_sound_sync(false);
     }
-}
-
-extern "C" int app_main_a2600(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
-{
-    // Call static c++ constructors now, *after* OSPI and other memory is copied
-    // Do not use __libc_init_array() as it will not work with the overlay
-    cpp_init_array(__init_array_a2600_start__, __init_array_a2600_end__);
-
-    app_main_a2600_cpp(load_state, start_paused, save_slot);
-
-    return 0;
 }
