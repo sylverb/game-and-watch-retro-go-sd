@@ -88,6 +88,8 @@ bool odroid_input_key_is_pressed(odroid_gamepad_key_t key)
 
 odroid_battery_state_t odroid_input_read_battery()
 {
+    static bool battery_zero_guard_armed = false;
+    static bool battery_auto_poweroff_latched = false;
     odroid_battery_state_t ret;
 
     ret.millivolts = 0;
@@ -98,6 +100,29 @@ odroid_battery_state_t odroid_input_read_battery()
         case BQ24072_STATE_CHARGING:        ret.state = ODROID_BATTERY_CHARGE_STATE_CHARGING;           break;
         case BQ24072_STATE_DISCHARGING:     ret.state = ODROID_BATTERY_CHARGE_STATE_DISCHARGING;        break;
         case BQ24072_STATE_FULL:            ret.state = ODROID_BATTERY_CHARGE_STATE_FULL;               break;
+    }
+
+    /*
+     * Ignore the initial 0% reading that can happen right after boot,
+     * then force a standby power-off if battery later drops to the
+     * critical 1-5% range while discharging. This protects the RTC
+     * backup domain from deep drain, how works in OFW.
+     */
+    if (ret.percentage > 0) {
+        battery_zero_guard_armed = true;
+    }
+
+    if (battery_zero_guard_armed &&
+        !battery_auto_poweroff_latched &&
+        ret.state == ODROID_BATTERY_CHARGE_STATE_DISCHARGING &&
+        ret.percentage >= 1 &&
+        ret.percentage <= 5) {
+        battery_auto_poweroff_latched = true;
+        odroid_system_shutdown();
+        odroid_system_sleep_ex(
+            SLEEP_ENTER_STANDBY | SLEEP_SHOW_LOGO | SLEEP_SHOW_ANIMATION | SLEEP_ANIMATION_SLOW,
+            NULL
+        );
     }
 
     return ret;

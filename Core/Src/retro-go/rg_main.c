@@ -565,6 +565,101 @@ static void GLOBAL_DATA handle_time_menu()
     }
 }
 
+static void draw_easter_clock_digit(uint16_t *fb, const uint8_t digit, int px, int py, int scale, uint16_t color)
+{
+    static const unsigned char *CLOCK_DIGITS[] = {img_clock_00, img_clock_01, img_clock_02, img_clock_03, img_clock_04, img_clock_05, img_clock_06, img_clock_07, img_clock_08, img_clock_09};
+    const unsigned char *img = CLOCK_DIGITS[digit];
+
+    for (uint8_t y = 0; y < 10; y++) {
+        for (uint8_t x = 0; x < 6; x++) {
+            if (img[y] & (1 << (7 - x))) {
+                for (int sy = 0; sy < scale; sy++) {
+                    for (int sx = 0; sx < scale; sx++) {
+                        int draw_x = px + x * scale + sx;
+                        int draw_y = py + y * scale + sy;
+                        fb[draw_x + GW_LCD_WIDTH * draw_y] = color;
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void GLOBAL_DATA easter_clock_repaint()
+{
+    const int scale = 8;
+    const int digit_width = 6 * scale;
+    const int digit_height = 10 * scale;
+    const int colon_width = 2 * scale;
+    const int total_width = digit_width * 4 + colon_width + (3 * scale * 2);
+    const int x_pos = (ODROID_SCREEN_WIDTH - total_width) / 2;
+    const int y_pos = (ODROID_SCREEN_HEIGHT - digit_height) / 2;
+    const uint16_t digit_color = curr_colors->sel_c;
+
+    uint16_t *fb = lcd_get_active_buffer();
+    memset(fb, 0x00, GW_LCD_WIDTH * GW_LCD_HEIGHT * 2);
+
+    retro_logo_image *logo = rg_get_logo(RG_LOGO_GNW);
+    if (logo) {
+        odroid_overlay_draw_logo(8, 8, RG_LOGO_GNW, curr_colors->sel_c);
+    }
+
+    odroid_battery_state_t battery_state = odroid_input_read_battery();
+    odroid_overlay_draw_battery(battery_state, ODROID_SCREEN_WIDTH - 26, 10);
+
+    int hour = GW_GetCurrentHour();
+    int minute = GW_GetCurrentMinute();
+    int spacing = scale * 2;
+
+    draw_easter_clock_digit(fb, hour / 10, x_pos, y_pos, scale, digit_color);
+    draw_easter_clock_digit(fb, hour % 10, x_pos + digit_width + spacing, y_pos, scale, digit_color);
+
+    int colon_x = x_pos + (digit_width + spacing) * 2;
+    int colon_y_top = y_pos + (digit_height / 3);
+    int colon_size = MAX(2, scale - 1);
+    if (GW_GetCurrentSubSeconds() <= 127) {
+        odroid_overlay_draw_fill_rect(colon_x, colon_y_top, colon_width, colon_size, digit_color);
+        odroid_overlay_draw_fill_rect(colon_x, colon_y_top + (digit_height / 3), colon_width, colon_size, digit_color);
+    }
+
+    int minute_x = colon_x + colon_width + spacing;
+    draw_easter_clock_digit(fb, minute / 10, minute_x, y_pos, scale, digit_color);
+    draw_easter_clock_digit(fb, minute % 10, minute_x + digit_width + spacing, y_pos, scale, digit_color);
+
+}
+
+static void GLOBAL_DATA handle_easter_digital_clock()
+{
+    odroid_gamepad_state_t joystick;
+    odroid_gamepad_state_t previous_joystick = {0};
+    bool b_released_once = false;
+
+    // If clock is opened while holding B (B + D-pad gesture), avoid immediate exit.
+    odroid_input_read_gamepad(&previous_joystick);
+    b_released_once = !previous_joystick.values[ODROID_INPUT_B];
+
+    while (true)
+    {
+        wdog_refresh();
+        odroid_input_read_gamepad(&joystick);
+
+        if (!b_released_once) {
+            if (!joystick.values[ODROID_INPUT_B]) {
+                b_released_once = true;
+            }
+        } else if (joystick.values[ODROID_INPUT_B] && !previous_joystick.values[ODROID_INPUT_B]) {
+            break;
+        }
+
+        easter_clock_repaint();
+        lcd_swap();
+        lcd_sleep_while_swap_pending();
+        HAL_Delay(25);
+
+        previous_joystick = joystick;
+    }
+}
+
 tab_t* gui_get_prepared_tab(int tab_index) {
     tab_t* tab = gui_get_tab(tab_index);
     if (!tab->initialized) {
@@ -635,6 +730,8 @@ void retro_loop()
     int repeat = 0;
     uint32_t idle_s;
     bool power_key_pressed = false;
+    uint8_t dpad_previous_mask = 0;
+    bool suppress_next_b_release = false;
 
     // Variable to measure the time the button has been pressed
     static uint32_t key_press_start_time = 0;
@@ -647,6 +744,11 @@ void retro_loop()
 
     // Read the initial state as to not trigger on button held down during boot
     odroid_input_read_gamepad(&gui.joystick);
+    dpad_previous_mask =
+            (gui.joystick.values[ODROID_INPUT_UP] ? 0x1 : 0x0) |
+            (gui.joystick.values[ODROID_INPUT_DOWN] ? 0x2 : 0x0) |
+            (gui.joystick.values[ODROID_INPUT_LEFT] ? 0x4 : 0x0) |
+            (gui.joystick.values[ODROID_INPUT_RIGHT] ? 0x8 : 0x0);
 
     for (int i = 0; i < ODROID_INPUT_MAX; i++)
         if (gui.joystick.values[i])
@@ -728,6 +830,23 @@ void retro_loop()
             }
         }
 
+        uint8_t dpad_current_mask =
+                (gui.joystick.values[ODROID_INPUT_UP] ? 0x1 : 0x0) |
+                (gui.joystick.values[ODROID_INPUT_DOWN] ? 0x2 : 0x0) |
+                (gui.joystick.values[ODROID_INPUT_LEFT] ? 0x4 : 0x0) |
+                (gui.joystick.values[ODROID_INPUT_RIGHT] ? 0x8 : 0x0);
+
+        if (gui.joystick.values[ODROID_INPUT_B] && (dpad_current_mask & ~dpad_previous_mask)) {
+            handle_easter_digital_clock();
+            suppress_next_b_release = true;
+            last_key = -1;
+            repeat = 0;
+            gui_refresh_tab(tab);
+            dpad_previous_mask = dpad_current_mask;
+            continue;
+        }
+        dpad_previous_mask = dpad_current_mask;
+
         if (idle_s > 0 && gui.joystick.bitmask == 0)
         {
             gui_event(TAB_IDLE, tab);
@@ -804,11 +923,6 @@ void retro_loop()
             {
                 gui_event(KEY_PRESS_A, tab);
             }
-            else if (last_key == ODROID_INPUT_B)
-            {
-                if (!rg_emulator_tab_in_rom_subfolder(tab))
-                    gui_event(KEY_PRESS_B, tab);
-            }
             else if (last_key == ODROID_INPUT_POWER && !power_key_pressed)
             {
                 if ((gui.joystick.values[ODROID_INPUT_UP]) || (gui.joystick.values[ODROID_INPUT_DOWN]) ||
@@ -831,6 +945,13 @@ void retro_loop()
         {
             if (!gui.joystick.values[last_key])
             {
+                if (last_key == ODROID_INPUT_B)
+                {
+                    if (suppress_next_b_release)
+                        suppress_next_b_release = false;
+                    else if (!rg_emulator_tab_in_rom_subfolder(tab))
+                        gui_event(KEY_PRESS_B, tab);
+                }
                 last_key = -1;
                 repeat = 0;
             }
