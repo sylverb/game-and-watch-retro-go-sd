@@ -43,6 +43,10 @@ extern "C" {
 /* Bump on any removal, reorder, or signature change. Append-only is safe. */
 #define GW_FIRMWARE_ABI_VERSION  2u
 
+/* Progress callback for ranged SD→RAM copies (matches rg_storage.h). Declared
+ * here so gw_firmware_abi.h doesn't need to pull in rg_storage.h. */
+typedef void (*gw_file_progress_cb_t)(uint32_t total_size, uint32_t total_processed, uint8_t progress);
+
 /* Offset within intflash where the .firmware_abi section is pinned by
  * the linker. Chosen to sit after the ISR vector table (684 bytes at
  * offset 0..0x2AC) with headroom for vector-table growth before the
@@ -430,6 +434,15 @@ typedef struct {
     void     (*lcd_clone)(void);
     int32_t  (*odroid_settings_Palette_get)(void);
     void     (*odroid_settings_Palette_set)(int32_t value);
+
+    /* ================================================================
+     * v2 append: FCEUmm (NES) — ranged SD→RAM copy for mappers.pak blobs
+     * (nes_fceu_mappers.c). Same append-only / no version bump policy as
+     * the other v2 fields above.
+     * ================================================================ */
+    size_t   (*rg_storage_copy_file_range_to_ram)(char *file_path, uint8_t *ram_dest,
+                                                  uint32_t offset, uint32_t length,
+                                                  gw_file_progress_cb_t file_progress_cb);
 
 } gw_firmware_abi_t;
 

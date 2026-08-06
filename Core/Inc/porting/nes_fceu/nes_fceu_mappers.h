@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define FCEUMM_MAPPER_PACK_FILE "/cores/mappers/mappers.pak"
+#define FCEUMM_MAPPER_PACK_FILE "/cores/nes_fceumm_mappers/mappers.pak"
 
 /* Load the mapper blob for `mapper_number` from the mappers pack into `dest`.
  * Returns the number of bytes loaded, or 0 when the mapper is not present in the

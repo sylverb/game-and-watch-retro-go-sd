@@ -37,6 +37,7 @@ save_states
 # cleanup before a commit.
 cores/*.bin
 cores/*/build
+cores/nes_fceumm_mappers/
 
 venv
 

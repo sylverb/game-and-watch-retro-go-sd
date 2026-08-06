@@ -36,6 +36,7 @@
 #include "gw_malloc.h"     /* ram_start */
 #include "gw_ofw.h"
 #include "crc32.h"
+#include "rg_storage.h"
 
 /* These are defined in rg_emulators.c */
 extern uint8_t *pico8_code_flash_addr;
@@ -316,4 +317,8 @@ const gw_firmware_abi_t g_firmware_abi = {
     .lcd_clone                       = lcd_clone,
     .odroid_settings_Palette_get     = odroid_settings_Palette_get,
     .odroid_settings_Palette_set     = odroid_settings_Palette_set,
+
+    /* v2 append: FCEUmm (NES) mappers.pak loader */
+    .rg_storage_copy_file_range_to_ram =
+        (size_t (*)(char *, uint8_t *, uint32_t, uint32_t, gw_file_progress_cb_t))rg_storage_copy_file_range_to_ram,
 };

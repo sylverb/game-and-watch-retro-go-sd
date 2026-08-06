@@ -259,7 +259,7 @@ def main():
         fs.mount()
         for src, dest in collect_dirs:
             if dest == "cores" and not args.no_cores_filter:
-                skip = frozenset({"mappers/mappers.pak"}) if pruned_mapper_pack else frozenset()
+                skip = frozenset({"nes_fceumm_mappers/mappers.pak"}) if pruned_mapper_pack else frozenset()
                 n = copy_tree_cores_filtered(
                     fs,
                     src,
@@ -269,7 +269,7 @@ def main():
                     skip_relpaths=skip,
                 )
                 if pruned_mapper_pack is not None:
-                    copy_file(fs, pruned_mapper_pack, "/cores/mappers/mappers.pak")
+                    copy_file(fs, pruned_mapper_pack, "/cores/nes_fceumm_mappers/mappers.pak")
                     n += 1
                 copied_files += n
                 sys_msg = ", ".join(sorted(active_systems)) if active_systems else "(no ROM folders)"

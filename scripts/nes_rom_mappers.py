@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Discover which FCEUmm mapper blobs under sd_content/cores/mappers/ are needed
+Discover which FCEUmm mapper blobs under sd_content/cores/nes_fceumm_mappers/ are needed
 for ROMs under roms/nes (and sd_content/roms/nes), using the same heuristics as
 external/fceumm-go/nesmapper.py (iNES / FDS / NSF) plus NSF expansion chips
 from external/fceumm-go/src/nsf.c (GNW rg_storage_copy_file_to_ram paths).

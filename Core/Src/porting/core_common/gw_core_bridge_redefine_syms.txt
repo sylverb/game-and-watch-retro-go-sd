@@ -30,6 +30,7 @@ strncpy core_strncpy
 strrchr core_strrchr
 strstr core_strstr
 strcpy core_strcpy
+strcat core_strcat
 strtol core_strtol
 strtod core_strtod
 # --- libc: ctype.h ---
@@ -48,6 +49,7 @@ pow core_pow
 malloc core_malloc
 free core_free
 realloc core_realloc
+rand core_rand
 # --- libc: stdio.h ---
 fopen core_fopen
 fclose core_fclose
@@ -64,6 +66,7 @@ printf core_printf
 vprintf core_vprintf
 vfprintf core_vfprintf
 sprintf core_sprintf
+vsprintf core_vsprintf
 snprintf core_snprintf
 # --- libc: assert.h ---
 __assert_func core_assert_func
@@ -168,3 +171,5 @@ fputc core_fputc
 rewind core_rewind
 getenv core_getenv
 strtoul core_strtoul
+# --- FCEUmm (NES): mappers.pak ranged SD→RAM copy ---
+rg_storage_copy_file_range_to_ram core_rg_storage_copy_file_range_to_ram

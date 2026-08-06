@@ -105,6 +105,12 @@ char  *core_strncpy(char *d, const char *s, size_t n) { return gw_firmware_abi()
 char  *core_strrchr(const char *s, int c) { return gw_firmware_abi()->strrchr(s, c); }
 char  *core_strstr(const char *h, const char *n) { return gw_firmware_abi()->strstr(h, n); }
 char  *core_strcpy(char *d, const char *s) { return gw_firmware_abi()->strcpy(d, s); }
+/* strcat is not on the ABI; compose from strlen+strcpy (FCEUmm ines.c). */
+char  *core_strcat(char *dest, const char *src)
+{
+    core_strcpy(dest + core_strlen(dest), src);
+    return dest;
+}
 long   core_strtol(const char *nptr, char **endptr, int base) { return gw_firmware_abi()->strtol(nptr, endptr, base); }
 double core_strtod(const char *nptr, char **endptr) { return gw_firmware_abi()->strtod(nptr, endptr); }
 
@@ -289,6 +295,11 @@ int core_sprintf(char *s, const char *fmt, ...)
     return r;
 }
 
+int core_vsprintf(char *s, const char *fmt, va_list ap)
+{
+    return gw_firmware_abi()->vsprintf(s, fmt, ap);
+}
+
 int core_snprintf(char *s, size_t n, const char *fmt, ...)
 {
     va_list ap;
@@ -297,6 +308,47 @@ int core_snprintf(char *s, size_t n, const char *fmt, ...)
     va_end(ap);
     return r;
 }
+
+/* Minimal LCG — FCEU_MemoryRand / NSF visuals only need non-crypto entropy. */
+static unsigned long core_rand_state = 1;
+int core_rand(void)
+{
+    core_rand_state = core_rand_state * 1103515245UL + 12345UL;
+    return (int)((core_rand_state >> 16) & 0x7fff);
+}
+
+/*
+ * newlib ctype.h macros (isdigit, etc.) index this table. Provide a minimal
+ * ASCII-oriented table so FCEUmm cheat/GG parsers link without pulling libc.
+ * Layout matches newlib: _ctype_[c+1], bit flags.
+ */
+#define _C_U  0x01
+#define _C_L  0x02
+#define _C_N  0x04
+#define _C_S  0x08
+#define _C_P  0x10
+#define _C_C  0x20
+#define _C_X  0x40
+#define _C_B  0x80
+const char _ctype_[1 + 256] = {
+    0,
+    _C_C, _C_C, _C_C, _C_C, _C_C, _C_C, _C_C, _C_C,
+    _C_C, _C_C|_C_S, _C_C|_C_S, _C_C|_C_S, _C_C|_C_S, _C_C|_C_S, _C_C, _C_C,
+    _C_C, _C_C, _C_C, _C_C, _C_C, _C_C, _C_C, _C_C,
+    _C_C, _C_C, _C_C, _C_C, _C_C, _C_C, _C_C, _C_C,
+    _C_S|_C_B, _C_P, _C_P, _C_P, _C_P, _C_P, _C_P, _C_P,
+    _C_P, _C_P, _C_P, _C_P, _C_P, _C_P, _C_P, _C_P,
+    _C_N, _C_N, _C_N, _C_N, _C_N, _C_N, _C_N, _C_N,
+    _C_N, _C_N, _C_P, _C_P, _C_P, _C_P, _C_P, _C_P,
+    _C_P, _C_U|_C_X, _C_U|_C_X, _C_U|_C_X, _C_U|_C_X, _C_U|_C_X, _C_U|_C_X, _C_U,
+    _C_U, _C_U, _C_U, _C_U, _C_U, _C_U, _C_U, _C_U,
+    _C_U, _C_U, _C_U, _C_U, _C_U, _C_U, _C_U, _C_U,
+    _C_U, _C_U, _C_U, _C_P, _C_P, _C_P, _C_P, _C_P,
+    _C_P, _C_L|_C_X, _C_L|_C_X, _C_L|_C_X, _C_L|_C_X, _C_L|_C_X, _C_L|_C_X, _C_L,
+    _C_L, _C_L, _C_L, _C_L, _C_L, _C_L, _C_L, _C_L,
+    _C_L, _C_L, _C_L, _C_L, _C_L, _C_L, _C_L, _C_L,
+    _C_L, _C_L, _C_L, _C_P, _C_P, _C_P, _C_P, _C_C,
+};
 
 /* ====================================================================
  * libc: assert.h
@@ -652,6 +704,17 @@ char *core_getenv(const char *name)
 unsigned long core_strtoul(const char *nptr, char **endptr, int base)
 {
     return (unsigned long)gw_firmware_abi()->strtol(nptr, endptr, base);
+}
+
+/* ====================================================================
+ * FCEUmm (NES): ranged SD→RAM copy for /cores/nes_fceumm_mappers/mappers.pak blobs.
+ * ==================================================================== */
+size_t core_rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest,
+                                              uint32_t offset, uint32_t length,
+                                              gw_file_progress_cb_t file_progress_cb)
+{
+    return gw_firmware_abi()->rg_storage_copy_file_range_to_ram(
+        file_path, ram_dest, offset, length, file_progress_cb);
 }
 
 /* ====================================================================

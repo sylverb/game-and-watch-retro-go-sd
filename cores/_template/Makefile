@@ -72,8 +72,13 @@ ifeq ($(CORE_ENTRY),)
 $(error CORE_ENTRY must be set before including cores/_template/Makefile)
 endif
 
-TEMPLATE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-ROOT_DIR     := $(abspath $(TEMPLATE_DIR)/../..)
+# Relative to the core's cwd (always cores/<name>/ via `make -C`). Do NOT
+# use $(abspath): a host build would bake /Users/... into Make prerequisites
+# and into gcc -MMD .d files; Docker remounts the same tree at /opt/workdir,
+# and the next incremental `make docker` then fails with
+# "No rule to make target '/Users/.../gw_core_bridge.c'".
+TEMPLATE_DIR := $(patsubst %/,%,$(dir $(lastword $(MAKEFILE_LIST))))
+ROOT_DIR     := $(TEMPLATE_DIR)/../..
 BUILD_DIR    := build
 
 CORE_LDSCRIPT ?= $(TEMPLATE_DIR)/core_ram_emu.ld
@@ -121,13 +126,17 @@ OPT ?= -Os
 # reading ->region, ->system or the cheat fields would need to pass the
 # same values the firmware was built with.
 #######################################
+# COVERFLOW / CHEAT_CODES: default 0 unless the concrete core's CORE_C_DEFS
+# already sets them (e.g. NES reads ACTIVE_FILE->cheat_* after COVERFLOW
+# fields and must match the firmware's layout). Avoids a double -D and the
+# "redefined" warning / fragile CFLAGS rewrite after include.
 CORE_COMMON_C_DEFS := \
 -DUSE_HAL_DRIVER \
 -DSTM32H7B0xx \
 -DSD_CARD=1 \
 -DGNW_DISABLE_COMPRESSION \
--DCOVERFLOW=0 \
--DCHEAT_CODES=0 \
+$(if $(filter -DCOVERFLOW=%,$(CORE_C_DEFS)),,-DCOVERFLOW=0) \
+$(if $(filter -DCHEAT_CODES=%,$(CORE_C_DEFS)),,-DCHEAT_CODES=0) \
 -DGNW_CORE_ENTRY_TARGET=$(CORE_ENTRY)
 
 CORE_COMMON_C_INCLUDES := \
@@ -301,5 +310,20 @@ $(foreach seg,$(CORE_EXTRA_SEGMENTS),$(eval $(call CORE_EXTRA_SEGMENT_RULE,$(seg
 # they were defined instead of only the last one, unlike plain `clean:`).
 clean::
 	rm -rf $(BUILD_DIR)
+
+# Host↔Docker remount: old builds used $(abspath) so .d files list
+# /Users/... or /opt/workdir/... prerequisites. If those absolute paths
+# don't belong to *this* checkout root, drop every .d (objects stay) so
+# Make falls back to the pattern rules instead of "No rule to make
+# target '/Users/.../gw_core_bridge.c'".
+$(shell \
+	if ls $(BUILD_DIR)/*.d >/dev/null 2>&1; then \
+		root_abs=$$(cd $(ROOT_DIR) && pwd); \
+		if grep -E -l -- ' /|:[ ]+/' $(BUILD_DIR)/*.d >/dev/null 2>&1 && \
+		   ! grep -F -q -- "$$root_abs" $(BUILD_DIR)/*.d; then \
+			rm -f $(BUILD_DIR)/*.d; \
+		fi; \
+	fi \
+)
 
 -include $(wildcard $(BUILD_DIR)/*.d)

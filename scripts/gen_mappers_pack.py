@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Pack every FCEUmm per-mapper blob (build/nes_mappers/mapper_<stem>.bin) into a
-single file (default sd_content/cores/mappers/mappers.pak), replacing the old
+single file (default sd_content/cores/nes_fceumm_mappers/mappers.pak), replacing the old
 one-file-per-mapper layout plus mappers_table.bin.
 
 Format (little-endian):

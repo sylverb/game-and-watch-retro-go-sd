@@ -1457,11 +1457,13 @@ LANG_BIN_NAMES += ja_jp
 endif
 LANG_BINS := $(addprefix $(LANG_DIR)/, $(addsuffix .bin, $(LANG_BIN_NAMES)))
 
-MAPPERS_DIR := $(CORES_DIR)/mappers
-# Per-mapper blobs are build intermediates only: they get packed into a single
-# mappers.pak that ships on the SD / LittleFS, so sd_content/cores/mappers only
-# ever contains mappers.pak (+ ines_correct.bin).
-MAPPERS_BUILD_DIR := $(BUILD_DIR)/nes_mappers
+MAPPERS_DIR := $(CORES_DIR)/nes_fceumm_mappers
+# Per-mapper blobs live under cores/nes_fceumm_mappers/ (built by
+# `make -C cores/nes`); they get packed into mappers.pak that ships on the
+# SD / LittleFS, so sd_content/cores/nes_fceumm_mappers only ever contains
+# mappers.pak (+ ines_correct.bin). Individual mapper_*.bin are also kept
+# there for LittleFS prune (--nes-mapper-bins-dir).
+MAPPERS_BUILD_DIR := cores/nes_fceumm_mappers
 MAPPERS_PACK := $(MAPPERS_DIR)/mappers.pak
 HOMEBREWS_FOLDER := $(SD_FOLDER)/roms/homebrew
 RELEASE_FOLDER := release
@@ -1485,10 +1487,7 @@ define EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER
 	rm -f "$$tmp_file"
 endef
 
-$(MAPPERS_BUILD_DIR)/mapper_%.bin: $(BUILD_DIR)/$(TARGET).elf | create_sd_folders
-	@$(CP) -O binary --only-section=.overlay_nes_fceu_$* $< $@
-
-MAPPER_BINS := $(addprefix $(MAPPERS_BUILD_DIR)/mapper_, $(addsuffix .bin, $(MAPPER_NAMES)))
+# Legacy ELF overlay extraction removed — NES mappers are built by cores/nes.
 
 #######################################
 # Standalone "core" binaries (cores/<name>/, see cores/_template/): built by
@@ -1558,12 +1557,25 @@ cores_sms:
 $(CORES_DIR)/sms.bin: cores_sms | create_sd_folders
 	@cp cores/sms.bin $@
 
-# | $(BUILD_DIR): MAPPERS_BUILD_DIR lives under $(BUILD_DIR) (build/nes_mappers)
-# — without this order-only prereq, a parallel (-j) build can have this
-# phony target's `mkdir -p $(MAPPERS_BUILD_DIR)` create build/ as a side
-# effect *before* the $(BUILD_DIR) rule's own recipe runs, which makes
-# every $(BUILD_DIR)/<subdir> object rule think $(BUILD_DIR) is already
-# up to date and skip creating build/core, build/nes, etc. entirely.
+.PHONY: cores_nes
+cores_nes:
+	$(V)$(MAKE) -C cores/nes
+
+# nes_fceu.bin + nes_fceumm_mappers/ (see cores/nes/Makefile, scripts/sd_cores_pack.py).
+$(CORES_DIR)/nes_fceu.bin: cores_nes | create_sd_folders
+	@cp cores/nes_fceu.bin $@
+
+$(CORES_DIR)/nes_fceumm_mappers/mappers.pak: cores_nes | create_sd_folders
+	@mkdir -p $(CORES_DIR)/nes_fceumm_mappers
+	@cp cores/nes_fceumm_mappers/mappers.pak $@
+
+$(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin: cores_nes | create_sd_folders
+	@mkdir -p $(CORES_DIR)/nes_fceumm_mappers
+	@cp cores/nes_fceumm_mappers/ines_correct.bin $@
+
+# | $(BUILD_DIR): order-only so parallel (-j) mkdir side-effects cannot
+# create build/ before the $(BUILD_DIR) rule's own recipe (see historical
+# note about MAPPERS_BUILD_DIR under build/).
 create_sd_folders: | $(BUILD_DIR)
 	$(V)mkdir -p $(SD_FOLDER)
 	$(V)mkdir -p $(CORES_DIR)
@@ -1571,7 +1583,6 @@ create_sd_folders: | $(BUILD_DIR)
 	$(V)mkdir -p $(LANG_DIR)
 	$(V)mkdir -p $(CORES_DIR)
 	$(V)mkdir -p $(MAPPERS_DIR)
-	$(V)mkdir -p $(MAPPERS_BUILD_DIR)
 	$(V)mkdir -p $(SD_FOLDER)/bios
 	$(V)mkdir -p $(SD_FOLDER)/bios/msx
 	$(V)mkdir -p $(SD_FOLDER)/bios/nes
@@ -1637,6 +1648,9 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(CORES_DIR)/a2600.bin \
                      $(CORES_DIR)/a2600_defprops.bin \
                      $(CORES_DIR)/sms.bin \
+                     $(CORES_DIR)/nes_fceu.bin \
+                     $(CORES_DIR)/nes_fceumm_mappers/mappers.pak \
+                     $(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
@@ -1721,6 +1735,9 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/a2600.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/a2600_defprops.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/sms.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/nes_fceu.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/nes_fceumm_mappers/mappers.pak --dest-path "/cores/nes_fceumm_mappers/" \
+		-- sdpush --file $(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin --dest-path "/cores/nes_fceumm_mappers/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2186,6 +2203,7 @@ clean:
 	$(V)$(MAKE) -C cores/lynx clean
 	$(V)$(MAKE) -C cores/a2600 clean
 	$(V)$(MAKE) -C cores/sms clean
+	$(V)$(MAKE) -C cores/nes clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)
