@@ -1,22 +1,25 @@
+/* This core is built standalone (see cores/lynx/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below (common.h, rom_manager.h, odroid_*.h, ...) so their own
+ * `extern` declarations are parsed first and only later *uses* of
+ * common_emu_state/ACTIVE_FILE/ram_start turn into live ABI-pointer
+ * accesses — see Core/Src/porting/core_common/CLAUDE.md. */
 extern "C"
 {
 #include <odroid_system.h>
 #include <string.h>
 #include <stdio.h>
 
-#include "main.h"
 #include "gw_lcd.h"
-#include "gw_linker.h"
-#include "gw_buttons.h"
-#include "rg_i18n.h"
 #include "common.h"
 #include "rom_manager.h"
 #include "appid.h"
-#include "cpp_init_array.h"
-#ifndef GNW_DISABLE_COMPRESSION
-#include "lzma.h"
-#endif
+#include "main_lynx.h"
 #include "heap.hpp"
+#include "odroid_overlay.h"
+
+#include "gw_core_bridge.h"
 }
 
 #include <handy.h>
@@ -35,8 +38,6 @@ static uint16_t lynx_framebuffer[HANDY_SCREEN_WIDTH * HANDY_SCREEN_HEIGHT];
 static SWORD    lynx_audio_buffer[HANDY_AUDIO_BUFFER_LENGTH];
 
 static void blit();
-
-extern "C" size_t heap_free_mem(void); /* remaining overlay heap (RAM_EMU), see heap.cpp */
 
 /* DEVICE FACT (measured, build 14:51:02): when firmware calls SaveState/LoadState
  * through the registered function pointers, `lynx` reads back 0 in that context
@@ -107,12 +108,6 @@ static void *Screenshot()
     blit();
     return lcd_get_active_buffer();
 }
-
-#ifndef GNW_DISABLE_COMPRESSION
-// Memory to handle compressed roms
-#define ROM_BUFF_LENGTH 524288 // 512kB (max bank-switched Lynx cart)
-static uint8_t rom_memory[ROM_BUFF_LENGTH];
-#endif
 
 /* RAM kept free for the allocations CCart/CSystem still make on top of the ROM
  * copy: bank1 (≤64K), the Lynx 64K system RAM, plus heap slack. If the full ROM
@@ -212,7 +207,13 @@ static void map_buttons(odroid_gamepad_state_t *joystick)
     lynx->SetButtonData(buttons);
 }
 
-static void app_main_lynx_cpp(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
+/* CORE_ENTRY (cores/lynx/Makefile) — gw_core_entry.S runs this core's
+ * C++ global constructor table (.init_array, see core_ram_emu.ld) before
+ * branching here, so no manual cpp_init_array()/__libc_init_array() dance
+ * is needed (unlike the old monolithic-overlay build this file used to
+ * target). Needs extern "C" since CORE_ENTRY branches to it by raw symbol
+ * name, not a C++-mangled one. */
+extern "C" void app_main_lynx(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
     odroid_gamepad_state_t joystick;
     odroid_dialog_choice_t options[] = {ODROID_DIALOG_CHOICE_LAST};
@@ -220,7 +221,7 @@ static void app_main_lynx_cpp(uint8_t load_state, uint8_t start_paused, int8_t s
     uint8_t *rom_ptr = NULL;
 
     /* NOTE: no sd_trace here — keeping /lynx_trace.txt open on the SD card
-     * collided with the save-state writes (fopen of /data/lynx/*.sav failed,
+     * collided with the save-state writes (fopen of /data/lynx/ *.sav failed,
      * so saves never appeared). Plain printf -> UART only. */
     heap_itc_alloc(true);
 
@@ -286,15 +287,7 @@ static void app_main_lynx_cpp(uint8_t load_state, uint8_t start_paused, int8_t s
         common_emu_frame_loop();
         odroid_input_read_gamepad(&joystick);
         common_emu_input_loop(&joystick, options, &blit);
-
-        uint8_t turbo_buttons = odroid_settings_turbo_buttons_get();
-        bool turbo_a = (joystick.values[ODROID_INPUT_A] && (turbo_buttons & 1));
-        bool turbo_b = (joystick.values[ODROID_INPUT_B] && (turbo_buttons & 2));
-        bool turbo_button = odroid_button_turbos();
-        if (turbo_a)
-            joystick.values[ODROID_INPUT_A] = turbo_button;
-        if (turbo_b)
-            joystick.values[ODROID_INPUT_B] = !turbo_button;
+        common_emu_input_loop_handle_turbo(&joystick);
 
         map_buttons(&joystick);
 
@@ -319,15 +312,4 @@ static void app_main_lynx_cpp(uint8_t load_state, uint8_t start_paused, int8_t s
 
         common_emu_sound_sync(false);
     }
-}
-
-extern "C" int app_main_lynx(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
-{
-    // Call static C++ constructors now, *after* the overlay is copied into RAM.
-    // Do not use __libc_init_array() as it will not work with the overlay.
-    cpp_init_array(__init_array_lynx_start__, __init_array_lynx_end__);
-
-    app_main_lynx_cpp(load_state, start_paused, save_slot);
-
-    return 0;
 }

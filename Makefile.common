@@ -1530,6 +1530,13 @@ cores_gb_tgbdual:
 $(CORES_DIR)/tgb.bin: cores_gb_tgbdual | create_sd_folders
 	@cp cores/tgb.bin $@
 
+.PHONY: cores_lynx
+cores_lynx:
+	$(V)$(MAKE) -C cores/lynx
+
+$(CORES_DIR)/lynx.bin: cores_lynx | create_sd_folders
+	@cp cores/lynx.bin $@
+
 # | $(BUILD_DIR): MAPPERS_BUILD_DIR lives under $(BUILD_DIR) (build/nes_mappers)
 # — without this order-only prereq, a parallel (-j) build can have this
 # phony target's `mkdir -p $(MAPPERS_BUILD_DIR)` create build/ as a side
@@ -1605,6 +1612,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(CORES_DIR)/md.bin \
                      $(CORES_DIR)/pce.bin \
                      $(CORES_DIR)/tgb.bin \
+                     $(CORES_DIR)/lynx.bin \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
@@ -1685,6 +1693,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/md.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/pce.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/tgb.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/lynx.bin --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2147,6 +2156,7 @@ clean:
 	$(V)$(MAKE) -C cores/md clean
 	$(V)$(MAKE) -C cores/pce clean
 	$(V)$(MAKE) -C cores/gb_tgbdual clean
+	$(V)$(MAKE) -C cores/lynx clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

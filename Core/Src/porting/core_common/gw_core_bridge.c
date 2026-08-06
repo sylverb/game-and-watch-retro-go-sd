@@ -575,3 +575,24 @@ char *strtok(char *str, const char *delim)
     }
     return tok;
 }
+
+/* ====================================================================
+ * Lynx (handy-go) helpers composed from existing ABI entries — no ABI
+ * append needed. handy-go's LSS savestate path uses
+ * `#define lss_printf(fp, str) (fputs(str, fp) >= 0)` (system.h), and
+ * lynxdec.cpp's public-key decrypt temps use calloc()/free(). free() is
+ * already trampolined; these two fill the remaining holes. calloc routes
+ * through mem_alloc(GW_MEM_DTCM, ...) so the buffers are free()-able on
+ * the DTCM newlib heap (same pool dtcm_malloc uses).
+ * ==================================================================== */
+int core_fputs(const char *s, FILE *stream)
+{
+    const gw_firmware_abi_t *abi = gw_firmware_abi();
+    size_t len = abi->strlen(s);
+    return (abi->fwrite(s, 1, len, stream) == len) ? 0 : EOF;
+}
+
+void *core_calloc(size_t nmemb, size_t size)
+{
+    return gw_firmware_abi()->mem_alloc(GW_MEM_DTCM, nmemb, size);
+}

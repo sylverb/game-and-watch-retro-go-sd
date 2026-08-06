@@ -156,3 +156,6 @@ mktime core_mktime
 lcd_clone core_lcd_clone
 odroid_settings_Palette_get core_odroid_settings_Palette_get
 odroid_settings_Palette_set core_odroid_settings_Palette_set
+# --- Lynx (handy-go): fputs via fwrite/strlen; calloc via mem_alloc(DTCM) ---
+fputs core_fputs
+calloc core_calloc
