@@ -241,12 +241,20 @@ typedef struct {
      * retro-go: system
      * ================================================================ */
     void (*odroid_system_init)(int app_id, int sample_rate);
+    /* cheat_update_cb (7th arg) added for TGB Dual (Game Boy / Game Boy
+     * Color): every core in this repo is rebuilt from source alongside the
+     * firmware (the packaged core binaries under cores/ are gitignored,
+     * nothing is distributed as a prebuilt blob yet), so this branch has
+     * no released-ABI compatibility window to preserve — no
+     * GW_FIRMWARE_ABI_VERSION bump needed for this signature change (see
+     * that macro's comment above). */
     void (*odroid_system_emu_init)(state_handler_t load_cb,
                                    state_handler_t save_cb,
                                    screenshot_handler_t screenshot_cb,
                                    shutdown_handler_t shutdown_cb,
                                    sleep_post_wakeup_handler_t sleep_post_wakeup_cb,
-                                   sram_save_handler_t sram_save_cb);
+                                   sram_save_handler_t sram_save_cb,
+                                   cheat_update_handler_t cheat_update_cb);
     void (*odroid_system_switch_app)(int app);  /* noreturn */
 
     /* ================================================================
@@ -410,6 +418,18 @@ typedef struct {
      * as data pointers, same pattern as frame_counter_ptr. */
     uint32_t                    *dma_counter_ptr;
     uint32_t                    *common_emu_sound_dma_marker_ptr;
+
+    /* ================================================================
+     * v2 append: surface required to port TGB Dual (Game Boy / Game Boy
+     * Color, C++) to the external-core model. Identified by porting
+     * Core/Src/porting/gb_tgbdual/main_gb_tgbdual.cpp (+ gw_renderer.cpp)
+     * against this ABI.
+     * ================================================================ */
+    void     (*GW_GetUnixTM)(struct tm *tm);
+    time_t   (*mktime)(struct tm *tm);
+    void     (*lcd_clone)(void);
+    int32_t  (*odroid_settings_Palette_get)(void);
+    void     (*odroid_settings_Palette_set)(int32_t value);
 
 } gw_firmware_abi_t;
 

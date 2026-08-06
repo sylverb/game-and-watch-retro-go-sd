@@ -1520,7 +1520,23 @@ cores_pce:
 $(CORES_DIR)/pce.bin: cores_pce | create_sd_folders
 	@cp cores/pce.bin $@
 
-create_sd_folders:
+.PHONY: cores_gb_tgbdual
+cores_gb_tgbdual:
+	$(V)$(MAKE) -C cores/gb_tgbdual
+
+# tgb.bin (not gb_tgbdual.bin): Game Boy + Game Boy Color share this one core
+# binary, matching the dirname->core-file map scripts/sd_cores_pack.py already
+# carries for "gb"/"gbc" (see cores/gb_tgbdual/Makefile's PACKED_BIN comment).
+$(CORES_DIR)/tgb.bin: cores_gb_tgbdual | create_sd_folders
+	@cp cores/tgb.bin $@
+
+# | $(BUILD_DIR): MAPPERS_BUILD_DIR lives under $(BUILD_DIR) (build/nes_mappers)
+# — without this order-only prereq, a parallel (-j) build can have this
+# phony target's `mkdir -p $(MAPPERS_BUILD_DIR)` create build/ as a side
+# effect *before* the $(BUILD_DIR) rule's own recipe runs, which makes
+# every $(BUILD_DIR)/<subdir> object rule think $(BUILD_DIR) is already
+# up to date and skip creating build/core, build/nes, etc. entirely.
+create_sd_folders: | $(BUILD_DIR)
 	$(V)mkdir -p $(SD_FOLDER)
 	$(V)mkdir -p $(CORES_DIR)
 	$(V)mkdir -p $(FONTS_DIR)
@@ -1588,6 +1604,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(CORES_DIR)/wsv.bin \
                      $(CORES_DIR)/md.bin \
                      $(CORES_DIR)/pce.bin \
+                     $(CORES_DIR)/tgb.bin \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
@@ -1667,6 +1684,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/wsv.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/md.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/pce.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/tgb.bin --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2128,6 +2146,7 @@ clean:
 	$(V)$(MAKE) -C cores/wsv clean
 	$(V)$(MAKE) -C cores/md clean
 	$(V)$(MAKE) -C cores/pce clean
+	$(V)$(MAKE) -C cores/gb_tgbdual clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

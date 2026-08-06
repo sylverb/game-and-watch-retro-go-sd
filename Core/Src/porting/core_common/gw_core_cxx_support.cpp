@@ -1,0 +1,127 @@
+/*
+ * Shared C++ runtime support for standalone "core" binaries.
+ *
+ * Pulled in automatically by cores/_template/Makefile whenever a core sets
+ * CORE_CXX_SOURCES (see that variable's doc comment) — cores/gb_tgbdual is
+ * the first (and, as of this writing, only) consumer.
+ *
+ * A C++ core builds -nostdlib, no libstdc++ (see cores/_template/Makefile's
+ * CXXFLAGS comment on -fno-exceptions/-fno-rtti/-fno-threadsafe-statics/
+ * -fno-use-cxa-atexit): none of those flags eliminate operator new/delete
+ * or virtual-dispatch support, which the compiler always assumes exist as
+ * plain linkable symbols regardless. This file provides exactly those,
+ * nothing more:
+ *
+ *   - operator new/new[]/delete/delete[] (+ the sized-delete overloads
+ *     current arm-none-eabi-g++'s default -std picks up) — routed through
+ *     heap_alloc_mem() below, a small allocator on top of the existing
+ *     ram_malloc()/itc_malloc()/ahb_calloc() core_common trampolines.
+ *     Behaviorally the same allocator as the (now unused, monolithic-build-
+ *     only) Core/Src/heap.cpp: cores/gb_tgbdual/main_gb_tgbdual.cpp and
+ *     every .cpp file under external/tgbdual-go/gb_core call these exact names directly
+ *     (declared in Core/Inc/heap.hpp) — heap_itc_alloc(true) temporarily
+ *     routes allocations through the 64KB ITC pool (used for GB WRAM/VRAM
+ *     banking when cart SRAM mapping doesn't need it), falling back to the
+ *     shared RAM_EMU bump pool and then AHB SRAM when that's exhausted.
+ *   - __cxa_pure_virtual: GCC always emits a reference to this in an
+ *     abstract base class's vtable (for the pure-virtual slots), even
+ *     though -fno-rtti plus every pure virtual actually being overridden
+ *     means nothing should ever legitimately call through it — the linker
+ *     still needs the symbol to exist.
+ *   - __cxa_atexit/__dso_handle: -fno-use-cxa-atexit (see CXXFLAGS) means
+ *     the compiler won't emit __cxa_atexit calls for global objects with
+ *     non-trivial destructors, but some libgcc/libstdc++ header paths
+ *     reference the symbol unconditionally — stubbed as a no-op
+ *     registration (this image never "exits", see core_ram_emu.ld's
+ *     .fini_array discard, so there's nothing to ever call these
+ *     registered destructors anyway).
+ */
+#include <cstddef>
+#include <cstring>
+
+extern "C" {
+#include "gw_malloc.h"
+}
+
+/* ====================================================================
+ * heap_alloc_mem() family (Core/Inc/heap.hpp) — small allocator used by
+ * classic C++ ports (currently: gb_tgbdual) needing a temporary
+ * ITC-then-RAM-then-AHB allocation strategy on top of the plain
+ * ram_malloc()/itc_malloc()/ahb_calloc() core_common trampolines.
+ * ==================================================================== */
+static bool s_heap_itc_alloc;
+
+extern "C" void heap_itc_alloc(bool itc)
+{
+    s_heap_itc_alloc = itc;
+}
+
+extern "C" void *heap_alloc_mem(size_t s)
+{
+    void *ptr = NULL;
+
+    if (s_heap_itc_alloc) {
+        void *p = itc_malloc(s);
+        /* ITC RAM starts at 0x00000000, so itc_malloc() can't use NULL as
+         * its own "allocation failed" sentinel — see gw_malloc.c. */
+        if (p != (void *)0xffffffff)
+            ptr = p;
+    }
+    if (!ptr)
+        ptr = ram_malloc(s);
+    if (!ptr)
+        ptr = ahb_calloc(1, s); /* AHB pool directly — ram_malloc() already just failed */
+    if (ptr)
+        memset(ptr, 0, s);
+
+    return ptr;
+}
+
+extern "C" size_t heap_free_mem(void)
+{
+    return ram_get_free_size();
+}
+
+extern "C" void cpp_heap_init(size_t bss_end)
+{
+    /* No private bump heap here (unlike the old firmware-side heap.cpp) —
+     * every allocation goes through the shared ram_malloc()/itc_malloc()/
+     * ahb_calloc() pools instead. Kept only for source compatibility with
+     * heap.hpp; bss_end is unused. */
+    (void)bss_end;
+    s_heap_itc_alloc = false;
+}
+
+/* ====================================================================
+ * operator new/delete
+ * ==================================================================== */
+void *operator new(size_t s) { return heap_alloc_mem(s); }
+void *operator new[](size_t s) { return heap_alloc_mem(s); }
+
+/* No real free(): none of the pools behind heap_alloc_mem() support
+ * releasing memory (see gw_malloc.c) — same "delete is a no-op" contract
+ * the old heap.cpp had. A core's whole RAM_EMU/AHB/ITC budget is reclaimed
+ * wholesale the next time any core loads (ahb_init()/itc_init()/ram_start
+ * reset — see emulator_start() in Core/Src/retro-go/rg_emulators.c), so
+ * leaking within a single ROM session is the intended tradeoff, not a bug. */
+void operator delete(void *p) { (void)p; }
+void operator delete[](void *p) { (void)p; }
+void operator delete(void *p, size_t s) { (void)p; (void)s; }
+void operator delete[](void *p, size_t s) { (void)p; (void)s; }
+
+/* ====================================================================
+ * Minimal C++ runtime symbols the compiler/linker require to exist even
+ * though nothing here should ever actually reach them at runtime (see
+ * file header comment).
+ * ==================================================================== */
+extern "C" void __cxa_pure_virtual()
+{
+    while (1) { }
+}
+
+extern "C" void *__dso_handle = (void *)&__dso_handle;
+
+extern "C" int __cxa_atexit(void (*)(void *), void *, void *)
+{
+    return 0;
+}

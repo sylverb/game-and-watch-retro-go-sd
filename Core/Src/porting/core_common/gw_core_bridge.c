@@ -40,6 +40,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <setjmp.h>
+#include <time.h>
 
 /* newlib defines these as function-like macros (isalnum(c) -> ctype-table
  * lookup, feof(f)/ferror(f) -> flag-bit check on the FILE struct); left
@@ -408,20 +409,17 @@ uint32_t core_HAL_GetTick(void) { return gw_firmware_abi()->HAL_GetTick(); }
  * ==================================================================== */
 void core_odroid_system_init(int app_id, int sample_rate) { gw_firmware_abi()->odroid_system_init(app_id, sample_rate); }
 
-/* The ABI keeps the historical 6-arg signature (no cheat_update_cb) — the
- * core's own call site (built against the real 7-arg odroid_system.h
- * prototype) still compiles fine; the extra stack arg is simply ignored
- * here, same trick the firmware itself uses in gw_firmware_abi.c. */
 void core_odroid_system_emu_init(state_handler_t load_cb,
                                  state_handler_t save_cb,
                                  screenshot_handler_t screenshot_cb,
                                  shutdown_handler_t shutdown_cb,
                                  sleep_post_wakeup_handler_t sleep_post_wakeup_cb,
-                                 sram_save_handler_t sram_save_cb)
+                                 sram_save_handler_t sram_save_cb,
+                                 cheat_update_handler_t cheat_update_cb)
 {
     gw_firmware_abi()->odroid_system_emu_init(load_cb, save_cb, screenshot_cb,
                                               shutdown_cb, sleep_post_wakeup_cb,
-                                              sram_save_cb);
+                                              sram_save_cb, cheat_update_cb);
 }
 
 bool core_odroid_system_emu_load_state(int slot) { return gw_firmware_abi()->odroid_system_emu_load_state(slot); }
@@ -526,4 +524,54 @@ int core_sscanf(const char *str, const char *fmt, ...)
     int r = gw_firmware_abi()->vsscanf(str, fmt, ap);
     va_end(ap);
     return r;
+}
+
+/* ====================================================================
+ * v2 append: TGB Dual (Game Boy / Game Boy Color, C++) porting surface
+ * ==================================================================== */
+void   core_GW_GetUnixTM(struct tm *tm) { gw_firmware_abi()->GW_GetUnixTM(tm); }
+time_t core_mktime(struct tm *tm) { return gw_firmware_abi()->mktime(tm); }
+void   core_lcd_clone(void) { gw_firmware_abi()->lcd_clone(); }
+int32_t core_odroid_settings_Palette_get(void) { return gw_firmware_abi()->odroid_settings_Palette_get(); }
+void    core_odroid_settings_Palette_set(int32_t value) { gw_firmware_abi()->odroid_settings_Palette_set(value); }
+
+/* strtok keeps a static "where was I" pointer between calls — like memcpy/
+ * memset above, this is a real LOCAL implementation, not an ABI trampoline:
+ * a single core runs at a time (no threads), so per-core static state is
+ * safe, and routing a stateful libc function through the ABI would mean
+ * the *firmware's* static buffer gets used, which is shared with whatever
+ * the firmware itself last tokenized — silently wrong the moment both
+ * sides call strtok in the same frame. Not in
+ * gw_core_bridge_redefine_syms.txt for the same reason memcpy isn't. */
+static char *saved_strtok;
+char *strtok(char *str, const char *delim)
+{
+    /* This bridge object is exempt from gw_core_bridge_redefine_syms.txt
+     * (see cores/_template/Makefile), so a plain strchr(...) call here
+     * would emit a real "strchr" symbol reference that nothing in a
+     * -nostdlib link resolves — go through the ABI struct field
+     * directly instead, exactly like every other trampoline in this
+     * file does. */
+    const gw_firmware_abi_t *abi = gw_firmware_abi();
+    char *s = str ? str : saved_strtok;
+    if (!s)
+        return NULL;
+
+    while (*s && abi->strchr(delim, *s))
+        s++;
+    if (!*s) {
+        saved_strtok = NULL;
+        return NULL;
+    }
+
+    char *tok = s;
+    while (*s && !abi->strchr(delim, *s))
+        s++;
+    if (*s) {
+        *s = '\0';
+        saved_strtok = s + 1;
+    } else {
+        saved_strtok = NULL;
+    }
+    return tok;
 }

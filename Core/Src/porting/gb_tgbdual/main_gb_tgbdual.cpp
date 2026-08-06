@@ -1,25 +1,26 @@
+/* This core is built standalone (see cores/gb_tgbdual/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below (common.h, rom_manager.h, odroid_*.h, ...) so their own
+ * `extern` declarations are parsed first and only later *uses* of
+ * common_emu_state/ACTIVE_FILE/ram_start turn into live ABI-pointer
+ * accesses — see Core/Src/porting/core_common/CLAUDE.md. */
 extern "C" {
 #include <odroid_system.h>
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
 
-#include "main.h"
 #include "bilinear.h"
-#include "gw_linker.h"
-#include "rg_i18n.h"
-#include "gw_buttons.h"
 #include "common.h"
 #include "rom_manager.h"
 #include "appid.h"
-#include "cpp_init_array.h"
 #include "main_gb_tgbdual.h"
 #include "heap.hpp"
 #include "odroid_overlay.h"
 #include "odroid_settings.h"
-#include "rg_storage.h"
 
-extern void __libc_init_array(void);
+#include "gw_core_bridge.h"
 }
 
 static void gb_process_blit();
@@ -34,18 +35,9 @@ static void gb_process_blit();
 // Use 60Hz for GB
 #define AUDIO_BUFFER_LENGTH_GB (int)(GB_AUDIO_FREQUENCY / VIDEO_REFRESH_RATE)
 
-#include "heap.hpp"
-
-#include <cstdio>
 #include <cstddef>
 #include <cassert>
-#include <fstream>
-#include <sstream>
-#include <cstdlib>
-#include <string>
 #include <cstring>
-#include <algorithm>
-#include <cmath>
 #include "gb_core/gb.h"
 #include "gb_core/tgbdual_sgb.h"
 #include "gw_renderer.h"
@@ -671,9 +663,10 @@ static bool sgb_border_update_cb(odroid_dialog_choice_t *option,
         odroid_settings_app_int32_set("SGBBorder", sgb_border_enabled ? 1 : 0);
     }
 
-    snprintf(option->value, 16, "%s",
-             sgb_border_enabled ? curr_lang->s_Option_ON
-                                : curr_lang->s_Option_OFF);
+    /* No i18n for this core yet (curr_lang lives in the firmware, not
+     * exposed over the ABI) — "\x06"/"\x05" are the ON/OFF glyph codes
+     * this menu already used (see rg_i18n_en_us.c: s_Option_ON/OFF). */
+    snprintf(option->value, 16, "%s", sgb_border_enabled ? "\x06" : "\x05");
     return event == ODROID_DIALOG_ENTER;
 }
 
@@ -747,9 +740,15 @@ extern "C" void update_cheats_gb() {
 }
 #endif
 
-void app_main_gb_tgbdual_cpp(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
+/* CORE_ENTRY (cores/gb_tgbdual/Makefile) — gw_core_entry.S runs this core's
+ * C++ global constructor table (.init_array, see core_ram_emu.ld) before
+ * branching here, so no manual cpp_init_array()/__libc_init_array() dance
+ * is needed (unlike the old monolithic-overlay build this file used to
+ * target). Needs extern "C" since CORE_ENTRY branches to it by raw symbol
+ * name, not a C++-mangled one. */
+extern "C" void app_main_gb_tgbdual(uint8_t load_state, uint8_t start_paused, uint8_t save_slot)
 {
-    printf("app_main_gb_tgbdual_cpp\n");
+    printf("app_main_gb_tgbdual\n");
     char palette_values[16];
     odroid_gamepad_state_t joystick;
 
@@ -874,12 +873,16 @@ void app_main_gb_tgbdual_cpp(uint8_t load_state, uint8_t start_paused, int8_t sa
     gb_console_label(gb_console_mode, system_values, sizeof(system_values));
     char sgb_border_values[16] = {0};
     odroid_dialog_choice_t options[] = {
-        /* Only cycle when more than one mode is valid (GB↔SGB). GBC is fixed. */
-        {301, curr_lang->s_System, system_values, 1, &system_update_cb},
+        /* No i18n for this core yet (curr_lang lives in the firmware, not
+         * exposed over the ABI) — labels are hardcoded English, matching
+         * the strings this menu already used (see rg_i18n_en_us.c:
+         * s_System/s_SGB_Border/s_Palette/s_Reset).
+         * Only cycle when more than one mode is valid (GB↔SGB). GBC is fixed. */
+        {301, "System", system_values, 1, &system_update_cb},
         /* enabled updated each frame: custom palettes only in GB (type 1) */
-        {302, curr_lang->s_SGB_Border, sgb_border_values, -1, &sgb_border_update_cb},
-        {300, curr_lang->s_Palette, (char *)palette_values, 1, &palette_update_cb},
-        {300, curr_lang->s_Reset, NULL, 1, &reset_cb},
+        {302, "SGB Border", sgb_border_values, -1, &sgb_border_update_cb},
+        {300, "Palette", (char *)palette_values, 1, &palette_update_cb},
+        {300, "Reset", NULL, 1, &reset_cb},
         ODROID_DIALOG_CHOICE_LAST
     };
 
@@ -902,12 +905,3 @@ void app_main_gb_tgbdual_cpp(uint8_t load_state, uint8_t start_paused, int8_t sa
         common_emu_sound_sync(false);
     }
 }
-
-extern "C" void app_main_gb_tgbdual(uint8_t load_state, uint8_t start_paused, uint8_t save_slot)
- {
- 	// Call static c++ constructors now, *after* OSPI and other memory is copied
-    // Do not use __libc_init_array() as it will not work with the overlay
-    cpp_init_array(__init_array_tgb_start__, __init_array_tgb_end__);
-
- 	app_main_gb_tgbdual_cpp(load_state, start_paused,save_slot);
- }

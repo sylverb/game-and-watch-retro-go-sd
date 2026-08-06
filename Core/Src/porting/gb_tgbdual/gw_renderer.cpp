@@ -18,16 +18,20 @@
 */
 
 // G&W implementation of the renderer
+/* This core is built standalone (see cores/gb_tgbdual/) — gw_core_bridge.h
+ * must come after the normal firmware headers below, same reasoning as
+ * main_gb_tgbdual.cpp (see its header comment / core_common/CLAUDE.md). */
 extern "C" {
 #include <odroid_system.h>
 #include "common.h"
 #include "gw_lcd.h"
 #include "main_gb_tgbdual.h"
 #include "rg_rtc.h"
+
+#include "gw_core_bridge.h"
 }
 
 #include <string.h>
-#include <math.h>
 #include <time.h>
 
 #include "gw_renderer.h"

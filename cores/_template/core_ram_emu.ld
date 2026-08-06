@@ -8,11 +8,14 @@
  * STM32H7B0VBTx_SDCARD.ld) so a core can never link at the wrong VMA.
  *
  * Bare-metal, single translation-unit-like image: no crt0, no crt crti/
- * crtn, no crt fini/init, no C++ constructors/destructors support. See
- * cores/_template/Makefile ("Deliberately not supported" below) for the
- * reasoning: main_wsv.c and friends are plain C, and everything the core
- * needs from the outside world routes through Core/Src/porting/core_common
- * (see docs there) instead of a libc.
+ * crtn, no crt fini/init. Everything the core needs from the outside world
+ * routes through Core/Src/porting/core_common (see docs there) instead of
+ * a libc.
+ *
+ * C++ global constructors ARE supported (see .core_entry below and
+ * gw_core_entry.S) — needed by cores/gb_tgbdual (the first C++ core).
+ * Destructors are NOT: this image never "exits", nothing would ever call
+ * .fini_array, so it's still discarded below.
  */
 
 INCLUDE gnw_ram_emu.ld
@@ -42,6 +45,19 @@ SECTIONS
     *(.rodata*)
     *(.glue_7)
     *(.glue_7t)
+
+    /* C++ global constructor table, walked by gw_core_entry.S before
+     * jumping to CORE_ENTRY (see its header comment). Nested inside
+     * .core_entry (rather than its own output section) so it rides along
+     * with cores/_template/Makefile's existing
+     * `--only-section=.core_entry --only-section=.data` packaging rule
+     * without needing a third --only-section flag. Empty for a plain-C
+     * core (start == end) — the entry trampoline's loop is then a no-op. */
+    . = ALIGN(4);
+    __CORE_INIT_ARRAY_START__ = .;
+    KEEP(*(SORT(.init_array.*)))
+    KEEP(*(.init_array*))
+    __CORE_INIT_ARRAY_END__ = .;
   } >RAM_EMU
 
   . = ALIGN(8);
@@ -71,12 +87,12 @@ SECTIONS
          "Error: core code+data+bss overflows RAM_EMU")
 
   /* Deliberately not supported (no crt0 links this core, see Makefile):
-   * C++ global constructors/destructors, exception unwinding. A core
-   * written in C++ or relying on either would need to add proper handling
-   * here instead of discarding. */
+   * C++ destructors, exception unwinding/RTTI tables. cores/gb_tgbdual (and
+   * any future C++ core) builds with -fno-exceptions -fno-rtti precisely
+   * so nothing ever lands in .ARM.exidx/.ARM.extab in the first place —
+   * discarding them here is a safety net, not the primary mechanism. */
   /DISCARD/ :
   {
-    *(.init_array*)
     *(.fini_array*)
     *(.preinit_array*)
     *(.ARM.exidx*)

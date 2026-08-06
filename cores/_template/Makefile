@@ -14,15 +14,35 @@
 #
 # Variables a concrete core's Makefile must set before including this file:
 #   CORE_NAME        short id, e.g. wsv. Output: build/$(CORE_NAME)_core.elf/.bin
-#   CORE_ENTRY       entry symbol, e.g. app_main_wsv (must exist in CORE_C_SOURCES)
+#   CORE_ENTRY       entry symbol, e.g. app_main_wsv (must exist in CORE_C_SOURCES
+#                    or CORE_CXX_SOURCES — a C++ entry point needs `extern "C"`,
+#                    see cores/gb_tgbdual/Makefile)
 #   CORE_C_SOURCES   .c files to build, repo-root-relative paths. Object
 #                    files land in a single flat build/ dir (vpath-based,
-#                    like the root Makefile) — every CORE_C_SOURCES entry
-#                    must have a basename unique across the whole list.
+#                    like the root Makefile) — every CORE_C_SOURCES/
+#                    CORE_CXX_SOURCES entry must have a basename unique
+#                    across the whole combined list.
 #
 # Optional:
 #   CORE_C_INCLUDES  extra -I flags, on top of the common set below
 #   CORE_C_DEFS      extra -D flags, on top of the common set below
+#   CORE_CXX_SOURCES .cpp files to build (e.g. cores/gb_tgbdual/Makefile) —
+#                    compiled with $(CXX)/$(CXXFLAGS) instead of $(CC)/
+#                    $(CFLAGS), everything else (redefine-syms pass, vpath,
+#                    flat build/ dir) identical to CORE_C_SOURCES. Setting
+#                    this non-empty also pulls in
+#                    Core/Src/porting/core_common/gw_core_cxx_support.cpp
+#                    (operator new/delete, __cxa_pure_virtual, the
+#                    heap_alloc_mem() family — see that file's header
+#                    comment) automatically, same way BRIDGE_C_SOURCES is
+#                    always pulled in below. A C++ core builds WITHOUT
+#                    libstdc++ (no -lstdc++ in LDFLAGS, see cores/gb_tgbdual/
+#                    Makefile's header comment on why) — stick to classes/
+#                    virtual dispatch/new/delete; avoid STL containers,
+#                    exceptions (CXXFLAGS below passes -fno-exceptions,
+#                    so `throw`/`try`/`catch` are hard compile errors, not
+#                    silent runtime breakage) and RTTI (-fno-rtti, `dynamic_cast`/
+#                    `typeid` likewise won't compile).
 #   CORE_LDSCRIPT    defaults to $(TEMPLATE_DIR)/core_ram_emu.ld. Point this
 #                    at your own script (INCLUDE-ing ld/gnw_itcm_core.ld /
 #                    ld/gnw_ahb_core.ld as needed) if you use CORE_EXTRA_SEGMENTS
@@ -66,12 +86,14 @@ CORE_LDSCRIPT ?= $(TEMPLATE_DIR)/core_ram_emu.ld
 PREFIX = arm-none-eabi-
 ifdef GCC_PATH
 CC   = $(GCC_PATH)/$(PREFIX)gcc
+CXX  = $(GCC_PATH)/$(PREFIX)g++
 AS   = $(GCC_PATH)/$(PREFIX)gcc -x assembler-with-cpp
 CP   = $(GCC_PATH)/$(PREFIX)objcopy
 NM   = $(GCC_PATH)/$(PREFIX)nm
 SZ   = $(GCC_PATH)/$(PREFIX)size
 else
 CC   = $(PREFIX)gcc
+CXX  = $(PREFIX)g++
 AS   = $(PREFIX)gcc -x assembler-with-cpp
 CP   = $(PREFIX)objcopy
 NM   = $(PREFIX)nm
@@ -130,6 +152,24 @@ $(CORE_COMMON_C_INCLUDES) $(CORE_C_INCLUDES)
 
 ASFLAGS = $(MCU) $(OPT) $(CORE_COMMON_C_DEFS) $(CORE_C_DEFS)
 
+# -fno-exceptions -fno-rtti: no libstdc++ is linked (see CORE_CXX_SOURCES
+# comment above) — nothing here could catch a thrown exception or unwind
+# through one anyway (no personality routine, no .ARM.exidx, both
+# discarded by the linker script), so make that a compile-time error
+# instead of a link-time or (worse) runtime one.
+# -fno-threadsafe-statics: skips emitting a guard-variable + __cxa_guard_*
+# acquire/release pair around function-local static initialization — this
+# core has no threads (one core runs at a time) so the guard is pure
+# overhead, and it would otherwise be one more libstdc++ runtime symbol
+# core_common would need to stub out.
+# -fno-use-cxa-atexit: global object destructors would normally register
+# via __cxa_atexit(dtor, obj, __dso_handle) for a well-defined C++ runtime
+# shutdown order — this image never "exits" (see core_ram_emu.ld's
+# .fini_array discard), so that bookkeeping is pure overhead too; falls
+# back to the plain atexit() model instead (also unused here in practice,
+# but doesn't require a real __cxa_atexit implementation).
+CXXFLAGS = $(CFLAGS) -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-use-cxa-atexit
+
 # -nostdlib: no newlib, no crt0/crti/crtn — this image has no _start (the
 # firmware jumps straight into RAM at offset 0, see gw_core_entry.S) and no
 # libc symbol may sneak in un-redefined (see gw_core_bridge_redefine_syms.txt);
@@ -149,12 +189,21 @@ BRIDGE_C_SOURCES := $(ROOT_DIR)/Core/Src/porting/core_common/gw_core_bridge.c
 BRIDGE_ASM_SOURCES := $(ROOT_DIR)/Core/Src/porting/core_common/gw_core_entry.S
 REDEFINE_SYMS_FILE := $(ROOT_DIR)/Core/Src/porting/core_common/gw_core_bridge_redefine_syms.txt
 
-ALL_C_SOURCES := $(CORE_C_SOURCES) $(BRIDGE_C_SOURCES)
+# See CORE_CXX_SOURCES' doc comment above: setting it non-empty auto-pulls
+# in the shared C++ runtime support file.
+ifneq ($(CORE_CXX_SOURCES),)
+CORE_CXX_SOURCES += $(ROOT_DIR)/Core/Src/porting/core_common/gw_core_cxx_support.cpp
+endif
+
+ALL_C_SOURCES   := $(CORE_C_SOURCES) $(BRIDGE_C_SOURCES)
+ALL_CXX_SOURCES := $(CORE_CXX_SOURCES)
 C_OBJECTS   := $(addprefix $(BUILD_DIR)/,$(notdir $(ALL_C_SOURCES:.c=.o)))
+CXX_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(ALL_CXX_SOURCES:.cpp=.o)))
 ASM_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(BRIDGE_ASM_SOURCES:.S=.o)))
 BRIDGE_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(BRIDGE_C_SOURCES:.c=.o)))
 
 vpath %.c $(sort $(dir $(ALL_C_SOURCES)))
+vpath %.cpp $(sort $(dir $(ALL_CXX_SOURCES)))
 vpath %.S $(sort $(dir $(BRIDGE_ASM_SOURCES)))
 
 TARGET_ELF := $(BUILD_DIR)/$(CORE_NAME)_core.elf
@@ -193,8 +242,19 @@ $(BUILD_DIR)/%.o: %.c $(REDEFINE_SYMS_FILE) | $(BUILD_DIR)
 $(BUILD_DIR)/%.o: %.S | $(BUILD_DIR)
 	$(AS) -c $(ASFLAGS) $< -o $@
 
-$(TARGET_ELF): $(C_OBJECTS) $(ASM_OBJECTS) $(CORE_LDSCRIPT)
-	$(CC) $(C_OBJECTS) $(ASM_OBJECTS) $(LDFLAGS) -o $@
+# .cpp objects always go through the redefine-syms pass (unlike the .c rule
+# above, there's no "except the bridge object" case here — gw_core_bridge.c
+# itself is plain C; gw_core_cxx_support.cpp, the one C++ file that also
+# defines core_common-style trampolines/helpers, still needs its OWN
+# ram_malloc()/itc_malloc()/ahb_calloc() calls renamed to core_ram_malloc()/
+# etc. to resolve against the C bridge, so it's a normal core source file
+# from this rule's point of view).
+$(BUILD_DIR)/%.o: %.cpp $(REDEFINE_SYMS_FILE) | $(BUILD_DIR)
+	$(CXX) -c $(CXXFLAGS) $< -o $@
+	$(CP) --redefine-syms=$(REDEFINE_SYMS_FILE) $@
+
+$(TARGET_ELF): $(C_OBJECTS) $(CXX_OBJECTS) $(ASM_OBJECTS) $(CORE_LDSCRIPT)
+	$(CC) $(C_OBJECTS) $(CXX_OBJECTS) $(ASM_OBJECTS) $(LDFLAGS) -o $@
 	$(SZ) $@
 
 # .bss is NOLOAD (see core_ram_emu.ld) so extracting just the loaded

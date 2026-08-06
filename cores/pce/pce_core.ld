@@ -51,6 +51,16 @@ SECTIONS
     *(.rodata*)
     *(.glue_7)
     *(.glue_7t)
+
+    /* See cores/_template/core_ram_emu.ld's identical block — PCE is
+     * plain C so this range is always empty (start == end), kept here
+     * only so gw_core_entry.S's generic trampoline resolves the same two
+     * symbols in every core. */
+    . = ALIGN(4);
+    __CORE_INIT_ARRAY_START__ = .;
+    KEEP(*(SORT(.init_array.*)))
+    KEEP(*(.init_array*))
+    __CORE_INIT_ARRAY_END__ = .;
   } >RAM_EMU
 
   . = ALIGN(8);
@@ -102,7 +112,6 @@ SECTIONS
 
   /DISCARD/ :
   {
-    *(.init_array*)
     *(.fini_array*)
     *(.preinit_array*)
     *(.ARM.exidx*)

@@ -1713,7 +1713,9 @@ static uint8_t *dynamic_core_region_base(uint32_t region, uint32_t *out_max_len)
  * Segment 0 is always RAM_EMU and owns the entry trampoline at offset 0 —
  * same offset-0-Thumb-jump convention as GWHB and PICO-8; the entry symbol
  * is never resolved at firmware link time, the core provides its own
- * trampoline (see cores/_template) because it is a completely separate ELF. */
+ * trampoline (see cores/_template) because it is a completely separate ELF.
+ * Also seeds `ram_start` to right past segment 0's code+bss before jumping
+ * in — see the comment at that assignment below. */
 __attribute__((noinline))
 static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
@@ -1762,6 +1764,20 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
 
         if (i == 0) {
             entry_base = base;
+            /* Seed the shared RAM_EMU bump pool (ram_start/ram_malloc, see
+             * gw_malloc.c) to right past this segment's own code+bss, same
+             * value each core used to have to compute itself as
+             * &__CORE_BSS_END__ (see e.g. main_wsv.c/main_pce.c) — this
+             * firmware-side metadata already carries the exact code_size +
+             * bss_size pack_core.py measured off that same symbol, so doing
+             * it once here removes the need for every core's own main_*.c
+             * to remember to set it, and — unlike a core doing it lazily on
+             * its first ROM-data callback — guarantees ram_malloc()/
+             * ram_get_free_size() are already valid the moment the entry
+             * trampoline is jumped to below, including during a C++ core's
+             * global constructors (gw_core_entry.S's .init_array loop runs
+             * before CORE_ENTRY, e.g. cores/gb_tgbdual's operator new). */
+            ram_start = (uint32_t)(base + seg->code_size + seg->bss_size);
         } else {
             void *reserved = (seg->region == GNW_CORE_REGION_ITCM)
                 ? itc_malloc(seg->code_size + seg->bss_size)
