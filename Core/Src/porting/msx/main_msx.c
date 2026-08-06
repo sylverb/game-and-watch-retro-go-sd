@@ -1,25 +1,23 @@
+/* This core is built standalone (see cores/msx/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their `extern` declarations of common_emu_state/
+ * ACTIVE_FILE/ram_start are parsed first. */
 #include <odroid_system.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <unistd.h>
-#include <time.h>
-
+#include <assert.h>
 
 #include "main.h"
 #include "appid.h"
-
-#include "stm32h7xx_hal.h"
-
 #include "common.h"
 #include "rom_manager.h"
 #include "odroid_overlay.h"
 #include "gw_lcd.h"
 #include "gw_ofw.h"
-#include "rg_i18n.h"
-
-#include <assert.h>
+#include "gw_malloc.h"
 #ifndef GNW_DISABLE_COMPRESSION
 #include "lzma.h"
 #endif
@@ -50,10 +48,17 @@
 #include "R800.h"
 #include "VDP_MSX.h"
 #include "save_msx.h"
-#include "gw_malloc.h"
-#include "gw_linker.h"
 #include "main_msx.h"
 #include "msx_database.h"
+
+#include "gw_core_bridge.h"
+
+/* Unpack window = free RAM after this core's BSS (same role as the old
+ * overlay's _MSX_ROM_UNPACK_BUFFER). Kept for the #ifndef
+ * GNW_DISABLE_COMPRESSION paths even though SD builds define that. */
+extern uint32_t __RAM_EMU_END__;
+#define MSX_ROM_UNPACK_BUF   ((uint8_t *)&__CORE_BSS_END__)
+#define MSX_ROM_UNPACK_SIZE  (((uint32_t)&__RAM_EMU_END__) - ((uint32_t)&__CORE_BSS_END__))
 
 extern BoardInfo boardInfo;
 static Properties* properties;
@@ -509,13 +514,13 @@ static bool update_frequency_cb(odroid_dialog_choice_t *option, odroid_dialog_ev
 
     switch (selected_frequency_index) {
         case FREQUENCY_VDP_AUTO:
-            strcpy(option->value, curr_lang->s_msx_Freq_Auto);
+            strcpy(option->value, "Auto");
             break;
         case FREQUENCY_VDP_50HZ: // Force 50Hz
-            strcpy(option->value, curr_lang->s_msx_Freq_50);
+            strcpy(option->value, "50Hz");
             break;
         case FREQUENCY_VDP_60HZ: // Force 60Hz
-            strcpy(option->value, curr_lang->s_msx_Freq_60);
+            strcpy(option->value, "60Hz");
             break;
     }
 
@@ -558,15 +563,15 @@ static bool update_msx_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t 
     switch (selected_msx_index) {
         case 0: // MSX1;
             msx2_dif = 0;
-            strcpy(option->value, curr_lang->s_msx_MSX1_EUR);
+            strcpy(option->value, "MSX1 (EUR)");
             break;
         case 1: // MSX2;
             msx2_dif = 10;
-            strcpy(option->value, curr_lang->s_msx_MSX2_EUR);
+            strcpy(option->value, "MSX2 (EUR)");
             break;
         case 2: // MSX2+;
             msx2_dif = 10;
-            strcpy(option->value, curr_lang->s_msx_MSX2_JP);
+            strcpy(option->value, "MSX2+ (JP)");
             break;
     }
 
@@ -839,38 +844,38 @@ static void createOptionMenu(odroid_dialog_choice_t *options) {
     int index=0;
     if (msx_game_type == MSX_GAME_DISK) {
         options[index].id = 100;
-        options[index].label = curr_lang->s_msx_Change_Dsk;
+        options[index].label = "Change Dsk";
         options[index].value = disk_name;
         options[index].enabled = 1;
         options[index].update_cb = &update_disk_cb;
         index++;
     }
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_Select_MSX;
+    options[index].label = "Select MSX";
     options[index].value = msx_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_msx_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_Frequency;
+    options[index].label = "Frequency";
     options[index].value = frequency_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_frequency_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_A_Button;
+    options[index].label = "A Button";
     options[index].value = a_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_a_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_B_Button;
+    options[index].label = "B Button";
     options[index].value = b_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_b_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_Press_Key;
+    options[index].label = "Press Key";
     options[index].value = key_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_keyboard_cb;
@@ -1742,7 +1747,7 @@ static void insertGame() {
             if (mapper == ROM_UNKNOWN) {
 #ifndef GNW_DISABLE_COMPRESSION
                 if(strcmp(ACTIVE_FILE->ext, "lzma") == 0) {
-                    mapper = GuessROM((unsigned char *)&_MSX_ROM_UNPACK_BUFFER,msx_rom_decompress_size);
+                    mapper = GuessROM(MSX_ROM_UNPACK_BUF, msx_rom_decompress_size);
                 }
                 else
 #endif
@@ -1820,8 +1825,26 @@ static void insertGame() {
                     break;
             }
             if (!controls_found) {
-                // If game name contains konami, we setup a Konami key mapping
-                if (strcasestr(ACTIVE_FILE->name,"konami")) {
+                /* Case-insensitive "konami" substring (strcasestr is GNU-only). */
+                const char *n = ACTIVE_FILE->name;
+                int found = 0;
+                for (; n && *n; n++) {
+                    const char *a = n;
+                    const char *b = "konami";
+                    while (*a && *b) {
+                        char ca = *a;
+                        char cb = *b;
+                        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca - 'A' + 'a');
+                        if (ca != cb) break;
+                        a++;
+                        b++;
+                    }
+                    if (*b == '\0') {
+                        found = 1;
+                        break;
+                    }
+                }
+                if (found) {
                     msx_button_a_key = EC_SPACE;
                     msx_button_b_key = EC_N;
                     msx_button_game_key = EC_F4;
@@ -2019,8 +2042,8 @@ size_t msx_getromdata(uint8_t **data, uint8_t *src_data, size_t src_size, const 
 {
     /* src pointer to the ROM data in the external flash (raw or LZ4) */
 #ifndef GNW_DISABLE_COMPRESSION
-    unsigned char *dest = (unsigned char *)&_MSX_ROM_UNPACK_BUFFER;
-    uint32_t available_size = (uint32_t)&_MSX_ROM_UNPACK_BUFFER_SIZE;
+    unsigned char *dest = MSX_ROM_UNPACK_BUF;
+    uint32_t available_size = MSX_ROM_UNPACK_SIZE;
     wdog_refresh();
     if(strcmp(ext, "lzma") == 0){
         size_t n_decomp_bytes;

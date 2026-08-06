@@ -2,13 +2,19 @@
 #include "msx_database.h"
 #include "hw_sha1.h"
 #include "odroid_overlay.h"
-#include "gw_linker.h"
 #include "main.h"
 #include "gw_malloc.h"
 #ifndef GNW_DISABLE_COMPRESSION
 #include "main_msx.h"
 #include "lzma.h"
 #endif
+
+#include "gw_core_bridge.h"
+
+/* Same unpack window as main_msx.c (kept for compression paths). */
+extern uint32_t __RAM_EMU_END__;
+#define MSX_ROM_UNPACK_BUF   ((uint8_t *)&__CORE_BSS_END__)
+#define MSX_ROM_UNPACK_SIZE  (((uint32_t)&__RAM_EMU_END__) - ((uint32_t)&__CORE_BSS_END__))
 
 #define ENTRY_SIZE (SHA1_COMPACT_SIZE + 3) // 6 bytes of trunked sha1 + 3 bytes of configuration
 
@@ -63,6 +69,7 @@ static int8_t msx_find_rom_info(const uint8_t *target_sha1, RomInfo *result) {
     return 0; // SHA1 Not found
 }
 
+#if !defined(GNW_DISABLE_COMPRESSION) && SD_CARD == 0
 static uint32_t msx_read_u32_le(const uint8_t* data) {
     return (uint32_t)data[0] |
            ((uint32_t)data[1] << 8) |
@@ -70,12 +77,11 @@ static uint32_t msx_read_u32_le(const uint8_t* data) {
            ((uint32_t)data[3] << 24);
 }
 
-#if !defined(GNW_DISABLE_COMPRESSION) && SD_CARD == 0
 static int8_t msx_calculate_sha1_cdk_stream(const uint8_t *src_data, uint32_t src_size, uint8_t *output_sha1) {
     uint32_t first_offset;
     uint32_t block_count;
     uint32_t blocks_to_hash;
-    uint8_t *track_buffer = (uint8_t *)&_MSX_ROM_UNPACK_BUFFER;
+    uint8_t *track_buffer = MSX_ROM_UNPACK_BUF;
     HASH_HandleTypeDef hhash;
 
     if (src_data == NULL || src_size < 8 || memcmp(src_data, "lzma", 4) != 0) {
@@ -88,7 +94,7 @@ static int8_t msx_calculate_sha1_cdk_stream(const uint8_t *src_data, uint32_t sr
     }
 
     block_count = (first_offset - 4) / 4;
-    if (block_count == 0 || MSX_CDK_TRACK_SIZE > (uint32_t)&_MSX_ROM_UNPACK_BUFFER_SIZE) {
+    if (block_count == 0 || MSX_CDK_TRACK_SIZE > MSX_ROM_UNPACK_SIZE) {
         return 0;
     }
 
@@ -152,15 +158,15 @@ int8_t msx_get_game_info(const retro_emulator_file_t *active_file, RomInfo *resu
     if (active_file == NULL) {
         return 0;
     }
-    ram_start = (uint32_t)&_MSX_ROM_UNPACK_BUFFER;
+    ram_start = (uint32_t)&__CORE_BSS_END__;
 #ifndef GNW_DISABLE_COMPRESSION
 #if SD_CARD == 0
     if (strcmp(active_file->ext, "lzma") == 0) {
         printf("Decompressing MSX ROM...\n");
         uint32_t src_size = 0;
         const uint8_t *src_data = odroid_overlay_cache_file_in_flash(active_file->path, &src_size, false);
-        uint8_t *dest = (uint8_t *)&_MSX_ROM_UNPACK_BUFFER;
-        uint32_t available_size = (uint32_t)&_MSX_ROM_UNPACK_BUFFER_SIZE;
+        uint8_t *dest = MSX_ROM_UNPACK_BUF;
+        uint32_t available_size = MSX_ROM_UNPACK_SIZE;
 
         msx_rom_decompress_size = lzma_inflate(dest, available_size, src_data, src_size);
         ram_start += msx_rom_decompress_size;

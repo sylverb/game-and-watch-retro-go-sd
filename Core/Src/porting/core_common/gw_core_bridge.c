@@ -38,6 +38,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <sys/time.h>
+#include <time.h>
 #include <ctype.h>
 #include <setjmp.h>
 #include <time.h>
@@ -716,6 +718,62 @@ size_t core_rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest
     return gw_firmware_abi()->rg_storage_copy_file_range_to_ram(
         file_path, ram_dest, offset, length, file_progress_cb);
 }
+
+/* ====================================================================
+ * blueMSX (MSX): AHB pool reset / forced AHB alloc, volume, SHA1.
+ * audio_clear_buffers / audio_get_buffer_size composed from existing ABI
+ * entries (no append).
+ * ==================================================================== */
+void   core_ahb_init(void) { gw_firmware_abi()->ahb_init(); }
+void  *core_ahb_only_malloc(size_t size) { return gw_firmware_abi()->ahb_only_malloc(size); }
+int    core_odroid_audio_volume_get(void) { return gw_firmware_abi()->odroid_audio_volume_get(); }
+int8_t core_calculate_sha1_file(const char *file_path, uint8_t *output)
+{
+    return gw_firmware_abi()->calculate_sha1_file(file_path, output);
+}
+int8_t core_calculate_sha1_file_limit(const char *file_path, ssize_t max_bytes, uint8_t *output)
+{
+    return gw_firmware_abi()->calculate_sha1_file_limit(file_path, max_bytes, output);
+}
+int8_t core_calculate_sha1_hw(const uint8_t *data, size_t len, uint8_t *output)
+{
+    return gw_firmware_abi()->calculate_sha1_hw(data, len, output);
+}
+
+void core_audio_clear_buffers(void)
+{
+    const gw_firmware_abi_t *abi = gw_firmware_abi();
+    abi->audio_clear_active_buffer();
+    abi->audio_clear_inactive_buffer();
+}
+
+uint16_t core_audio_get_buffer_size(void)
+{
+    return (uint16_t)(gw_firmware_abi()->audio_get_buffer_length() * sizeof(int16_t));
+}
+
+/* libc time / gettimeofday — ABI has .time already; localtime/gettimeofday
+ * appended for blueMSX RTC + archGetSystemUpTime. */
+time_t core_time(time_t *t) { return gw_firmware_abi()->time(t); }
+struct tm *core_localtime(const time_t *timer) { return gw_firmware_abi()->localtime(timer); }
+int core_gettimeofday(struct timeval *tv, void *tz)
+{
+    return gw_firmware_abi()->gettimeofday(tv, tz);
+}
+
+rg_stat_t core_rg_storage_stat(const char *path)
+{
+    return gw_firmware_abi()->rg_storage_stat(path);
+}
+bool core_rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next_path)
+{
+    return gw_firmware_abi()->rg_storage_get_adjacent_files(path, prev_path, next_path);
+}
+const char *core_rg_basename(const char *path)
+{
+    return gw_firmware_abi()->rg_basename(path);
+}
+void core_audio_stop_playing(void) { gw_firmware_abi()->audio_stop_playing(); }
 
 /* ====================================================================
  * Un-renamed libc exports for archives that still call malloc/strlen/...

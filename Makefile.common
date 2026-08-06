@@ -1573,6 +1573,13 @@ $(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin: cores_nes | create_sd_folders
 	@mkdir -p $(CORES_DIR)/nes_fceumm_mappers
 	@cp cores/nes_fceumm_mappers/ines_correct.bin $@
 
+.PHONY: cores_msx
+cores_msx:
+	$(V)$(MAKE) -C cores/msx
+
+$(CORES_DIR)/msx.bin: cores_msx | create_sd_folders
+	@cp cores/msx.bin $@
+
 # | $(BUILD_DIR): order-only so parallel (-j) mkdir side-effects cannot
 # create build/ before the $(BUILD_DIR) rule's own recipe (see historical
 # note about MAPPERS_BUILD_DIR under build/).
@@ -1607,6 +1614,9 @@ prepare_msx_bios_files: create_sd_folders
     # like Fray, XAK III, ... are expecting the 2nd FDD to be present.
 	@cp $(SD_FOLDER)/bios/msx/PANASONICDISK.rom $(SD_FOLDER)/bios/msx/PANASONICDISK_.rom
 	@printf '\x00' | dd of=$(SD_FOLDER)/bios/msx/PANASONICDISK_.rom bs=1 seek=6124 count=1 conv=notrunc status=none
+	@$(PYTHON3) external/blueMSX-go/create_compact_database_file.py \
+		external/blueMSX-go/system/bluemsx/Databases/msxromdb.xml \
+		$(SD_FOLDER)/bios/msx/msxromdb.bin
 
 $(FONTS_DIR)/unicode_%.bin: $(UNICODE_FONT_SOURCE) tools/gen_unicode_bin.py | create_sd_folders
 	@echo "Generating $@ from $(UNICODE_FONT_SOURCE)"
@@ -1651,6 +1661,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(CORES_DIR)/nes_fceu.bin \
                      $(CORES_DIR)/nes_fceumm_mappers/mappers.pak \
                      $(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin \
+                     $(CORES_DIR)/msx.bin \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
@@ -1738,6 +1749,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/nes_fceu.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/nes_fceumm_mappers/mappers.pak --dest-path "/cores/nes_fceumm_mappers/" \
 		-- sdpush --file $(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin --dest-path "/cores/nes_fceumm_mappers/" \
+		-- sdpush --file $(CORES_DIR)/msx.bin --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2204,6 +2216,7 @@ clean:
 	$(V)$(MAKE) -C cores/a2600 clean
 	$(V)$(MAKE) -C cores/sms clean
 	$(V)$(MAKE) -C cores/nes clean
+	$(V)$(MAKE) -C cores/msx clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

@@ -37,6 +37,17 @@
 #include "gw_ofw.h"
 #include "crc32.h"
 #include "rg_storage.h"
+#include "hw_sha1.h"
+#include "odroid_audio.h"
+#include "rg_utils.h"
+#include "gw_audio.h"
+
+/* newlib gettimeofday is a thin wrapper around _gettimeofday (syscalls.c). */
+extern int _gettimeofday(struct timeval *tv, void *tzvp);
+static int gw_abi_gettimeofday(struct timeval *tv, void *tz)
+{
+    return _gettimeofday(tv, tz);
+}
 
 /* These are defined in rg_emulators.c */
 extern uint8_t *pico8_code_flash_addr;
@@ -321,4 +332,19 @@ const gw_firmware_abi_t g_firmware_abi = {
     /* v2 append: FCEUmm (NES) mappers.pak loader */
     .rg_storage_copy_file_range_to_ram =
         (size_t (*)(char *, uint8_t *, uint32_t, uint32_t, gw_file_progress_cb_t))rg_storage_copy_file_range_to_ram,
+
+    /* v2 append: blueMSX (MSX) porting surface */
+    .ahb_init                    = ahb_init,
+    .ahb_only_malloc             = ahb_only_malloc,
+    .odroid_audio_volume_get     = odroid_audio_volume_get,
+    .calculate_sha1_file         = calculate_sha1_file,
+    .calculate_sha1_file_limit   = calculate_sha1_file_limit,
+    .calculate_sha1_hw           = calculate_sha1_hw,
+
+    .localtime                   = localtime,
+    .gettimeofday                = gw_abi_gettimeofday,
+    .rg_storage_stat             = rg_storage_stat,
+    .rg_storage_get_adjacent_files = rg_storage_get_adjacent_files,
+    .rg_basename                 = rg_basename,
+    .audio_stop_playing          = audio_stop_playing,
 };

@@ -29,12 +29,15 @@
 #include <setjmp.h>
 #include <locale.h>
 #include <time.h>
+#include <sys/time.h>
+#include <sys/types.h>
 
 #include "odroid_system.h"
 #include "odroid_input.h"
 #include "odroid_display.h"
 #include "common.h"
 #include "ff.h"
+#include "rg_storage.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -443,6 +446,29 @@ typedef struct {
     size_t   (*rg_storage_copy_file_range_to_ram)(char *file_path, uint8_t *ram_dest,
                                                   uint32_t offset, uint32_t length,
                                                   gw_file_progress_cb_t file_progress_cb);
+
+    /* ================================================================
+     * v2 append: blueMSX (MSX) porting surface. Identified by porting
+     * Core/Src/porting/msx/main_msx.c (+ msx_database.c) against this ABI.
+     * ================================================================ */
+    void     (*ahb_init)(void);
+    void    *(*ahb_only_malloc)(size_t size);
+    int      (*odroid_audio_volume_get)(void);
+    int8_t   (*calculate_sha1_file)(const char *file_path, uint8_t *output);
+    int8_t   (*calculate_sha1_file_limit)(const char *file_path, ssize_t max_bytes,
+                                          uint8_t *output);
+    int8_t   (*calculate_sha1_hw)(const uint8_t *data, size_t len, uint8_t *output);
+
+    /* ================================================================
+     * v2 append: blueMSX extras (RTC init, disk-swap UI, ROM loader).
+     * ================================================================ */
+    struct tm *(*localtime)(const time_t *timer);
+    int      (*gettimeofday)(struct timeval *tv, void *tz);
+    rg_stat_t (*rg_storage_stat)(const char *path);
+    bool     (*rg_storage_get_adjacent_files)(const char *path, char *prev_path,
+                                              char *next_path);
+    const char *(*rg_basename)(const char *path);
+    void     (*audio_stop_playing)(void);
 
 } gw_firmware_abi_t;
 
