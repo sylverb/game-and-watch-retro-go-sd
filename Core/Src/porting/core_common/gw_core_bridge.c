@@ -66,6 +66,16 @@ void gw_core_bridge_init(void)
     /* Nothing to snapshot yet — see gw_core_bridge.h. */
 }
 
+/* Caprice (and other plain-C cores) call fputs(stderr, …) which expands to
+ * _impure_ptr->_stderr. Alias the firmware's reent so stderr/stdout work.
+ * Runs from .init_array before CORE_ENTRY (see gw_core_entry.S). */
+struct _reent;
+struct _reent *_impure_ptr;
+static void __attribute__((constructor)) gw_core_impure_ptr_init(void)
+{
+    _impure_ptr = *(struct _reent **)(gw_firmware_abi()->impure_ptr_ptr);
+}
+
 /* libm (linked directly via CORE_LDLIBS=-lm, see cores/md/Makefile) expects
  * newlib's non-reentrant `errno` macro, `#define errno (*__errno())`. Its
  * .a member (math_err.o) is prebuilt and never passes through this build's
@@ -278,6 +288,15 @@ int core_printf(const char *fmt, ...)
     va_list ap;
     va_start(ap, fmt);
     int r = gw_firmware_abi()->vprintf(fmt, ap);
+    va_end(ap);
+    return r;
+}
+
+int core_fprintf(FILE *stream, const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    int r = gw_firmware_abi()->vfprintf(stream, fmt, ap);
     va_end(ap);
     return r;
 }
@@ -815,6 +834,13 @@ void core_odroid_system_switch_app(int app)
     while (1) {} /* noreturn */
 }
 
+void core_exit(int status)
+{
+    (void)status;
+    gw_firmware_abi()->odroid_system_switch_app(0);
+    while (1) {} /* noreturn */
+}
+
 /* ====================================================================
  * Un-renamed libc exports for archives that still call malloc/strlen/...
  * by their real names (notably toolchain libstdc++.a when a core sets
@@ -825,7 +851,8 @@ void core_odroid_system_switch_app(int app)
 void  *malloc(size_t size) { return core_malloc(size); }
 void   free(void *ptr) { core_free(ptr); }
 void  *realloc(void *ptr, size_t size) { return core_realloc(ptr, size); }
-void   abort(void) { core_abort(); }
+void   abort(void) { core_abort(); while (1) {} }
+void   exit(int status) { core_exit(status); while (1) {} }
 int    memcmp(const void *a, const void *b, size_t n) { return core_memcmp(a, b, n); }
 char  *strchr(const char *s, int c) { return core_strchr(s, c); }
 int    strcmp(const char *a, const char *b) { return core_strcmp(a, b); }

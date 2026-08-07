@@ -1,18 +1,22 @@
+/* This core is built standalone (see cores/amstrad/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their `extern` declarations of common_emu_state/
+ * ACTIVE_FILE are parsed first. */
 #include <odroid_system.h>
 
 #include <assert.h>
 #include "gw_lcd.h"
-#include "gw_linker.h"
 #include "gw_buttons.h"
 #include "gw_ofw.h"
 #include "rom_manager.h"
 #include "common.h"
 #include "appid.h"
-#include "bilinear.h"
-#include "rg_i18n.h"
 #include "cap32.h"
 #include "main_amstrad.h"
 #include "amstrad_loader.h"
+
+#include "gw_core_bridge.h"
 
 #define AMSTRAD_FPS 50
 #define AMSTRAD_SAMPLE_RATE 22050
@@ -621,7 +625,7 @@ static bool update_disk_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t
 static bool update_palette_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     const char *palette_names[] = {
-        curr_lang->s_amd_palette_Color,curr_lang->s_amd_palette_Green, curr_lang->s_amd_palette_Grey};
+        "Color", "Green", "Grey"};
 
     int max = 2;
 
@@ -640,7 +644,7 @@ static bool update_palette_cb(odroid_dialog_choice_t *option, odroid_dialog_even
 static bool update_controls_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     const char *controls_names[] = {
-        curr_lang->s_amd_Controls_Joystick, curr_lang->s_amd_Controls_Keyboard};
+        "Joystick", "Keyboard"};
     int max = 1;
 
     if (event == ODROID_DIALOG_PREV) selected_controls_index = selected_controls_index > 0 ? selected_controls_index - 1 : max;
@@ -685,69 +689,68 @@ static void createOptionMenu(odroid_dialog_choice_t *options)
 {
     int index = 0;
     options[index].id = 100;
-    options[index].label = curr_lang->s_Palette;
+    options[index].label = "Palette";
     options[index].value = palette_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_palette_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_Change_Dsk;
+    options[index].label = "Change Dsk";
     options[index].value = disk_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_disk_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_Controls;
+    options[index].label = "Controls";
     options[index].value = controls_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_controls_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_game_Button;
+    options[index].label = "Game Button";
     options[index].value = game_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_game_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_time_Button;
+    options[index].label = "Time Button";
     options[index].value = time_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_time_button_cb;
     index++;
     if (!get_ofw_is_mario()) {
         options[index].id = 100;
-        options[index].label = curr_lang->s_amd_start_Button;
+        options[index].label = "Start Button";
         options[index].value = start_button_name;
         options[index].enabled = 1;
         options[index].update_cb = &update_start_button_cb;
         index++;
         options[index].id = 100;
-        options[index].label = curr_lang->s_amd_select_Button;
+        options[index].label = "Select Button";
         options[index].value = select_button_name;
         options[index].enabled = 1;
         options[index].update_cb = &update_select_button_cb;
         index++;
     }
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_A_Button;
+    options[index].label = "A Button";
     options[index].value = a_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_a_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_B_Button;
+    options[index].label = "B Button";
     options[index].value = b_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_b_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_Press_Key;
+    options[index].label = "Press Key";
     options[index].value = key_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_keyboard_cb;
     index++;
-    options[index].id = 0x0F0F0F0F;
-    options[index].label = "LAST";
+    options[index].id = 0x0F0F0F0F;    options[index].label = "LAST";
     options[index].value = "LAST";
     options[index].enabled = 0xFFFF;
     options[index].update_cb = NULL;

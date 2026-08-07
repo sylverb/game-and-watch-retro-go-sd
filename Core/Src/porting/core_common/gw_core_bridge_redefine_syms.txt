@@ -63,11 +63,13 @@ fgets core_fgets
 remove core_remove
 puts core_puts
 printf core_printf
+fprintf core_fprintf
 vprintf core_vprintf
 vfprintf core_vfprintf
 sprintf core_sprintf
 vsprintf core_vsprintf
 snprintf core_snprintf
+exit core_exit
 # --- libc: assert.h ---
 __assert_func core_assert_func
 # --- libc: setjmp.h (naked asm trampolines, see gw_core_bridge.c) ---

@@ -1587,6 +1587,13 @@ cores_gw:
 $(CORES_DIR)/gw.bin: cores_gw | create_sd_folders
 	@cp cores/gw.bin $@
 
+.PHONY: cores_amstrad
+cores_amstrad:
+	$(V)$(MAKE) -C cores/amstrad
+
+$(CORES_DIR)/amstrad.bin: cores_amstrad | create_sd_folders
+	@cp cores/amstrad.bin $@
+
 # | $(BUILD_DIR): order-only so parallel (-j) mkdir side-effects cannot
 # create build/ before the $(BUILD_DIR) rule's own recipe (see historical
 # note about MAPPERS_BUILD_DIR under build/).
@@ -1670,6 +1677,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin \
                      $(CORES_DIR)/msx.bin \
                      $(CORES_DIR)/gw.bin \
+                     $(CORES_DIR)/amstrad.bin \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
@@ -1759,6 +1767,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin --dest-path "/cores/nes_fceumm_mappers/" \
 		-- sdpush --file $(CORES_DIR)/msx.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/gw.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/amstrad.bin --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2227,6 +2236,7 @@ clean:
 	$(V)$(MAKE) -C cores/nes clean
 	$(V)$(MAKE) -C cores/msx clean
 	$(V)$(MAKE) -C cores/gw clean
+	$(V)$(MAKE) -C cores/amstrad clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)
