@@ -36,6 +36,7 @@ save_states
 # here so it's obvious at a glance nothing under cores/ needs manual
 # cleanup before a commit.
 cores/*.bin
+cores/*.xip
 cores/*/build
 cores/nes_fceumm_mappers/
 

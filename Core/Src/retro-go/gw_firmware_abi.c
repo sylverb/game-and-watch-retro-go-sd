@@ -44,12 +44,20 @@
 #include "hw_jpeg_decoder.h"
 #include "lzma.h"
 #include "lz4_depack.h"
+#include "error_screens.h"
+#include "gw_flash_alloc.h"
 
 /* newlib gettimeofday is a thin wrapper around _gettimeofday (syscalls.c). */
 extern int _gettimeofday(struct timeval *tv, void *tzvp);
 static int gw_abi_gettimeofday(struct timeval *tv, void *tz)
 {
     return _gettimeofday(tv, tz);
+}
+
+extern uint32_t SystemCoreClock;
+static uint32_t gw_abi_get_SystemCoreClock(void)
+{
+    return SystemCoreClock;
 }
 
 /* These are defined in rg_emulators.c */
@@ -364,4 +372,11 @@ const gw_firmware_abi_t g_firmware_abi = {
 
     /* v2 append: Tamagotchi P1 */
     .common_emu_frame_loop_reset = common_emu_frame_loop_reset,
+
+    /* v2 append: GBA (gpSP) */
+    .get_SystemCoreClock         = gw_abi_get_SystemCoreClock,
+    .odroid_overlay_cache_file_in_flash_relocate = odroid_overlay_cache_file_in_flash_relocate,
+    .lcd_backlight_set           = lcd_backlight_set,
+    .lcd_sync                    = lcd_sync,
+    .draw_error_screen           = draw_error_screen,
 };

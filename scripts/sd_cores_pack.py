@@ -35,6 +35,7 @@ _SYSTEM_CORE_RELFILES: dict[str, frozenset[str]] = {
     "amstrad": frozenset({"amstrad.bin"}),
     "tama": frozenset({"tama.bin"}),
     "mini": frozenset({"pkmini.bin"}),
+    "gba": frozenset({"gba.bin", "gba.xip"}),
     "videopac": frozenset({"videopac.bin"}),
     "homebrew": frozenset(),
     "pico8": frozenset(),

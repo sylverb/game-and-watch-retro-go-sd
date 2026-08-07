@@ -166,12 +166,9 @@ extern "C" int __gxx_personality_v0(int, int, unsigned long long, void *, void *
     return 0;
 }
 
-/* newlib's FILE* table pointer — only referenced by verbose terminate. */
-static struct _reent s_impure_data;
-extern "C" {
-struct _reent *_impure_ptr = &s_impure_data;
-}
-
+/* newlib's FILE* table pointer — provided by gw_core_bridge.c (aliases the
+ * firmware's reent via impure_ptr_ptr). Do not define a second _impure_ptr
+ * here: that collides at link time for every C++ core. */
 namespace __gnu_cxx {
 void __verbose_terminate_handler() { abort(); }
 }

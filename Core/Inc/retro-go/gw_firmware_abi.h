@@ -50,6 +50,10 @@ extern "C" {
  * here so gw_firmware_abi.h doesn't need to pull in rg_storage.h. */
 typedef void (*gw_file_progress_cb_t)(uint32_t total_size, uint32_t total_processed, uint8_t progress);
 
+/* Relocation pass while caching a file into QSPI (matches gw_flash_alloc.h). */
+typedef void (*gw_flash_relocate_cb_t)(uint8_t *buffer, uint32_t length, uint32_t offset_in_file,
+                                       uint8_t *file_address, uint32_t file_size);
+
 /* Offset within intflash where the .firmware_abi section is pinned by
  * the linker. Chosen to sit after the ISR vector table (684 bytes at
  * offset 0..0x2AC) with headroom for vector-table growth before the
@@ -490,6 +494,20 @@ typedef struct {
      * in firmware common.c).
      * ================================================================ */
     void     (*common_emu_frame_loop_reset)(void);
+
+    /* ================================================================
+     * v2 append: GBA (gpSP) — host CPU clock after SystemClock_Config
+     * overclock (CMSIS SystemCoreClock is a firmware global; cores must
+     * not take its address across the ABI boundary). Plus XIP cache with
+     * relocation pass, fatal UI helpers, and lcd_sync.
+     * ================================================================ */
+    uint32_t (*get_SystemCoreClock)(void);
+    uint8_t *(*odroid_overlay_cache_file_in_flash_relocate)(
+        const char *file_path, uint32_t *file_size_p, bool byte_swap,
+        gw_flash_relocate_cb_t relocate_cb);
+    void     (*lcd_backlight_set)(uint8_t brightness);
+    void     (*lcd_sync)(void);
+    void     (*draw_error_screen)(const char *main_line, const char *line_1, const char *line_2);
 
 } gw_firmware_abi_t;
 

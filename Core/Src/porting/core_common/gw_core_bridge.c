@@ -279,6 +279,7 @@ int    core_fseek(FILE *stream, long offset, int whence) { return gw_firmware_ab
 long   core_ftell(FILE *stream) { return gw_firmware_abi()->ftell(stream); }
 int    core_feof(FILE *stream) { return gw_firmware_abi()->feof(stream); }
 int    core_ferror(FILE *stream) { return gw_firmware_abi()->ferror(stream); }
+int    core_fgetc(FILE *stream) { return gw_firmware_abi()->fgetc(stream); }
 char  *core_fgets(char *s, int size, FILE *stream) { return gw_firmware_abi()->fgets(s, size, stream); }
 int    core_remove(const char *path) { return gw_firmware_abi()->remove(path); }
 int    core_puts(const char *s) { return gw_firmware_abi()->puts(s); }
@@ -873,6 +874,34 @@ void core_exit(int status)
 void core_common_emu_frame_loop_reset(void)
 {
     gw_firmware_abi()->common_emu_frame_loop_reset();
+}
+
+uint32_t core_get_SystemCoreClock(void)
+{
+    return gw_firmware_abi()->get_SystemCoreClock();
+}
+
+uint8_t *core_odroid_overlay_cache_file_in_flash_relocate(
+    const char *file_path, uint32_t *file_size_p, bool byte_swap,
+    gw_flash_relocate_cb_t relocate_cb)
+{
+    return gw_firmware_abi()->odroid_overlay_cache_file_in_flash_relocate(
+        file_path, file_size_p, byte_swap, relocate_cb);
+}
+
+void core_lcd_backlight_set(uint8_t brightness)
+{
+    gw_firmware_abi()->lcd_backlight_set(brightness);
+}
+
+void core_lcd_sync(void)
+{
+    gw_firmware_abi()->lcd_sync();
+}
+
+void core_draw_error_screen(const char *main_line, const char *line_1, const char *line_2)
+{
+    gw_firmware_abi()->draw_error_screen(main_line, line_1, line_2);
 }
 
 /* ====================================================================

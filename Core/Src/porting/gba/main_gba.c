@@ -2,7 +2,6 @@
 
 #include <string.h>
 #include "gw_lcd.h"
-#include "gw_linker.h"
 #include "gw_buttons.h"
 #include "rom_manager.h"
 #include "common.h"
@@ -13,6 +12,18 @@
 #include "appid.h"
 #include "bilinear.h"
 #include "error_screens.h"
+
+/* Everything above is a normal firmware header (see gw_core_bridge.h's file
+ * comment: include AFTER those so macro-substitution rewrites later *uses*,
+ * not the extern declarations this file relies on for type checking). */
+#include "gw_core_bridge.h"
+
+/* Linker symbols from cores/gba/gba_core.ld (sentinel patch range). */
+extern uint8_t _GBA_MAIN_CODE_END[];
+extern uint8_t _OVERLAY_GBA_BSS_START[];
+
+/* ABI: host CPU clock after overclock (see gw_firmware_abi_t). */
+extern uint32_t get_SystemCoreClock(void);
 
 /* gpsp. The core's own headers pull in libretro types and register-name macros
  * that collide with CMSIS, so we declare the handful of entry points we use. */
@@ -162,10 +173,10 @@ static void gba_diag_format(gba_diag_t *d, char *out, size_t out_len)
     if (d->frames == 0) {
         snprintf(out, out_len, "-");
     } else {
-        /* SystemCoreClock is whatever the overclock left us at, so this stays true
+        /* get_SystemCoreClock() is whatever the overclock left us at, so this stays true
          * across the OC levels rather than assuming 280MHz. */
         uint32_t per_frame = d->cycles / d->frames;
-        d->us = (uint32_t)((uint64_t)per_frame * 1000000u / SystemCoreClock);
+        d->us = (uint32_t)((uint64_t)per_frame * 1000000u / get_SystemCoreClock());
         snprintf(out, out_len, "%lu.%02lu ms",
                  (unsigned long)(d->us / 1000), (unsigned long)((d->us % 1000) / 10));
     }
@@ -750,11 +761,9 @@ void app_main_gba(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     /* Level 3 (~353 MHz): force the old max PLL */
     SystemClock_Config(3);
 
-    /* The BIOS image, the cheat table and the sound ring live in AHB SRAM (see the
-     * linker script), which puts them outside .overlay_gba_bss — so the memset in
-     * run_internal_emu() that zeroes this core's BSS does not reach them. Nothing
-     * else will: AHB holds whatever the last core left there. */
-    memset(__gba_ahb_start__, 0, (size_t)(__gba_ahb_end__ - __gba_ahb_start__));
+    /* AHB BSS (bios_rom / cheats / sound_buffer) lives in the AHB core segment
+     * (see gba_core.ld). run_dynamic_core() zeroes that segment's bss_size
+     * before jumping here — no manual memset needed. */
 
     gba_framebuffer = ahb_malloc(GBA_FRAMEBUFFER_BYTES);
     if (gba_framebuffer == NULL)

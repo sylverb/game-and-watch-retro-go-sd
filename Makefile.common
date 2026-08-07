@@ -1615,6 +1615,18 @@ cores_tama:
 $(CORES_DIR)/tama.bin: cores_tama | create_sd_folders
 	@cp cores/tama.bin $@
 
+.PHONY: cores_gba
+cores_gba:
+	$(V)$(MAKE) -C cores/gba
+
+$(CORES_DIR)/gba.bin: cores_gba | create_sd_folders
+	@cp cores/gba.bin $@
+
+# XIP sidecar (cold text + rodata @ 0xDEC00000) — produced by the same
+# cores/gba sub-make as gba.bin (see cores/gba/Makefile).
+$(CORES_DIR)/gba.xip: cores_gba | create_sd_folders
+	@cp cores/gba.xip $@
+
 # | $(BUILD_DIR): order-only so parallel (-j) mkdir side-effects cannot
 # create build/ before the $(BUILD_DIR) rule's own recipe (see historical
 # note about MAPPERS_BUILD_DIR under build/).
@@ -1630,6 +1642,7 @@ create_sd_folders: | $(BUILD_DIR)
 	$(V)mkdir -p $(SD_FOLDER)/bios/nes
 	$(V)mkdir -p $(SD_FOLDER)/bios/coleco
 	$(V)mkdir -p $(SD_FOLDER)/bios/mini
+	$(V)mkdir -p $(SD_FOLDER)/bios/gba
 	$(V)mkdir -p $(HOMEBREWS_FOLDER)
 	$(V)mkdir -p $(RELEASE_FOLDER)
 
@@ -1703,6 +1716,8 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(CORES_DIR)/a7800.bin \
                      $(CORES_DIR)/pkmini.bin \
                      $(CORES_DIR)/tama.bin \
+                     $(CORES_DIR)/gba.bin \
+                     $(CORES_DIR)/gba.xip \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
@@ -1796,6 +1811,8 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/a7800.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/pkmini.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/tama.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/gba.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/gba.xip --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2268,6 +2285,7 @@ clean:
 	$(V)$(MAKE) -C cores/a7800 clean
 	$(V)$(MAKE) -C cores/pkmini clean
 	$(V)$(MAKE) -C cores/tama clean
+	$(V)$(MAKE) -C cores/gba clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

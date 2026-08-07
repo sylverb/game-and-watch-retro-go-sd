@@ -7,13 +7,16 @@
  *
  * The section name is spelled out rather than left to -fdata-sections, because
  * the linker script places this object by name.
+ *
+ * Path is basename-only: cores/gba/Makefile passes
+ * CORE_ASFLAGS=-I../../external/gpsp/bios so the assembler finds the file.
  */
   .section .rodata.open_gba_bios_rom, "a", %progbits
   .align 4
   .globl open_gba_bios_rom
   .type open_gba_bios_rom, %object
 open_gba_bios_rom:
-  .incbin "external/gpsp/bios/open_gba_bios.bin"
+  .incbin "open_gba_bios.bin"
   .size open_gba_bios_rom, . - open_gba_bios_rom
 
   .section .note.GNU-stack, "", %progbits
