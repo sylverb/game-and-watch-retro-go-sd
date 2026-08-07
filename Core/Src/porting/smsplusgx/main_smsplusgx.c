@@ -98,24 +98,57 @@ load_rom_from_flash(uint8_t emu_engine)
     }
 #endif
 #else
-    ram_start = (uint32_t)&__CORE_BSS_END__;
-    uint32_t size = ACTIVE_FILE->size;
-    if (size > ram_get_free_size()) {
-        cart.rom = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &size, false);
+    /* Do not trust ACTIVE_FILE->size or reset ram_start: run_dynamic_core()
+     * already seeds the bump pool past this core's BSS. Measure the file
+     * ourselves (fopen/ftell). This core's BSS leaves only ~18 KB free, so
+     * almost every SMS/GG ROM goes through flash XIP cache. */
+    uint32_t size = 0;
+    size_t free_ram = ram_get_free_size();
+
+    FILE *romf = fopen(ACTIVE_FILE->path, "rb");
+    if (romf != NULL) {
+        fseek(romf, 0, SEEK_END);
+        long sz = ftell(romf);
+        fclose(romf);
+        if (sz > 0)
+            size = (uint32_t)sz;
+    }
+    if (size == 0)
+        return 0;
+
+    if (size > free_ram) {
+        uint32_t cached = 0;
+        cart.rom = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &cached, false);
+        if (cart.rom != NULL && cached != 0)
+            size = cached;
     } else {
-        cart.rom = ram_malloc(size);
-        if (cart.rom != NULL) {
-            odroid_overlay_cache_file_in_ram(ACTIVE_FILE->path, cart.rom);
-        }
+        uint8_t *dst = ram_malloc(size);
+        if (dst != NULL && odroid_overlay_cache_file_in_ram(ACTIVE_FILE->path, dst) == size)
+            cart.rom = dst;
+        else
+            cart.rom = NULL;
     }
     cart.size = size;
 #endif
 
-    if (cart.rom == NULL) {
+    if (cart.rom == NULL || cart.size == 0) {
         return 0;
     }
+
+    /* Same as smsplus load_rom(): odd number of 512-byte blocks means a
+     * copier header is glued on the front. Skip it. Flash XIP is read-only
+     * so we advance the pointer rather than memmove. */
+    if ((cart.size / 512) & 1) {
+        if (cart.size <= 512)
+            return 0;
+        cart.rom += 512;
+        cart.size -= 512;
+    }
+    /* Mapper math does `page % cart.pages` — pages must be >= 1. */
     cart.sram = sram;
     cart.pages = cart.size / 0x4000;
+    if (cart.pages == 0)
+        cart.pages = 1;
     cart.crc = crc32_le(0, cart.rom, cart.size);
     cart.loaded = 1;
 
@@ -449,7 +482,11 @@ app_main_smsplusgx(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL, NULL);
 
     system_reset_config();
-    load_rom_from_flash(sms_engine_from_ext());
+    if (!load_rom_from_flash(sms_engine_from_ext())) {
+        printf("SMS: failed to load ROM\n");
+        odroid_system_switch_app(0);
+        return 0;
+    }
 
     sms.use_fm = 0;
 
