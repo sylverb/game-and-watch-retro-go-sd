@@ -188,6 +188,7 @@ time core_time
 localtime core_localtime
 gettimeofday core_gettimeofday
 rg_storage_stat core_rg_storage_stat
+rg_storage_exists core_rg_storage_exists
 rg_storage_get_adjacent_files core_rg_storage_get_adjacent_files
 rg_basename core_rg_basename
 audio_stop_playing core_audio_stop_playing

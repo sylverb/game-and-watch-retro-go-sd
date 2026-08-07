@@ -784,6 +784,12 @@ rg_stat_t core_rg_storage_stat(const char *path)
 {
     return gw_firmware_abi()->rg_storage_stat(path);
 }
+/* PokeMini (TARGET_GNW) calls rg_storage_exists for optional BIOS load.
+ * Compose from rg_storage_stat — no ABI append. */
+bool core_rg_storage_exists(const char *path)
+{
+    return gw_firmware_abi()->rg_storage_stat(path).exists;
+}
 bool core_rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next_path)
 {
     return gw_firmware_abi()->rg_storage_get_adjacent_files(path, prev_path, next_path);

@@ -1,12 +1,14 @@
+/* This core is built standalone (see cores/pkmini/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their `extern` declarations of common_emu_state/
+ * ACTIVE_FILE/ram_start are parsed first. */
 #include <odroid_system.h>
 #include <string.h>
 #include <assert.h>
+#include <stdio.h>
 
-#include "main.h"
-#include "bilinear.h"
 #include "gw_lcd.h"
-#include "gw_linker.h"
-#include "rg_i18n.h"
 #include "gw_buttons.h"
 #include "common.h"
 #include "rom_manager.h"
@@ -23,6 +25,8 @@
 #include "MinxAudio.h"
 #include "Video.h"
 #include "Video_x3.h"
+
+#include "gw_core_bridge.h"
 
 #define PKMINI_FPS 72
 #define PKMINI_SAMPLE_RATE 44100
@@ -170,19 +174,30 @@ static void SetPixelOffset(void)
 
 static int load_rom()
 {
-    uint32_t size = ACTIVE_FILE->size;
-    uint8_t* buffer;
-	// Free existing color information
-	PokeMini_FreeColorInfo();
+    uint32_t size = 0;
+    uint8_t *buffer;
+    FILE *f;
 
-	// Check if size is valid
-	if ((size <= 0x2100) || (size > 0x200000))
-		return 0;
+    /* Free existing color information */
+    PokeMini_FreeColorInfo();
 
-	PM_ROM_Mask = GetMultiple2Mask(size);
-	PM_ROM_Size = PM_ROM_Mask + 1;
+    f = fopen(ACTIVE_FILE->path, "rb");
+    if (f != NULL) {
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fclose(f);
+        if (sz > 0)
+            size = (uint32_t)sz;
+    }
 
-    if (PM_ROM_Size > 512 * 1024) {
+    /* Check if size is valid */
+    if ((size <= 0x2100) || (size > 0x200000))
+        return 0;
+
+    PM_ROM_Mask = GetMultiple2Mask(size);
+    PM_ROM_Size = PM_ROM_Mask + 1;
+
+    if (PM_ROM_Size > ram_get_free_size()) {
         buffer = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &size, false);
     } else {
         buffer = ram_malloc(PM_ROM_Size);
@@ -191,11 +206,11 @@ static int load_rom()
         }
     }
 
-	PM_ROM = buffer;
+    PM_ROM = buffer;
 
-	NewMulticart();
-	
-	return 1;
+    NewMulticart();
+
+    return 1;
 }
 
 // TODO : Implement call to shutdown function when system is powered off
@@ -276,23 +291,22 @@ static bool palette_update_cb(odroid_dialog_choice_t *option, odroid_dialog_even
       pkmini_apply_changes();
    }
    
-   // Use the internationalized palette names from curr_lang
    const char* palette_name;
    switch(pal) {
-      case 0: palette_name = curr_lang->s_pkmini_palette_Default; break;
-      case 1: palette_name = curr_lang->s_pkmini_palette_Old; break;
-      case 2: palette_name = curr_lang->s_pkmini_palette_BlackWhite; break;
-      case 3: palette_name = curr_lang->s_pkmini_palette_Green; break;
-      case 4: palette_name = curr_lang->s_pkmini_palette_InvertedGreen; break;
-      case 5: palette_name = curr_lang->s_pkmini_palette_Red; break;
-      case 6: palette_name = curr_lang->s_pkmini_palette_InvertedRed; break;
-      case 7: palette_name = curr_lang->s_pkmini_palette_BlueLCD; break;
-      case 8: palette_name = curr_lang->s_pkmini_palette_LEDBacklight; break;
-      case 9: palette_name = curr_lang->s_pkmini_palette_GirlPower; break;
-      case 10: palette_name = curr_lang->s_pkmini_palette_Blue; break;
-      case 11: palette_name = curr_lang->s_pkmini_palette_InvertedBlue; break;
-      case 12: palette_name = curr_lang->s_pkmini_palette_Sepia; break;
-      case 13: palette_name = curr_lang->s_pkmini_palette_InvertedBlackWhite; break;
+      case 0: palette_name = "Default"; break;
+      case 1: palette_name = "Old"; break;
+      case 2: palette_name = "Black & White"; break;
+      case 3: palette_name = "Green"; break;
+      case 4: palette_name = "Inverted Green"; break;
+      case 5: palette_name = "Red"; break;
+      case 6: palette_name = "Inverted Red"; break;
+      case 7: palette_name = "Blue LCD"; break;
+      case 8: palette_name = "LED Backlight"; break;
+      case 9: palette_name = "Girl Power"; break;
+      case 10: palette_name = "Blue"; break;
+      case 11: palette_name = "Inverted Blue"; break;
+      case 12: palette_name = "Sepia"; break;
+      case 13: palette_name = "Inverted Black & White"; break;
       default: palette_name = "Unknown"; break;
    }
    
@@ -313,12 +327,11 @@ static bool lcd_filter_update_cb(odroid_dialog_choice_t *option, odroid_dialog_e
       pkmini_apply_changes();
    }
    
-   // Use the internationalized LCD filter names from curr_lang
    const char* filter_name;
    switch(filter) {
-      case 0: filter_name = curr_lang->s_pkmini_lcd_filter_None; break;
-      case 1: filter_name = curr_lang->s_pkmini_lcd_filter_DotMatrix; break;
-      case 2: filter_name = curr_lang->s_pkmini_lcd_filter_Scanlines; break;
+      case 0: filter_name = "None"; break;
+      case 1: filter_name = "Dot Matrix"; break;
+      case 2: filter_name = "Scanlines"; break;
       default: filter_name = "Unknown"; break;
    }
    
@@ -339,12 +352,11 @@ static bool lcd_mode_update_cb(odroid_dialog_choice_t *option, odroid_dialog_eve
       pkmini_apply_changes();
    }
    
-   // Use the internationalized LCD mode names from curr_lang
    const char* mode_name;
    switch(mode) {
-      case 0: mode_name = curr_lang->s_pkmini_lcd_mode_Analog; break;
-      case 1: mode_name = curr_lang->s_pkmini_lcd_mode_3Shades; break;
-      case 2: mode_name = curr_lang->s_pkmini_lcd_mode_2Shades; break;
+      case 0: mode_name = "Analog"; break;
+      case 1: mode_name = "3 Shades"; break;
+      case 2: mode_name = "2 Shades"; break;
       default: mode_name = "Unknown"; break;
    }
    
@@ -400,17 +412,17 @@ _Noreturn void app_main_pkmini(uint8_t load_state, uint8_t start_paused, int8_t 
     char piezo_filter_values[16];
     char low_pass_filter_values[16];
     odroid_dialog_choice_t options[] = {
-        {100, curr_lang->s_Palette, (char *)palette_values, 1, &palette_update_cb},
-        {100, curr_lang->s_pkmini_LCD_Filter, (char *)lcd_filter_values, 1, &lcd_filter_update_cb},
-        {100, curr_lang->s_pkmini_LCD_Mode, (char *)lcd_mode_values, 1, &lcd_mode_update_cb},
-        {100, curr_lang->s_pkmini_Piezo_Filter, (char *)piezo_filter_values, 1, &piezo_filter_update_cb},
-        {100, curr_lang->s_pkmini_Low_Pass_Filter, (char *)low_pass_filter_values, 1, &low_pass_filter_update_cb},
+        {100, "Palette", (char *)palette_values, 1, &palette_update_cb},
+        {100, "LCD Filter", (char *)lcd_filter_values, 1, &lcd_filter_update_cb},
+        {100, "LCD Mode", (char *)lcd_mode_values, 1, &lcd_mode_update_cb},
+        {100, "Piezo Filter", (char *)piezo_filter_values, 1, &piezo_filter_update_cb},
+        {100, "Low Pass Filter", (char *)low_pass_filter_values, 1, &low_pass_filter_update_cb},
         ODROID_DIALOG_CHOICE_LAST
     };
     TPokeMini_VideoSpec *video_spec = NULL;
     odroid_gamepad_state_t joystick;
 
-    ram_start = (uint32_t)&_OVERLAY_PKMINI_BSS_END;
+    /* ram_start already seeded by run_dynamic_core(). */
 
     if (start_paused) {
         common_emu_state.pause_after_frames = 2;
@@ -446,9 +458,9 @@ _Noreturn void app_main_pkmini(uint8_t load_state, uint8_t start_paused, int8_t 
 
     // Read system config
     char *system_config_path = odroid_system_get_path(ODROID_PATH_SYSTEM_CONFIG, ACTIVE_FILE->path);
-    if (rg_storage_exists(system_config_path)) {
+    {
         rg_stat_t stat = rg_storage_stat(system_config_path);
-        if (stat.size == sizeof(CommandLine)) {
+        if (stat.exists && stat.size == sizeof(CommandLine)) {
             FILE *file = fopen(system_config_path, "r");
             if (file) {
                 fread(&CommandLine, sizeof(CommandLine), 1, file);
@@ -476,7 +488,7 @@ _Noreturn void app_main_pkmini(uint8_t load_state, uint8_t start_paused, int8_t 
 
 	// Load EEPROM
 	MinxIO_FormatEEPROM();
-	if (rg_storage_exists(CommandLine.eeprom_file))
+	if (rg_storage_stat(CommandLine.eeprom_file).exists)
 	{
 		PokeMini_LoadEEPROMFile(CommandLine.eeprom_file);
 	}
