@@ -1,8 +1,13 @@
+/* This core is built standalone (see cores/a7800/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their `extern` declarations of common_emu_state/
+ * ACTIVE_FILE/ram_start are parsed first. */
 #include <odroid_system.h>
 
 #include <assert.h>
+#include <stdio.h>
 #include "gw_lcd.h"
-#include "gw_linker.h"
 #include "gw_buttons.h"
 #include "gw_malloc.h"
 #include "rom_manager.h"
@@ -11,8 +16,6 @@
 #include "lzma.h"
 #endif
 #include "appid.h"
-#include "bilinear.h"
-#include "rg_i18n.h"
 
 #include "Bios.h"
 #include "Cartridge.h"
@@ -24,6 +27,8 @@
 #include "ProSystem.h"
 #include "Tia.h"
 #include "Memory.h"
+
+#include "gw_core_bridge.h"
 
 #define ROM_BUFF_LENGTH 131200 // 128kB + header
 #define TIA_MAX_LENGTH 624
@@ -119,11 +124,12 @@ static void *Screenshot()
 }
 
 static size_t getromdata(unsigned char **data) {
-    ram_start = (uint32_t)&_OVERLAY_A7800_BSS_END;
 #ifndef GNW_DISABLE_COMPRESSION
 #if SD_CARD == 1
 #error "Roms compression is not supported on SD Card"
 #else
+    /* ram_start already seeded by run_dynamic_core(); bump past the
+     * decompressed image so subsequent ram_malloc() does not overlap it. */
     uint32_t src_size = 0;
     const unsigned char *src = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &src_size, false);
     unsigned char *dest = (unsigned char *)rom_memory;
@@ -142,7 +148,19 @@ static size_t getromdata(unsigned char **data) {
     }
 #endif
 #else
-    uint32_t size = ACTIVE_FILE->size;
+    uint32_t size = 0;
+    FILE *f = fopen(ACTIVE_FILE->path, "rb");
+    if (f != NULL) {
+        fseek(f, 0, SEEK_END);
+        long sz = ftell(f);
+        fclose(f);
+        if (sz > 0)
+            size = (uint32_t)sz;
+    }
+    if (size == 0) {
+        *data = NULL;
+        return 0;
+    }
     if (size > ram_get_free_size()) {
         *data = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &size, false);
     } else {
@@ -249,7 +267,7 @@ static void sound_store()
     }
 }
 
-int app_main_a7800(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
+void app_main_a7800(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
     const uint8_t *buffer = NULL;
     uint32_t rom_length = 0;
@@ -283,12 +301,10 @@ int app_main_a7800(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 
     rom_length = getromdata(&rom_ptr);
 
-    if (cartridge_Load(true,rom_ptr,rom_length)) {
-        bios_enabled = false; // Bios not loaded
-    } else {
-        // Rom not supported
-        return 0;
+    if (rom_ptr == NULL || rom_length == 0 || !cartridge_Load(true, rom_ptr, rom_length)) {
+        odroid_system_switch_app(0);
     }
+    bios_enabled = false; // Bios not loaded
     display_ResetPalette();
     database_Load(cartridge_digest);
     prosystem_Reset();
@@ -340,6 +356,4 @@ int app_main_a7800(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 
         common_emu_sound_sync(false);
     }
-
-    return 0;
 }
