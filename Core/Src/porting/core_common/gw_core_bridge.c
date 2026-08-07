@@ -776,6 +776,46 @@ const char *core_rg_basename(const char *path)
 void core_audio_stop_playing(void) { gw_firmware_abi()->audio_stop_playing(); }
 
 /* ====================================================================
+ * LCD-Game-Emulator (Game & Watch handhelds): RTC write-back, LCD swap
+ * poll, hardware JPEG (background images), LZ4/LZMA ROM unpack.
+ * odroid_system_switch_app was already on the ABI but missing a
+ * trampoline — first consumer is main_gw.c on ROM-load failure.
+ * ==================================================================== */
+void core_GW_SetUnixTM(struct tm *tm) { gw_firmware_abi()->GW_SetUnixTM(tm); }
+uint32_t core_lcd_is_swap_pending(void) { return gw_firmware_abi()->lcd_is_swap_pending(); }
+uint32_t core_JPEG_DecodeToFrameInit(uint32_t JPEG_Buffer, uint32_t JPEG_Buffer_Size)
+{
+    return gw_firmware_abi()->JPEG_DecodeToFrameInit(JPEG_Buffer, JPEG_Buffer_Size);
+}
+uint32_t core_JPEG_DecodeToFrame(uint32_t SrcAddress, uint32_t DestAddress,
+                                 uint16_t x, uint16_t y, uint8_t luma_alpha)
+{
+    return gw_firmware_abi()->JPEG_DecodeToFrame(SrcAddress, DestAddress, x, y, luma_alpha);
+}
+uint32_t core_JPEG_DecodeGetSize(uint32_t SrcAddress, uint32_t *width, uint32_t *height)
+{
+    return gw_firmware_abi()->JPEG_DecodeGetSize(SrcAddress, width, height);
+}
+uint32_t core_JPEG_DecodeDeInit(void) { return gw_firmware_abi()->JPEG_DecodeDeInit(); }
+size_t core_lzma_inflate(uint8_t *dst, size_t dst_size, const uint8_t *src, size_t src_size)
+{
+    return gw_firmware_abi()->lzma_inflate(dst, dst_size, src, src_size);
+}
+unsigned int core_lz4_uncompress(const void *src, void *dst)
+{
+    return gw_firmware_abi()->lz4_uncompress(src, dst);
+}
+unsigned int core_lz4_get_file_size(const void *src)
+{
+    return gw_firmware_abi()->lz4_get_file_size(src);
+}
+void core_odroid_system_switch_app(int app)
+{
+    gw_firmware_abi()->odroid_system_switch_app(app);
+    while (1) {} /* noreturn */
+}
+
+/* ====================================================================
  * Un-renamed libc exports for archives that still call malloc/strlen/...
  * by their real names (notably toolchain libstdc++.a when a core sets
  * CORE_LDLIBS=-lstdc++). Core .o files go through --redefine-syms so they

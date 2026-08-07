@@ -470,6 +470,20 @@ typedef struct {
     const char *(*rg_basename)(const char *path);
     void     (*audio_stop_playing)(void);
 
+    /* ================================================================
+     * v2 append: LCD-Game-Emulator (Game & Watch handhelds).
+     * ================================================================ */
+    void     (*GW_SetUnixTM)(struct tm *tm);
+    uint32_t (*lcd_is_swap_pending)(void);
+    uint32_t (*JPEG_DecodeToFrameInit)(uint32_t JPEG_Buffer, uint32_t JPEG_Buffer_Size);
+    uint32_t (*JPEG_DecodeToFrame)(uint32_t SrcAddress, uint32_t DestAddress,
+                                   uint16_t x, uint16_t y, uint8_t luma_alpha);
+    uint32_t (*JPEG_DecodeGetSize)(uint32_t SrcAddress, uint32_t *width, uint32_t *height);
+    uint32_t (*JPEG_DecodeDeInit)(void);
+    size_t   (*lzma_inflate)(uint8_t *dst, size_t dst_size, const uint8_t *src, size_t src_size);
+    unsigned int (*lz4_uncompress)(const void *src, void *dst);
+    unsigned int (*lz4_get_file_size)(const void *src);
+
 } gw_firmware_abi_t;
 
 /* The firmware publishes this instance at GW_FIRMWARE_ABI_ADDRESS via the

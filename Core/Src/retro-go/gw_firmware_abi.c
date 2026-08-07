@@ -41,6 +41,9 @@
 #include "odroid_audio.h"
 #include "rg_utils.h"
 #include "gw_audio.h"
+#include "hw_jpeg_decoder.h"
+#include "lzma.h"
+#include "lz4_depack.h"
 
 /* newlib gettimeofday is a thin wrapper around _gettimeofday (syscalls.c). */
 extern int _gettimeofday(struct timeval *tv, void *tzvp);
@@ -347,4 +350,15 @@ const gw_firmware_abi_t g_firmware_abi = {
     .rg_storage_get_adjacent_files = rg_storage_get_adjacent_files,
     .rg_basename                 = rg_basename,
     .audio_stop_playing          = audio_stop_playing,
+
+    /* v2 append: LCD-Game-Emulator (Game & Watch) */
+    .GW_SetUnixTM                = GW_SetUnixTM,
+    .lcd_is_swap_pending         = lcd_is_swap_pending,
+    .JPEG_DecodeToFrameInit      = JPEG_DecodeToFrameInit,
+    .JPEG_DecodeToFrame          = JPEG_DecodeToFrame,
+    .JPEG_DecodeGetSize          = JPEG_DecodeGetSize,
+    .JPEG_DecodeDeInit           = JPEG_DecodeDeInit,
+    .lzma_inflate                = lzma_inflate,
+    .lz4_uncompress              = lz4_uncompress,
+    .lz4_get_file_size           = lz4_get_file_size,
 };
