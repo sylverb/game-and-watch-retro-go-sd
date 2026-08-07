@@ -31,6 +31,7 @@ pack: $(TARGET_BIN)
 	python3 ../../tools/pack_core.py \
 		--elf $(TARGET_ELF) --bin $(TARGET_BIN) \
 		--system name="Tamagotchi",dirname=tama,ext=b,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_tama,header_logo=../../Core/Src/retro-go/rg_logos.c:header_tama \
+		--core-name "TamaLIB" \
 		--out $(PACKED_BIN)
 
 all: pack

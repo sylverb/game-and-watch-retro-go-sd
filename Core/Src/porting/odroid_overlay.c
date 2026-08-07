@@ -46,6 +46,7 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
 #include "rg_rtc.h"
 #include "rg_i18n.h"
 #include "rg_storage.h"
+#include "rg_emulators.h"
 #include "gw_flash_alloc.h"
 #if SD_CARD == 0
 #include "rg_frogfs.h"
@@ -1588,8 +1589,18 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
         draw_game_status_bar(&stats);
     }
 
+    char core_name_value[24];
+    char core_version_value[16];
+    char core_path_value[64];
+    char core_date_value[24];
+    bool show_core_info = rg_emulators_get_running_core_info(
+        core_name_value, sizeof(core_name_value),
+        core_version_value, sizeof(core_version_value),
+        core_path_value, sizeof(core_path_value),
+        core_date_value, sizeof(core_date_value));
+
 #if CHEAT_CODES == 1
-    odroid_dialog_choice_t choices[12];
+    odroid_dialog_choice_t choices[14];
     CHOSEN_FILE = ACTIVE_FILE;
     bool cheat_update_support = odroid_system_get_app()->handlers.cheat_update != NULL;
 
@@ -1624,6 +1635,14 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     choices[index].enabled = 1;
     choices[index].update_cb = NULL;
     index++;
+    if (show_core_info) {
+        choices[index].id = 70;
+        choices[index].label = "Info";
+        choices[index].value = "";
+        choices[index].enabled = 1;
+        choices[index].update_cb = NULL;
+        index++;
+    }
     if ((ACTIVE_FILE->cheat_count != 0) && (cheat_update_support)) {
         choices[index].id = 60;
         choices[index].label = curr_lang->s_Cheat_Codes;
@@ -1662,20 +1681,20 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     choices[index].enabled = 0xFFFF;
     choices[index].update_cb = NULL;
 #else
-    odroid_dialog_choice_t choices[] = {
-        // {0, "Continue", "",  1, NULL},
-        {10, curr_lang->s_Save_Cont, "", 1, NULL},
-        {20, curr_lang->s_Save_Quit, "", 1, NULL},
-        ODROID_DIALOG_CHOICE_SEPARATOR,
-        {30, curr_lang->s_Reload, "", 1, NULL},
-        {40, curr_lang->s_Options, "", 1, NULL},
-        // {50, "Tools", "", 1, NULL},
-        ODROID_DIALOG_CHOICE_SEPARATOR,
-        {90, curr_lang->s_Power_off, "", 1, NULL},
-        ODROID_DIALOG_CHOICE_SEPARATOR,
-        {100, curr_lang->s_Quit_to_menu, "", 1, NULL},
-        ODROID_DIALOG_CHOICE_LAST,
-    };
+    odroid_dialog_choice_t choices[12];
+    int index = 0;
+    choices[index++] = (odroid_dialog_choice_t){10, curr_lang->s_Save_Cont, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t){20, curr_lang->s_Save_Quit, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+    choices[index++] = (odroid_dialog_choice_t){30, curr_lang->s_Reload, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t){40, curr_lang->s_Options, "", 1, NULL};
+    if (show_core_info)
+        choices[index++] = (odroid_dialog_choice_t){70, "Info", "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+    choices[index++] = (odroid_dialog_choice_t){90, curr_lang->s_Power_off, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+    choices[index++] = (odroid_dialog_choice_t){100, curr_lang->s_Quit_to_menu, "", 1, NULL};
+    choices[index] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_LAST;
 #endif
 
     odroid_audio_mute(true);
@@ -1717,6 +1736,27 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
         show_cheat_dialog();
         break;
 #endif
+    case 70:
+        if (show_core_info) {
+            /* Refresh date in case the file was touched; other fields are
+             * already filled from launch-time meta. */
+            rg_emulators_get_running_core_info(
+                core_name_value, sizeof(core_name_value),
+                core_version_value, sizeof(core_version_value),
+                core_path_value, sizeof(core_path_value),
+                core_date_value, sizeof(core_date_value));
+            odroid_dialog_choice_t info_choices[] = {
+                {-1, "Name", core_name_value, 0, NULL},
+                {-1, "Version", core_version_value, 0, NULL},
+                {-1, curr_lang->s_File, core_path_value, 0, NULL},
+                {-1, curr_lang->s_Date, core_date_value, 0, NULL},
+                ODROID_DIALOG_CHOICE_SEPARATOR,
+                {1, curr_lang->s_Close, "", 1, NULL},
+                ODROID_DIALOG_CHOICE_LAST
+            };
+            odroid_overlay_dialog("Info", info_choices, -1, &_repaint, flags | ODROID_MENU_FLAG_NO_BG_DARKEN);
+        }
+        break;
     case 90:
         save_state_and_sleep(true, NULL);
         break;

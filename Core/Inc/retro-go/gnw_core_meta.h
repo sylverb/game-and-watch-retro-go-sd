@@ -125,7 +125,17 @@ typedef struct {
     uint32_t systems_count; /* 1..GNW_CORE_MAX_SYSTEMS */
     gnw_core_system_t systems[GNW_CORE_MAX_SYSTEMS];
 
-    uint8_t reserved[32];
+    /* Core identity shown in the in-game pause → Info dialog.
+     * version_*: semantic X.Y.Z without the leading 'v' (0..255 each).
+     * core_name: short pack name (e.g. "sms", "pce") — NUL-terminated.
+     * Taken from the former reserved[32]; layout size unchanged.
+     * All-zero version + empty name means "unset" (old / unversioned bin). */
+    uint8_t version_major;
+    uint8_t version_minor;
+    uint8_t version_patch;
+    char core_name[24];
+
+    uint8_t reserved[5];
 } gnw_core_meta_t;
 
 #ifdef __cplusplus

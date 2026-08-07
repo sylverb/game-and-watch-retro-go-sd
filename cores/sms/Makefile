@@ -50,6 +50,7 @@ pack: $(TARGET_BIN)
 		--system name="Sega Game Gear",dirname=gg,ext=gg,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_gg,header_logo=../../Core/Src/retro-go/rg_logos.c:header_gg \
 		--system name="Sega SG-1000",dirname=sg,ext=sg,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_sg1000,header_logo=../../Core/Src/retro-go/rg_logos.c:header_sg1000 \
 		--system name="Colecovision",dirname=col,ext=col,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_col,header_logo=../../Core/Src/retro-go/rg_logos.c:header_col \
+		--core-name "SMSPlus GX" \
 		--out $(PACKED_BIN)
 
 all: pack

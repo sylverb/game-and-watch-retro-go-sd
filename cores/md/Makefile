@@ -67,6 +67,7 @@ pack: $(TARGET_BIN)
 		--extensions "md gen bin" \
 		--pad-logo-c ../../Core/Src/retro-go/rg_logos.c:pad_gen \
 		--header-logo-c ../../Core/Src/retro-go/rg_logos.c:header_gen \
+		--core-name "Gwenesis" \
 		--out $(PACKED_BIN)
 
 all: pack

@@ -54,6 +54,7 @@ pack: $(TARGET_BIN)
 		--extensions "lnx lyx" \
 		--pad-logo-c ../../Core/Src/retro-go/rg_logos.c:pad_lynx \
 		--header-logo-c ../../Core/Src/retro-go/rg_logos.c:header_lynx \
+		--core-name "Handy" \
 		--out $(PACKED_BIN)
 
 all: pack

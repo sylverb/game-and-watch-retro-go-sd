@@ -44,6 +44,7 @@ pack: $(TARGET_BIN)
 		--extensions "wsv sv bin lzma" \
 		--pad-logo-c ../../Core/Src/retro-go/rg_logos.c:pad_wsv \
 		--header-logo-c ../../Core/Src/retro-go/rg_logos.c:header_wsv \
+		--core-name "Potator" \
 		--out $(PACKED_BIN)
 
 all: pack

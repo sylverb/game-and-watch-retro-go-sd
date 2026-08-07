@@ -41,6 +41,7 @@ pack: $(TARGET_BIN)
 	python3 ../../tools/pack_core.py \
 		--elf $(TARGET_ELF) --bin $(TARGET_BIN) \
 		--system name="Atari 7800",dirname=a7800,ext="a78 bin",parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_a7800,header_logo=../../Core/Src/retro-go/rg_logos.c:header_a7800 \
+		--core-name "ProSystem" \
 		--out $(PACKED_BIN)
 
 all: pack

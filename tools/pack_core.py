@@ -32,7 +32,12 @@ Usage — single-system, single-segment core (see cores/wsv/Makefile):
         --extensions "wsv sv bin lzma" \\
         --pad-logo-c ../../Core/Src/retro-go/rg_logos.c:pad_wsv \\
         --header-logo-c ../../Core/Src/retro-go/rg_logos.c:header_wsv \\
+        --version 1.0.0 \\
         --out ../wsv.bin
+
+`--version X.Y.Z` (optional leading `v`, default 1.0.0) and `--core-name`
+(default: --out stem) are stored in `gnw_core_meta_t` and shown in the
+in-game pause → Info dialog (name, version, path, file date).
 
 Usage — multi-system, multi-segment core (see cores/pce/Makefile):
 
@@ -85,10 +90,32 @@ assert SYSTEM_STRUCT_SIZE == 116, SYSTEM_STRUCT_SIZE
 
 # Must mirror gnw_core_meta_t exactly: 4x uint32_t (required_abi_version,
 # required_abi_min_size, flags, segments_count), segments[4], uint32_t
-# systems_count, systems[4], uint8_t[32] reserved.
+# systems_count, systems[4], version_major/minor/patch (3 bytes),
+# core_name[24], uint8_t[5] reserved.
 META_STRUCT_SIZE = (4 * 4 + GNW_CORE_MAX_SEGMENTS * SEGMENT_STRUCT_SIZE
-                     + 4 + GNW_CORE_MAX_SYSTEMS * SYSTEM_STRUCT_SIZE + 32)
+                     + 4 + GNW_CORE_MAX_SYSTEMS * SYSTEM_STRUCT_SIZE
+                     + 3 + 24 + 5)
 assert META_STRUCT_SIZE == 564, META_STRUCT_SIZE
+CORE_NAME_MAX = 23  # stored as char[24] including NUL
+
+
+def parse_version(spec):
+    """Parse 'X.Y.Z' (optional leading 'v') into (major, minor, patch),
+    each 0..255. Used for gnw_core_meta_t.version_*. """
+    s = spec.strip()
+    if s[:1] in ("v", "V"):
+        s = s[1:]
+    parts = s.split(".")
+    if len(parts) != 3:
+        sys.exit(f"error: --version expects X.Y.Z, got {spec!r}")
+    try:
+        major, minor, patch = (int(p) for p in parts)
+    except ValueError:
+        sys.exit(f"error: --version components must be integers, got {spec!r}")
+    for name, val in (("major", major), ("minor", minor), ("patch", patch)):
+        if not 0 <= val <= 255:
+            sys.exit(f"error: --version {name}={val} out of range 0..255")
+    return major, minor, patch
 
 
 class SystemSpec:
@@ -271,9 +298,26 @@ def main():
                      help="repeatable: region:start_symbol:code_end_symbol:bss_end_symbol:bin_file (segments 1..3; segment 0 is --elf/--bin)")
 
     ap.add_argument("--flags", type=lambda s: int(s, 0), default=0)
+    ap.add_argument("--version", default="1.0.0",
+                     help="core semantic version X.Y.Z (optional leading 'v'; "
+                          "stored as 3 bytes in gnw_core_meta_t, default: %(default)s)")
+    ap.add_argument("--core-name", default=None,
+                     help="short core pack name stored in gnw_core_meta_t "
+                          f"(max {CORE_NAME_MAX} chars). Default: --out stem "
+                          "(e.g. sms.bin → 'sms')")
     ap.add_argument("--nm", default="arm-none-eabi-nm", help="nm tool to use (default: %(default)s)")
     ap.add_argument("--out", required=True, type=Path)
     args = ap.parse_args()
+    version_major, version_minor, version_patch = parse_version(args.version)
+
+    if args.core_name is not None:
+        core_name = args.core_name.strip()
+    else:
+        core_name = args.out.stem
+    if not core_name:
+        sys.exit("error: empty --core-name / --out stem")
+    if len(core_name.encode()) > CORE_NAME_MAX:
+        sys.exit(f"error: --core-name too long (max {CORE_NAME_MAX} bytes): {core_name!r}")
 
     legacy_used = any([args.system_name, args.dirname, args.extensions, args.pad_logo_c, args.header_logo_c])
     if legacy_used and args.system:
@@ -375,7 +419,9 @@ def main():
             meta_bytes += pack_system(systems[i], *system_logo_info[i])
         else:
             meta_bytes += b"\x00" * SYSTEM_STRUCT_SIZE
-    meta_bytes += b"\x00" * 32  # reserved
+    meta_bytes += struct.pack("<BBB", version_major, version_minor, version_patch)
+    meta_bytes += core_name.encode() + b"\x00" * (24 - len(core_name.encode()))
+    meta_bytes += b"\x00" * 5  # reserved
 
     assert len(meta_bytes) == META_STRUCT_SIZE, len(meta_bytes)
 
@@ -390,6 +436,7 @@ def main():
     args.out.write_bytes(out_bytes)
 
     print(f"pack_core: {args.out} ({len(out_bytes)} bytes)")
+    print(f"  core_name={core_name!r} version=v{version_major}.{version_minor}.{version_patch}")
     print(f"  required_abi_version={required_abi_version} required_abi_min_size={required_abi_min_size}")
     for i, s in enumerate(systems):
         print(f"  system[{i}]: name={s.name!r} dirname={s.dirname!r} extensions={s.extensions!r} parse_type={s.parse_type}")

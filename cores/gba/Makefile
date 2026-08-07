@@ -139,6 +139,7 @@ pack: $(TARGET_BIN) $(BUILD_DIR)/gba_core_itcm.bin $(BUILD_DIR)/gba_core_ahb.bin
 		--system name="Nintendo Gameboy Advance",dirname=gba,ext=gba,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_gba,header_logo=../../Core/Src/retro-go/rg_logos.c:header_gba \
 		--segment itcm:__ITCM_CORE_START__:__CORE_ITCM_CODE_END__:__CORE_ITCM_BSS_END__:$(BUILD_DIR)/gba_core_itcm.bin \
 		--segment ahb:__AHB_CORE_START__:__CORE_AHB_CODE_END__:__CORE_AHB_BSS_END__:$(BUILD_DIR)/gba_core_ahb.bin \
+		--core-name "gpSP" \
 		--out $(PACKED_BIN)
 
 all: pack

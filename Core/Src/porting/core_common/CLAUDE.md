@@ -25,10 +25,15 @@ That coupling is gone: a core is now
    either direction,
 3. packaged by `tools/pack_core.py` into a `CORE`-header `.bin` carrying its
    own metadata (`gnw_core_meta_t` — system name, ROM dirname/extensions,
-   ABI requirement, code/BSS size, inline pad/header logo images),
+   ABI requirement, code/BSS size, semantic version `X.Y.Z`, inline
+   pad/header logo images),
 4. discovered at boot by `emulators_scan_cores()` scanning `/cores/*.bin`
    (`Core/Src/retro-go/rg_emulators.c`) — no compile-time list of systems on
    the firmware side at all.
+
+The packed `--version` (default `1.0.0`) and `--core-name` (default: output
+stem) are shown in the in-game pause menu under **Info** (name, version,
+path, file date).
 
 ```mermaid
 flowchart LR

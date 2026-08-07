@@ -49,6 +49,7 @@ pack: $(TARGET_BIN)
 	python3 ../../tools/pack_core.py \
 		--elf $(TARGET_ELF) --bin $(TARGET_BIN) \
 		--system name="Game & Watch",dirname=gw,ext=gw,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_gw,header_logo=../../Core/Src/retro-go/rg_logos.c:header_gw \
+		--core-name "LCD-Game-Emulator" \
 		--out $(PACKED_BIN)
 
 all: pack

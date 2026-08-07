@@ -43,6 +43,7 @@ pack: $(TARGET_BIN)
 	python3 ../../tools/pack_core.py \
 		--elf $(TARGET_ELF) --bin $(TARGET_BIN) \
 		--system name="Amstrad CPC",dirname=amstrad,ext="dsk cdk",parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_amstrad,header_logo=../../Core/Src/retro-go/rg_logos.c:header_amstrad \
+		--core-name "Caprice32" \
 		--out $(PACKED_BIN)
 
 all: pack

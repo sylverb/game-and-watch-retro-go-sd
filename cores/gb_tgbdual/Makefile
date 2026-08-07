@@ -84,6 +84,7 @@ pack: $(TARGET_BIN)
 		--elf $(TARGET_ELF) --bin $(TARGET_BIN) \
 		--system name="Game Boy",dirname=gb,ext=gb,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_gb,header_logo=../../Core/Src/retro-go/rg_logos.c:header_gb \
 		--system name="Game Boy Color",dirname=gbc,ext=gbc,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_gb,header_logo=../../Core/Src/retro-go/rg_logos.c:header_gbc \
+		--core-name "TGB Dual" \
 		--out $(PACKED_BIN)
 
 all: pack

@@ -3,6 +3,7 @@
 #include <odroid_sdcard.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #if !defined(COVERFLOW)
 #define COVERFLOW 0
@@ -99,3 +100,17 @@ const char *emu_get_file_path(retro_emulator_file_t *file);
 retro_emulator_t *file_to_emu(retro_emulator_file_t *file);
 bool emulator_is_file_valid(retro_emulator_file_t *file);
 retro_emulator_file_t *emulator_get_file(char *file_path);
+
+/* Version of the currently running dynamic core (from gnw_core_meta_t),
+ * set by run_dynamic_core() at launch. Returns false if no dynamic core
+ * is running, or if the packed version is all-zero (unset / old bin). */
+bool rg_emulators_get_running_core_version(uint8_t *major, uint8_t *minor, uint8_t *patch);
+
+/* Full Info dialog fields for the running dynamic core. Returns false if
+ * no dynamic core is active. `version` is formatted "vX.Y.Z" (or empty if
+ * unset). `date` is the core .bin's FatFs mtime "YYYY-MM-DD HH:MM", or
+ * "-" if unavailable. Any out_* pointer may be NULL to skip that field. */
+bool rg_emulators_get_running_core_info(char *name, size_t name_sz,
+                                        char *version, size_t version_sz,
+                                        char *path, size_t path_sz,
+                                        char *date, size_t date_sz);

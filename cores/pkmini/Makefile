@@ -53,6 +53,7 @@ pack: $(TARGET_BIN)
 	python3 ../../tools/pack_core.py \
 		--elf $(TARGET_ELF) --bin $(TARGET_BIN) \
 		--system name="Pokémon Mini",dirname=mini,ext=min,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_pkmini,header_logo=../../Core/Src/retro-go/rg_logos.c:header_pkmini \
+		--core-name "PokeMini" \
 		--out $(PACKED_BIN)
 
 all: pack

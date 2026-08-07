@@ -113,6 +113,7 @@ pack: $(TARGET_BIN) $(DEFPROPS_BIN)
 		--extensions "a26 bin" \
 		--pad-logo-c ../../Core/Src/retro-go/rg_logos.c:pad_a2600 \
 		--header-logo-c ../../Core/Src/retro-go/rg_logos.c:header_a2600 \
+		--core-name "Stella 2014" \
 		--out $(PACKED_BIN)
 
 # ROM properties database (sidecar, not part of the CORE payload) — same

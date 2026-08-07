@@ -61,6 +61,7 @@ pack: $(TARGET_BIN) $(BUILD_DIR)/pce_core_itcm.bin
 		--system name="PC Engine",dirname=pce,ext=pce,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_pce,header_logo=../../Core/Src/retro-go/rg_logos.c:header_pce \
 		--system name="PC Engine CD",dirname=pcecd,ext=cue,parse=cdrom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_pce,header_logo=../../Core/Src/retro-go/rg_logos.c:header_pcecd \
 		--segment itcm:__ITCM_CORE_START__:__CORE_ITCM_CODE_END__:__CORE_ITCM_BSS_END__:$(BUILD_DIR)/pce_core_itcm.bin \
+		--core-name "PCE-GO" \
 		--out $(PACKED_BIN)
 
 all: pack

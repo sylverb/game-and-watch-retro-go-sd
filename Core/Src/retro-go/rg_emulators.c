@@ -225,6 +225,12 @@ unsigned ROM_DATA_LENGTH;
 const char *ROM_EXT = NULL;
 retro_emulator_file_t *ACTIVE_FILE = NULL;
 
+/* Set by run_dynamic_core() from gnw_core_meta_t + core_path; cleared for
+ * Homebrew / PICO-8 / any non-dynamic launch. */
+static char g_running_core_name[24];
+static char g_running_core_path[64];
+static uint8_t g_running_core_version[3];
+
 static retro_emulator_file_t *shared_files = NULL;
 
 #if !defined(COVERFLOW)
@@ -1728,6 +1734,15 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
         return;
     }
 
+    g_running_core_version[0] = meta.version_major;
+    g_running_core_version[1] = meta.version_minor;
+    g_running_core_version[2] = meta.version_patch;
+    meta.core_name[sizeof(meta.core_name) - 1] = '\0';
+    strncpy(g_running_core_name, meta.core_name, sizeof(g_running_core_name) - 1);
+    g_running_core_name[sizeof(g_running_core_name) - 1] = '\0';
+    strncpy(g_running_core_path, core_path, sizeof(g_running_core_path) - 1);
+    g_running_core_path[sizeof(g_running_core_path) - 1] = '\0';
+
     uint32_t file_offset = CORE_HEADER_MIN_SIZE + (uint32_t)header_length;
 
     for (uint32_t i = 0; i < meta.segments_count; i++) {
@@ -1794,6 +1809,68 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
     ((void (*)(uint8_t, uint8_t, int8_t))((uintptr_t)entry_base | 1))(load_state, start_paused, save_slot);
 }
 
+bool rg_emulators_get_running_core_version(uint8_t *major, uint8_t *minor, uint8_t *patch)
+{
+    if ((g_running_core_version[0] | g_running_core_version[1] | g_running_core_version[2]) == 0)
+        return false;
+    if (major)
+        *major = g_running_core_version[0];
+    if (minor)
+        *minor = g_running_core_version[1];
+    if (patch)
+        *patch = g_running_core_version[2];
+    return true;
+}
+
+bool rg_emulators_get_running_core_info(char *name, size_t name_sz,
+                                        char *version, size_t version_sz,
+                                        char *path, size_t path_sz,
+                                        char *date, size_t date_sz)
+{
+    if (g_running_core_path[0] == '\0')
+        return false;
+
+    if (name && name_sz > 0) {
+        if (g_running_core_name[0])
+            snprintf(name, name_sz, "%s", g_running_core_name);
+        else
+            snprintf(name, name_sz, "%s", "-");
+    }
+
+    if (version && version_sz > 0) {
+        if ((g_running_core_version[0] | g_running_core_version[1] | g_running_core_version[2]) != 0)
+            snprintf(version, version_sz, "v%u.%u.%u",
+                     g_running_core_version[0], g_running_core_version[1], g_running_core_version[2]);
+        else
+            snprintf(version, version_sz, "%s", "-");
+    }
+
+    if (path && path_sz > 0)
+        snprintf(path, path_sz, "%s", g_running_core_path);
+
+    if (date && date_sz > 0) {
+        date[0] = '\0';
+#if SD_CARD == 1
+        FILINFO fno;
+        if (f_stat(g_running_core_path, &fno) == FR_OK && fno.fdate != 0) {
+            /* FatFs: fdate = YYYYYYYMMMMDDDDD (year since 1980),
+             *        ftime = HHHHHMMMMMMSSSSS (seconds/2). */
+            unsigned year = 1980 + (fno.fdate >> 9);
+            unsigned month = (fno.fdate >> 5) & 0x0F;
+            unsigned day = fno.fdate & 0x1F;
+            unsigned hour = fno.ftime >> 11;
+            unsigned min = (fno.ftime >> 5) & 0x3F;
+            snprintf(date, date_sz, "%04u-%02u-%02u %02u:%02u",
+                     year, month, day, hour, min);
+        }
+#endif
+        if (date[0] == '\0')
+            snprintf(date, date_sz, "%s", "-");
+    }
+
+    return true;
+}
+
 void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_paused, int8_t save_slot)
 {
     if (file->ext == NULL)
@@ -1842,6 +1919,12 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 
     emulator_update_cheats_info(CHOSEN_FILE);
 #endif
+
+    /* Cleared here; run_dynamic_core() re-fills after a successful probe.
+     * Homebrew / PICO-8 leave it unset so the pause menu hides Info. */
+    g_running_core_name[0] = '\0';
+    g_running_core_path[0] = '\0';
+    g_running_core_version[0] = g_running_core_version[1] = g_running_core_version[2] = 0;
 
     // Copy game data from SD card to flash if needed
     // dsk files are read from sd card, do not copy them in flash

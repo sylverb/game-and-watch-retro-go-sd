@@ -139,6 +139,7 @@ pack: $(TARGET_BIN) $(MAPPERS_PACK) $(INES_CORRECT)
 		--extensions "nes fds nsf" \
 		--pad-logo-c ../../Core/Src/retro-go/rg_logos.c:pad_nes \
 		--header-logo-c ../../Core/Src/retro-go/rg_logos.c:header_nes \
+		--core-name "FCEUmm" \
 		--out $(PACKED_BIN)
 
 all: pack

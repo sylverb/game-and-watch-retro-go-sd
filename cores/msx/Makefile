@@ -139,6 +139,7 @@ pack: $(TARGET_BIN)
 	python3 ../../tools/pack_core.py \
 		--elf $(TARGET_ELF) --bin $(TARGET_BIN) \
 		--system name="MSX",dirname=msx,ext="dsk rom mx1 mx2 cdk lzma",parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_msx,header_logo=../../Core/Src/retro-go/rg_logos.c:header_msx \
+		--core-name "blueMSX" \
 		--out $(PACKED_BIN)
 
 all: pack
