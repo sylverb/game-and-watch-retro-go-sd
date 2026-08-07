@@ -61,7 +61,11 @@ SECTIONS
     /* Remaining .data from every object (main_gba already claimed). */
     *(.data .data*)
 
-    /* Hot .text: everything except cpu (→ITCM) and cold XIP files. */
+    /* Hot .text: everything except cpu (→ITCM) and cold XIP files.
+     * cheats/idle_loop/bilinear → .xip_gba (rare or optional paths).
+     * savestate.o stays in RAM_EMU like the classic overlay: its bson
+     * parse path calls strlen/memcmp per key and must not run from XIP
+     * through ABI veneers (old savestates failed to load after the move). */
     EXCLUDE_FILE(
       build/cpu.o
       build/video.o
@@ -72,6 +76,9 @@ SECTIONS
       build/input.o
       build/gba_frontend.o
       build/m4a_hle.o
+      build/cheats.o
+      build/gba_idle_loop.o
+      build/bilinear.o
     ) *(.text .text*)
 
     /* cpu.o runs from ITCM outside the sentinel scan — its rodata must
@@ -90,9 +97,13 @@ SECTIONS
     KEEP(*(SORT(.init_array.*)))
     KEEP(*(.init_array*))
     __CORE_INIT_ARRAY_END__ = .;
+
+    /* Align inside this section (not between sections): an empty trailing
+     * .data would otherwise leave a VMA gap that objcopy does not emit,
+     * so pack_core.py's code_size check fails by a few bytes. */
+    . = ALIGN(8);
   } >RAM_EMU
 
-  . = ALIGN(8);
   .data :
   {
     /* Anything not claimed above (normally empty — data is in .core_entry). */
@@ -173,6 +184,13 @@ SECTIONS
     build/input.o (.text .text*)
     build/gba_frontend.o (.text .text*)
     build/m4a_hle.o (.text .text*)
+    build/cheats.o (.text .text*)
+    /* gba_idle_loop_lookup()/gba_exec_cycles_lookup() run once at ROM load
+     * (main_gba.c), not per-frame; their lookup table already lands in
+     * .rodata_gba below via the generic wildcard. */
+    build/gba_idle_loop.o (.text .text*)
+    /* bilinear scale path — only when that display mode is selected. */
+    build/bilinear.o (.text .text*)
   } >GBA_CODE
 
   .rodata_gba :

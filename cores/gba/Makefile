@@ -97,9 +97,27 @@ GBA_WARN_OFF := -Wno-parentheses -Wno-unknown-pragmas -Wno-strict-aliasing -Wno-
 CFLAGS   += $(GBA_WARN_OFF)
 CXXFLAGS += $(GBA_WARN_OFF)
 
-# Hot paths: -O3 like the classic Makefile.common gba_is_hot / gba_is_interp rules.
-$(BUILD_DIR)/gba_memory.o: CFLAGS := $(filter-out -Os,$(CFLAGS)) -O3
-$(BUILD_DIR)/cpu.o: CXXFLAGS := $(filter-out -Os,$(CXXFLAGS)) -O3
+# Optimisation: template default is -Os (size-first, for lightweight cores).
+# Classic integrated GBA used the firmware's global -O2 for every gpSP file,
+# with gba_memory.c/cpu.cc bumped to -O3 (Makefile.common gba_is_hot /
+# gba_is_interp). A blanket OPT=-O2 here overflows RAM_EMU once the ABI
+# bridge (~1.6 KB) is added — and gcc 15.2 (Docker) is larger still.
+# Raise only the per-frame / per-sample paths; leave savestate/cheats/
+# serial/idle_loop/frontend/bridge at -Os (and in .xip_gba where cold).
+GBA_CFLAGS_O2   = $(filter-out -Os,$(CFLAGS)) -O2
+GBA_CFLAGS_O3   = $(filter-out -Os,$(CFLAGS)) -O3
+GBA_CXXFLAGS_O2 = $(filter-out -Os,$(CXXFLAGS)) -O2
+GBA_CXXFLAGS_O3 = $(filter-out -Os,$(CXXFLAGS)) -O3
+
+$(BUILD_DIR)/gba_memory.o:       CFLAGS   := $(GBA_CFLAGS_O3)
+$(BUILD_DIR)/cpu.o:              CXXFLAGS := $(GBA_CXXFLAGS_O3)
+$(BUILD_DIR)/video.o:            CXXFLAGS := $(GBA_CXXFLAGS_O2)
+$(BUILD_DIR)/sound.o:            CFLAGS   := $(GBA_CFLAGS_O2)
+$(BUILD_DIR)/gba_bios_hle.o:     CFLAGS   := $(GBA_CFLAGS_O2)
+$(BUILD_DIR)/m4a_hle.o:          CFLAGS   := $(GBA_CFLAGS_O2)
+$(BUILD_DIR)/m4a_gpsp.o:         CFLAGS   := $(GBA_CFLAGS_O2)
+# main_gba / audio_filter / bilinear / main / savestate stay at -Os so
+# savestate.o can live in RAM_EMU (classic layout) under gcc 15.2's budget.
 
 PACKED_BIN := ../gba.bin
 XIP_BIN    := ../gba.xip
