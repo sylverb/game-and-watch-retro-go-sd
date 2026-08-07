@@ -1608,6 +1608,13 @@ cores_pkmini:
 $(CORES_DIR)/pkmini.bin: cores_pkmini | create_sd_folders
 	@cp cores/pkmini.bin $@
 
+.PHONY: cores_tama
+cores_tama:
+	$(V)$(MAKE) -C cores/tama
+
+$(CORES_DIR)/tama.bin: cores_tama | create_sd_folders
+	@cp cores/tama.bin $@
+
 # | $(BUILD_DIR): order-only so parallel (-j) mkdir side-effects cannot
 # create build/ before the $(BUILD_DIR) rule's own recipe (see historical
 # note about MAPPERS_BUILD_DIR under build/).
@@ -1695,6 +1702,7 @@ $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(CORES_DIR)/amstrad.bin \
                      $(CORES_DIR)/a7800.bin \
                      $(CORES_DIR)/pkmini.bin \
+                     $(CORES_DIR)/tama.bin \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
                      | create_sd_folders prepare_msx_bios_files
@@ -1787,6 +1795,7 @@ flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin cr
 		-- sdpush --file $(CORES_DIR)/amstrad.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/a7800.bin --dest-path "/cores/" \
 		-- sdpush --file $(CORES_DIR)/pkmini.bin --dest-path "/cores/" \
+		-- sdpush --file $(CORES_DIR)/tama.bin --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2258,6 +2267,7 @@ clean:
 	$(V)$(MAKE) -C cores/amstrad clean
 	$(V)$(MAKE) -C cores/a7800 clean
 	$(V)$(MAKE) -C cores/pkmini clean
+	$(V)$(MAKE) -C cores/tama clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

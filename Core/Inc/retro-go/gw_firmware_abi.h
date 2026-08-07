@@ -484,6 +484,13 @@ typedef struct {
     unsigned int (*lz4_uncompress)(const void *src, void *dst);
     unsigned int (*lz4_get_file_size)(const void *src);
 
+    /* ================================================================
+     * v2 append: Tamagotchi P1 (tamalib) — frame-pacing reset after
+     * save-state catch-up fast-forward (static frame_integrator lives
+     * in firmware common.c).
+     * ================================================================ */
+    void     (*common_emu_frame_loop_reset)(void);
+
 } gw_firmware_abi_t;
 
 /* The firmware publishes this instance at GW_FIRMWARE_ABI_ADDRESS via the

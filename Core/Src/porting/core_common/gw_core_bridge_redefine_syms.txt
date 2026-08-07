@@ -101,6 +101,12 @@ itc_init core_itc_init
 ram_malloc core_ram_malloc
 ram_get_free_size core_ram_get_free_size
 dtcm_malloc core_dtcm_malloc
+# --- G&W hardware: RTC ---
+GW_GetCurrentHour core_GW_GetCurrentHour
+GW_GetCurrentMinute core_GW_GetCurrentMinute
+GW_GetCurrentSecond core_GW_GetCurrentSecond
+GW_GetCurrentMillis core_GW_GetCurrentMillis
+GW_GetCurrentSubSeconds core_GW_GetCurrentSubSeconds
 # --- G&W hardware: watchdog + HAL ---
 wdog_refresh core_wdog_refresh
 HAL_Delay core_HAL_Delay
@@ -203,3 +209,5 @@ lzma_inflate core_lzma_inflate
 lz4_uncompress core_lz4_uncompress
 lz4_get_file_size core_lz4_get_file_size
 odroid_system_switch_app core_odroid_system_switch_app
+# --- Tamagotchi P1 ---
+common_emu_frame_loop_reset core_common_emu_frame_loop_reset

@@ -471,6 +471,29 @@ size_t core_ram_get_free_size(void) { return gw_firmware_abi()->ram_get_free_siz
 void  *core_dtcm_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_DTCM, 1, size); }
 
 /* ====================================================================
+ * G&W hardware: RTC (fields on ABI since v1; trampolines added for
+ * Tamagotchi). Millis/SubSeconds composed from gettimeofday — firmware
+ * _gettimeofday is itself backed by GW_GetCurrentMillis().
+ * ==================================================================== */
+uint8_t core_GW_GetCurrentHour(void) { return gw_firmware_abi()->GW_GetCurrentHour(); }
+uint8_t core_GW_GetCurrentMinute(void) { return gw_firmware_abi()->GW_GetCurrentMinute(); }
+uint8_t core_GW_GetCurrentSecond(void) { return gw_firmware_abi()->GW_GetCurrentSecond(); }
+uint64_t core_GW_GetCurrentMillis(void)
+{
+    struct timeval tv;
+    if (gw_firmware_abi()->gettimeofday(&tv, NULL) != 0)
+        return 0;
+    return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)tv.tv_usec / 1000ULL;
+}
+uint8_t core_GW_GetCurrentSubSeconds(void)
+{
+    struct timeval tv;
+    if (gw_firmware_abi()->gettimeofday(&tv, NULL) != 0)
+        return 0;
+    return (uint8_t)((tv.tv_usec * 256L) / 1000000L);
+}
+
+/* ====================================================================
  * G&W hardware: watchdog + HAL
  * ==================================================================== */
 void     core_wdog_refresh(void) { gw_firmware_abi()->wdog_refresh(); }
@@ -845,6 +868,11 @@ void core_exit(int status)
     (void)status;
     gw_firmware_abi()->odroid_system_switch_app(0);
     while (1) {} /* noreturn */
+}
+
+void core_common_emu_frame_loop_reset(void)
+{
+    gw_firmware_abi()->common_emu_frame_loop_reset();
 }
 
 /* ====================================================================

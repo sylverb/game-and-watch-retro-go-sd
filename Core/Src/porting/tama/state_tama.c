@@ -1,10 +1,12 @@
-#include <main.h>
-#include <porting.h>
+#include <stdio.h>
 #include <string.h>
 
+#include "crc32.h"
 #include "rg_rtc.h"
 #include "state_tama.h"
 #include "tamalib.h"
+
+#include "gw_core_bridge.h"
 
 #define STATE_VERSION 1
 

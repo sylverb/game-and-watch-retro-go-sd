@@ -361,4 +361,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .lzma_inflate                = lzma_inflate,
     .lz4_uncompress              = lz4_uncompress,
     .lz4_get_file_size           = lz4_get_file_size,
+
+    /* v2 append: Tamagotchi P1 */
+    .common_emu_frame_loop_reset = common_emu_frame_loop_reset,
 };
