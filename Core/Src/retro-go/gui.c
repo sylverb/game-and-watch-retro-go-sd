@@ -477,7 +477,10 @@ void gui_draw_header(tab_t *tab)
     if (tab->header_idx != RG_LOGO_EMPTY)
         odroid_overlay_draw_logo(8, ODROID_SCREEN_HEIGHT - IMAGE_BANNER_HEIGHT - 15 + 7, tab->header_idx, curr_colors->sel_c);
 
-    if (tab->logo_idx) {
+    /* Same != RG_LOGO_EMPTY rule as header_idx: pad logos from dynamic cores
+     * are negative indices (RG_LOGO_DYNAMIC_BASE - n). A truthy check works
+     * for those, but RG_LOGO_EMPTY is -1 and would also look "set". */
+    if (tab->logo_idx != RG_LOGO_EMPTY) {
         retro_logo_image *img_logo = rg_get_logo(tab->logo_idx);
         if (img_logo) {
             int h = img_logo->height;

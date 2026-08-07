@@ -21,9 +21,13 @@ static retro_logo_image** logo_image_cache;
  * (see gnw_core_meta.h). Indices handed out here are negative and start
  * well below RG_LOGO_EMPTY(-1) so they can never collide with a
  * compile-time RG_LOGO_* enum value, yet still round-trip cleanly through
- * add_emulator()'s uint16_t/tab_t's int16_t logo_idx/header_idx fields. */
+ * add_emulator()'s uint16_t/tab_t's int16_t logo_idx/header_idx fields.
+ *
+ * Two slots per launcher tab (pad + header). MAX_EMULATORS is 22 and
+ * multi-system cores (sms×4, pce×2, tgb×2, …) push past 32 — bump so the
+ * last cores scanned from /cores/*.bin still get their navbar/banner art. */
 #define RG_LOGO_DYNAMIC_BASE (-1000)
-#define RG_LOGO_DYNAMIC_MAX  32
+#define RG_LOGO_DYNAMIC_MAX  64
 static const retro_logo_image *dynamic_logos[RG_LOGO_DYNAMIC_MAX];
 static int dynamic_logo_count = 0;
 
@@ -37,8 +41,12 @@ void rg_reset_logo_buffers() {
 }
 
 int16_t rg_register_dynamic_logo(const retro_logo_image *img) {
-    if (!img || dynamic_logo_count >= RG_LOGO_DYNAMIC_MAX)
+    if (!img)
         return RG_LOGO_EMPTY;
+    if (dynamic_logo_count >= RG_LOGO_DYNAMIC_MAX) {
+        printf("rg_logos: dynamic logo registry full (%d)\n", RG_LOGO_DYNAMIC_MAX);
+        return RG_LOGO_EMPTY;
+    }
     dynamic_logos[dynamic_logo_count] = img;
     return (int16_t)(RG_LOGO_DYNAMIC_BASE - dynamic_logo_count++);
 }
