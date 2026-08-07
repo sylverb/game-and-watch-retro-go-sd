@@ -466,9 +466,14 @@ void app_main_gw(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     softkey_alarm_pressed = 0;
     softkey_duration = 0;
 
-    /*** Configure the emulated system */
-    gw_system_config();
-    printf("G&W configured\n");
+    /*** Configure the emulated system (sets device_run/start/reset/blit).
+     * Ignoring a false return leaves those function pointers NULL and the
+     * first gw_system_run() hardfaults with PC=0 (Thumb LR in gw_system_run). */
+    if (!gw_system_config()) {
+        printf("G&W: unsupported CPU '%s'\n", gw_head.cpu_name);
+        odroid_system_switch_app(0);
+    }
+    printf("G&W configured (cpu=%s)\n", gw_head.cpu_name);
 
     /*** Start and Reset the emulated system */
     gw_system_start();
@@ -591,7 +596,6 @@ void app_main_gw(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
         {
             gw_sound_submit();
         }
-
         /* get how many cycles have been spent to process everything */
         end_cycles = common_emu_get_dwt_cycles();
 
