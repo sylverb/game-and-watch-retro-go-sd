@@ -9,7 +9,7 @@ typedef struct
     const char *s_LangName;  //used for English name
     // Shared labels still used by firmware-resident overlays
     // (zelda3/smw Reset; classic nofrendo Palette/Default). Per-core option
-    // strings for standalone cores live in Core/Src/porting/*/*_i18n.c.
+    // strings for standalone cores live in Core/Src/porting/<sys>/<sys>_i18n.c.
     const char *s_Reset;
     const char *s_Palette;
     const char *s_Default;
@@ -149,6 +149,11 @@ typedef struct
 
     // Launcher favorites tab (appended for SD .bin index compatibility)
     const char *s_favorite;
+
+    // Pause menu → Info dialog (appended for SD .bin index compatibility)
+    const char *s_Info;
+    const char *s_Name;
+    const char *s_Version;
 
     const int (*fmt_Title_Date_Format)(char *outstr, const char *datefmt, uint16_t day, uint16_t month, const char *weekday, uint16_t hour, uint16_t minutes, uint16_t seconds);
     // const char *fmt_Title_Date_Format(outstr,datefmt,day,month,weekday,hour,minutes,seconds) sprintf(outstr,datefmt,day,month,weekday,hour,minutes,seconds)

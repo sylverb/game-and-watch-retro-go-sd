@@ -185,6 +185,9 @@ const lang_t lang_ja_jp LANG_DATA = {
     .s_Time_Format = "%02d:%02d:%02d",
 
     .s_favorite = "お気に入り",
+    .s_Info = "情報",
+    .s_Name = "名前",
+    .s_Version = "バージョン",
     .fmt_Title_Date_Format = ja_jp_fmt_Title_Date_Format,
     .fmtDate = ja_jp_fmt_Date,
     .fmtTime = ja_jp_fmt_Time,

@@ -1673,15 +1673,31 @@ $(FONTS_DIR)/unicode_%.bin: $(UNICODE_FONT_SOURCE) tools/gen_unicode_bin.py | cr
 
 # Per-language translation blob: rg_i18n_xx_xx.c (+ en_us fallback +
 # struct layout from rg_i18n_lang.h) → sd_content/lang/xx_xx.bin
+# Field order must match the firmware's compile-time lang_t, so pass the
+# same CHEAT_CODES / INTFLASH_BANK the C build uses (see gen_i18n_bin.py).
+#
+# The defines stamp lives under $(BUILD_DIR) and depends on it via
+# order-only — never `mkdir -p $(BUILD_DIR)` from $(shell ...), or Make
+# treats build/ as already up to date and skips creating build/core/
+# (breaks -fstack-usage *.su writes). See create_sd_folders comment.
+I18N_BIN_DEFINES_FILE := $(BUILD_DIR)/.i18n_bin_defines
+$(I18N_BIN_DEFINES_FILE): FORCE | $(BUILD_DIR)
+	@printf 'CHEAT_CODES=$(CHEAT_CODES)\nINTFLASH_BANK=$(INTFLASH_BANK)\n' > $@.tmp
+	@cmp -s $@ $@.tmp 2>/dev/null || mv $@.tmp $@
+	@rm -f $@.tmp
+
 $(LANG_DIR)/%.bin: Core/Src/retro-go/i18n/rg_i18n_%.c \
                    Core/Src/retro-go/i18n/rg_i18n_en_us.c \
                    Core/Inc/retro-go/rg_i18n_lang.h \
-                   tools/gen_i18n_bin.py | create_sd_folders
-	@echo "Generating $@"
+                   tools/gen_i18n_bin.py \
+                   $(I18N_BIN_DEFINES_FILE) | create_sd_folders
+	@echo "Generating $@ (CHEAT_CODES=$(CHEAT_CODES) INTFLASH_BANK=$(INTFLASH_BANK))"
 	@$(PYTHON3) tools/gen_i18n_bin.py \
 		--header Core/Inc/retro-go/rg_i18n_lang.h \
 		--en-us Core/Src/retro-go/i18n/rg_i18n_en_us.c \
 		--lang Core/Src/retro-go/i18n/rg_i18n_$*.c \
+		--define CHEAT_CODES=$(CHEAT_CODES) \
+		--define INTFLASH_BANK=$(INTFLASH_BANK) \
 		--output $@
 
 SD_CONTENT_STAMP := $(BUILD_DIR)/.sd_content.stamp

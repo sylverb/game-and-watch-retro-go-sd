@@ -28,7 +28,12 @@ Usage:
   gen_i18n_bin.py --header  Core/Inc/retro-go/rg_i18n_lang.h \\
                   --en-us   Core/Src/retro-go/i18n/rg_i18n_en_us.c \\
                   --lang    Core/Src/retro-go/i18n/rg_i18n_de_de.c \\
+                  --define  CHEAT_CODES=1 --define INTFLASH_BANK=2 \\
                   --output  sd_content/lang/de_de.bin
+
+`--define` must match the firmware build flags: `#if CHEAT_CODES` /
+`#if INTFLASH_BANK` in lang_t change the field count/order, and a
+mismatched .bin shifts every translated string (e.g. French UI labels).
 """
 
 import argparse
@@ -54,6 +59,26 @@ INIT_FIELD_RE = re.compile(
 BLOCK_COMMENT_RE = re.compile(r'/\*.*?\*/', re.DOTALL)
 
 
+def _strip_line_comments(text: str) -> str:
+    """Remove `// ...` line comments. Done BEFORE block-comment stripping so
+    a path glob like `porting/*/*_i18n.c` inside a // comment cannot open a
+    bogus /* ... */ span that swallows following field declarations."""
+    out = []
+    for line in text.splitlines(keepends=True):
+        # Keep // inside strings out of scope — lang_t headers don't put
+        # URLs in string literals on field lines.
+        if '//' in line:
+            # Preserve the newline.
+            nl = '\n' if line.endswith('\n') else ''
+            code = line[:-1] if nl else line
+            # Truncate at first // not inside a block we're about to strip.
+            code = code.split('//', 1)[0].rstrip()
+            out.append(code + nl)
+        else:
+            out.append(line)
+    return ''.join(out)
+
+
 def _strip_block_comments(text: str) -> str:
     """Remove `/* ... */` blocks but preserve line numbering so any later
     error message still points at the right source line. Each comment is
@@ -64,17 +89,63 @@ def _strip_block_comments(text: str) -> str:
     return BLOCK_COMMENT_RE.sub(repl, text)
 
 
-def parse_header_field_order(path: Path) -> list[str]:
+def _strip_c_comments(text: str) -> str:
+    return _strip_block_comments(_strip_line_comments(text))
+
+
+def parse_defines(define_args: list[str]) -> dict[str, int]:
+    """Parse repeated --define NAME=VALUE into {NAME: int}."""
+    out: dict[str, int] = {}
+    for item in define_args:
+        if '=' not in item:
+            raise SystemExit(f'--define expects NAME=VALUE, got {item!r}')
+        name, val = item.split('=', 1)
+        name = name.strip()
+        try:
+            out[name] = int(val.strip(), 0)
+        except ValueError:
+            raise SystemExit(f'--define {name}={val!r}: value must be an integer')
+    return out
+
+
+def _eval_if_condition(cond: str, defines: dict[str, int]) -> bool:
+    """Evaluate a simple `#if` condition used in rg_i18n_lang.h.
+
+    Supports: `NAME == N`, `NAME != N`, `!defined (NAME)`, `defined (NAME)`.
+    Unknown identifiers default to 0 (same as an undefined C macro in `#if`).
+    """
+    cond = cond.strip()
+    m = re.fullmatch(r'!defined\s*\(\s*(\w+)\s*\)', cond)
+    if m:
+        return m.group(1) not in defines
+    m = re.fullmatch(r'defined\s*\(\s*(\w+)\s*\)', cond)
+    if m:
+        return m.group(1) in defines
+    m = re.fullmatch(r'(\w+)\s*==\s*(\d+)', cond)
+    if m:
+        return defines.get(m.group(1), 0) == int(m.group(2))
+    m = re.fullmatch(r'(\w+)\s*!=\s*(\d+)', cond)
+    if m:
+        return defines.get(m.group(1), 0) != int(m.group(2))
+    raise SystemExit(f'unsupported #if condition in header: {cond!r}')
+
+
+def parse_header_field_order(path: Path, defines=None) -> list:
     """Return the ordered list of `s_XXX` field names declared in lang_t.
 
-    We include every field unconditionally (the `#if CHEAT_CODES == 1`
-    block matters at C compile time but the .bin layout is fixed by
-    the build, which always sets CHEAT_CODES=1 in this project).
+    `#if` / `#endif` inside the struct are evaluated with `defines` so the
+    .bin layout matches the firmware's compile-time lang_t (CHEAT_CODES,
+    INTFLASH_BANK). Without matching defines the loader assigns strings
+    to the wrong fields — a classic "every French label is shifted" bug.
     """
+    if defines is None:
+        defines = {}
     fields = []
     seen = set()
     in_struct = False
-    text = _strip_block_comments(path.read_text(encoding='utf-8'))
+    # Stack of active skip flags: True means this #if region is excluded.
+    skip_stack: list[bool] = []
+    text = _strip_c_comments(path.read_text(encoding='utf-8'))
     for line in text.splitlines():
         stripped = line.strip()
         if not in_struct:
@@ -83,13 +154,26 @@ def parse_header_field_order(path: Path) -> list[str]:
             continue
         if stripped.startswith('}'):
             break
+        if stripped.startswith('#if'):
+            cond = stripped[3:].strip()
+            # Nested: if parent already skipped, keep skipping.
+            parent_skip = skip_stack[-1] if skip_stack else False
+            skip_stack.append(parent_skip or not _eval_if_condition(cond, defines))
+            continue
+        if stripped.startswith('#endif'):
+            if skip_stack:
+                skip_stack.pop()
+            continue
+        if stripped.startswith('#'):
+            # #else / #elif not used in this header today — refuse rather
+            # than silently mis-parse.
+            raise SystemExit(f'unsupported preprocessor directive in {path}: {stripped}')
+        if skip_stack and skip_stack[-1]:
+            continue
         m = HEADER_FIELD_RE.match(line)
         if m:
             name = m.group(1)
             if name in seen:
-                # Defensive: same field declared twice would corrupt the
-                # ordering — refuse to proceed rather than silently emit
-                # a .bin whose layout disagrees with the C struct.
                 raise SystemExit(f'duplicate field s_{name} in {path}')
             seen.add(name)
             fields.append(name)
@@ -160,7 +244,7 @@ def decode_c_string(raw: str) -> str:
 def parse_lang_strings(path: Path) -> dict[str, str]:
     """Return {field_name: decoded_python_string} for the .c file."""
     result = {}
-    text = _strip_block_comments(path.read_text(encoding='utf-8'))
+    text = _strip_c_comments(path.read_text(encoding='utf-8'))
     for line in text.splitlines():
         m = INIT_FIELD_RE.match(line)
         if not m:
@@ -246,9 +330,16 @@ def main() -> int:
                    help='path to rg_i18n_xx_xx.c (language to bundle)')
     p.add_argument('--output', required=True, type=Path,
                    help='output .bin path')
+    p.add_argument('--define', action='append', default=[], metavar='NAME=VALUE',
+                   help='preprocessor define for evaluating #if in the header '
+                        '(repeatable). Pass the same CHEAT_CODES / INTFLASH_BANK '
+                        'as the firmware build so .bin field order matches lang_t.')
     args = p.parse_args()
 
-    field_order = parse_header_field_order(args.header)
+    defines = parse_defines(args.define)
+    # Match the header's `#if !defined(CHEAT_CODES) #define CHEAT_CODES 0`.
+    defines.setdefault('CHEAT_CODES', 0)
+    field_order = parse_header_field_order(args.header, defines)
     en_us = parse_lang_strings(args.en_us)
     lang = parse_lang_strings(args.lang) if args.lang != args.en_us else en_us
     blob = build_blob(field_order, lang, en_us)
@@ -258,8 +349,11 @@ def main() -> int:
 
     # Emit start + result as ONE write so concurrent `make -jN` invocations
     # don't interleave each other's lines.
+    define_note = ' '.join(f'{k}={v}' for k, v in sorted(defines.items())
+                           if k in ('CHEAT_CODES', 'INTFLASH_BANK'))
     sys.stderr.write(
-        f'gen_i18n_bin: {args.lang.name} -> {args.output}\n'
+        f'gen_i18n_bin: {args.lang.name} -> {args.output}'
+        f'{(" (" + define_note + ")") if define_note else ""}\n'
         f'  {build_blob.last_stats}\n')
     return 0
 

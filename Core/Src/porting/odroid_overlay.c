@@ -1637,7 +1637,7 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     index++;
     if (show_core_info) {
         choices[index].id = 70;
-        choices[index].label = "Info";
+        choices[index].label = curr_lang->s_Info;
         choices[index].value = "";
         choices[index].enabled = 1;
         choices[index].update_cb = NULL;
@@ -1689,7 +1689,7 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     choices[index++] = (odroid_dialog_choice_t){30, curr_lang->s_Reload, "", 1, NULL};
     choices[index++] = (odroid_dialog_choice_t){40, curr_lang->s_Options, "", 1, NULL};
     if (show_core_info)
-        choices[index++] = (odroid_dialog_choice_t){70, "Info", "", 1, NULL};
+        choices[index++] = (odroid_dialog_choice_t){70, curr_lang->s_Info, "", 1, NULL};
     choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
     choices[index++] = (odroid_dialog_choice_t){90, curr_lang->s_Power_off, "", 1, NULL};
     choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
@@ -1746,15 +1746,15 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
                 core_path_value, sizeof(core_path_value),
                 core_date_value, sizeof(core_date_value));
             odroid_dialog_choice_t info_choices[] = {
-                {-1, "Name", core_name_value, 0, NULL},
-                {-1, "Version", core_version_value, 0, NULL},
+                {-1, curr_lang->s_Name, core_name_value, 0, NULL},
+                {-1, curr_lang->s_Version, core_version_value, 0, NULL},
                 {-1, curr_lang->s_File, core_path_value, 0, NULL},
                 {-1, curr_lang->s_Date, core_date_value, 0, NULL},
                 ODROID_DIALOG_CHOICE_SEPARATOR,
                 {1, curr_lang->s_Close, "", 1, NULL},
                 ODROID_DIALOG_CHOICE_LAST
             };
-            odroid_overlay_dialog("Info", info_choices, -1, &_repaint, flags | ODROID_MENU_FLAG_NO_BG_DARKEN);
+            odroid_overlay_dialog(curr_lang->s_Info, info_choices, -1, &_repaint, flags | ODROID_MENU_FLAG_NO_BG_DARKEN);
         }
         break;
     case 90:
