@@ -93,6 +93,11 @@ void *ahb_calloc(size_t count,size_t size) {
 
 void itc_init() {
   current_itc_pointer = (uint32_t)(&__itcram_end__);
+  /* Cores that park .text in ITCM (MSX) redirect former itc_malloc traffic
+   * to the DTCM arena — reset that bump here too so board rebuilds inside
+   * a running core (e.g. MSX machine switch) reclaim the arena. Harmless
+   * for cores that never touch GW_MEM_DTCM_ARENA. */
+  dtcm_arena_init();
 }
 
 void *itc_malloc(size_t size) {
@@ -135,4 +140,45 @@ dtcm_free(void *ptr)
 {
   printf("dtcm_free %p\n", ptr);
 	free(ptr);
+}
+
+/* ---- DTCM bump arena (for cores that need ITCM for code) ----------------
+ * blueMSX historically parked mapper/VDP/audio structs in ITCM via
+ * itc_malloc. When those cores move hot .text into ITCM, that heap must
+ * live elsewhere. A 64KB bump arena carved once from the DTCM newlib heap
+ * gives the same "reset every launch" semantics as itc_init without
+ * fighting the ITCM code segment. */
+
+#define DTCM_ARENA_SIZE (64u * 1024u)
+
+static uint8_t *dtcm_arena_base;
+static uint32_t dtcm_arena_used;
+
+void dtcm_arena_init(void)
+{
+  if (dtcm_arena_base == NULL)
+    dtcm_arena_base = (uint8_t *)malloc(DTCM_ARENA_SIZE);
+  dtcm_arena_used = 0;
+}
+
+void *dtcm_arena_malloc(size_t size)
+{
+  void *pointer = (void *)0xffffffff;
+  size_t aligned = (size + 3u) & ~3u;
+
+  if (dtcm_arena_base != NULL &&
+      dtcm_arena_used + aligned <= DTCM_ARENA_SIZE) {
+    pointer = dtcm_arena_base + dtcm_arena_used;
+    dtcm_arena_used += (uint32_t)aligned;
+  }
+  return pointer;
+}
+
+void *dtcm_arena_calloc(size_t count, size_t size)
+{
+  size_t bytes = count * size;
+  void *pointer = dtcm_arena_malloc(bytes);
+  if (pointer != (void *)0xffffffff)
+    memset(pointer, 0, bytes);
+  return pointer;
 }

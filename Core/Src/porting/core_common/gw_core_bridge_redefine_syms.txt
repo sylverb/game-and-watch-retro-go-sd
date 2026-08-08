@@ -98,6 +98,8 @@ audio_get_buffer_length core_audio_get_buffer_length
 # --- G&W hardware: allocators ---
 itc_malloc core_itc_malloc
 itc_calloc core_itc_calloc
+dtcm_arena_malloc core_dtcm_arena_malloc
+dtcm_arena_calloc core_dtcm_arena_calloc
 itc_init core_itc_init
 ram_malloc core_ram_malloc
 ram_get_free_size core_ram_get_free_size

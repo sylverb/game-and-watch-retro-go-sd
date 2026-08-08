@@ -295,6 +295,14 @@ void videoUpdateAll(Video* video, Properties* properties){}
 
 /* framebuffer */
 
+/* Skip-frame render skip (same idea as PCE s_skip_render): when the pacer
+ * decides this frame won't be shown, frameBufferGetDrawFrame() returns NULL
+ * so VDP_MSX early-outs before RefreshLine. That drops palette + YJK/RGB
+ * pixel work and — critically — stops modes 10/11/12 writing into the LCD
+ * back buffer. Combined with skipping lcd_swap() on undrawn frames, this
+ * prevents the double-buffer flicker of flipping to a stale/partial buffer. */
+static bool s_skip_render;
+
 static void update_fb_info() {
     width  = use_overscan ? 272 : (272 - 16);
     height = use_overscan ? 240 : (240 - 48 + (msx2_dif * 2));
@@ -312,12 +320,12 @@ Pixel16* frameBufferGetLine16(FrameBuffer* frameBuffer, int y)
 
 FrameBuffer* frameBufferGetDrawFrame(void)
 {
-   return (void*)msx_framebuffer;
+   return s_skip_render ? NULL : (void*)msx_framebuffer;
 }
 
 FrameBuffer* frameBufferFlipDrawFrame(void)
 {
-   return (void*)msx_framebuffer;
+   return s_skip_render ? NULL : (void*)msx_framebuffer;
 }
 
 static int fbScanLine = 0;
@@ -1902,12 +1910,16 @@ static void createProperties() {
 static void setupEmulatorRessources(int msxType)
 {
     int i;
+    wdog_refresh();
     msxYjkColorInit();
+    wdog_refresh();
     mixer = mixerCreate();
     createProperties();
     createMsxMachine(msxType);
+    wdog_refresh();
     emulatorInit(properties, mixer);
     insertGame();
+    wdog_refresh();
     emulatorRestartSound();
 
     for (i = 0; i < MIXER_CHANNEL_TYPE_COUNT; i++)
@@ -1927,6 +1939,7 @@ static void setupEmulatorRessources(int msxType)
     boardSetVideoAutodetect(1/*properties->video.detectActiveMonitor*/);
 
     emulatorStartMachine(NULL, msxMachine);
+    wdog_refresh();
     // Enable SCC and disable MSX-MUSIC as G&W is not powerfull enough to handle both at same time
     // If a game wants to play MSX-MUSIC sound, the mapper will detect it and it will disable SCC
     // and enable MSX-MUSIC
@@ -2177,22 +2190,21 @@ void app_main_msx(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 
         msxInputUpdate(&joystick);
 
-        // Render 1 frame
+        // Render 1 frame (VDP RefreshLine skipped when s_skip_render)
+        s_skip_render = !drawFrame;
         ((R800*)boardInfo.cpuRef)->terminate = 0;
         boardInfo.run(boardInfo.cpuRef);
+        s_skip_render = false;
 
-        /* Modes 10/11/12 render RGB565 straight into the LCD back buffer
-         * (frameBufferGetLine16). Gwenesis always lcd_swap() even when skipping
-         * line render; MSX must do the same or the panel stays on a stale front
-         * buffer while emulation keeps updating the back buffer. */
-        if (drawFrame)
+        /* Only present a fully rendered frame. Swapping on a skip left the
+         * other LCD buffer on screen (stale / partial modes 10–12) → flicker. */
+        if (drawFrame) {
             _blit_frame();
-        /* Overlay after emulation: run() overwrites any HUD drawn in input_loop,
-         * and _blit_frame() is skipped on frameskip — still show volume/brightness. */
-        if (common_emu_state.overlay != INGAME_OVERLAY_NONE)
-            common_ingame_overlay();
-        draw_disk_icon();
-        lcd_swap();
+            if (common_emu_state.overlay != INGAME_OVERLAY_NONE)
+                common_ingame_overlay();
+            draw_disk_icon();
+            lcd_swap();
+        }
 
         // Render audio
         mixerSyncGNW(mixer,(AUDIO_MSX_SAMPLE_RATE/msx_fps));

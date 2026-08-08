@@ -77,6 +77,11 @@ typedef enum {
     GW_MEM_RAM  = 1,  /* RAM_EMU bump pool (this core's ram_start budget) */
     GW_MEM_AHB  = 2,  /* AHB SRAM pool, reset by the firmware's ahb_init() */
     GW_MEM_DTCM = 3,  /* DTCM newlib heap (free()-able) */
+    /* 64KB bump arena in DTCM (malloc'd once from the newlib heap, bump
+     * reset by dtcm_arena_init() each emulator_start). Lets a core park
+     * hot code in ITCM while keeping its former itc_malloc traffic in
+     * DTCM — see cores/msx. Append-only: old cores never pass this id. */
+    GW_MEM_DTCM_ARENA = 4,
 } gw_mem_pool_t;
 
 typedef struct {

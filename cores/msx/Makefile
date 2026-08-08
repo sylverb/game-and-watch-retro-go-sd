@@ -131,15 +131,47 @@ CORE_C_DEFS := \
 # emu2413 rate converter builds a sinc table with sin/cos at init.
 CORE_LDLIBS := -lm
 
+# ITCM for R800 + SlotManager; former itc_malloc heap → DTCM arena. blueMSX
+# calls dtcm_arena_malloc()/dtcm_arena_calloc() by name for that traffic
+# (see external/blueMSX-go), no core_itc_* override needed.
+CORE_LDSCRIPT := msx_core.ld
+CORE_EXTRA_SEGMENTS := itcm:core_itcm
+
+MSX_CFLAGS_O2 = $(filter-out -Os,$(CFLAGS)) -O2
+
 include ../_template/Makefile
+
+$(BUILD_DIR)/R800.o:              CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/SlotManager.o:       CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/IoPort.o:            CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/DeviceManager.o:     CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/ramNormal.o:         CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/ramMapper.o:         CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/romMapperNormal.o:   CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/romMapperASCII8.o:   CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/romMapperASCII16.o:  CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/romMapperKonami4.o:  CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/romMapperKonami5.o:  CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/romMapperSCCplus.o:  CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/VDP_MSX.o:           CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/V9938.o:             CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/VDP_YJK_gnw.o:       CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/AudioMixer.o:        CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/AY8910.o:            CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/SCC.o:               CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/MsxPsg.o:            CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/YM2413_msx.o:        CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/emu2413_msx.o:       CFLAGS := $(MSX_CFLAGS_O2)
+$(BUILD_DIR)/main_msx.o:          CFLAGS := $(MSX_CFLAGS_O2)
 
 PACKED_BIN := ../msx.bin
 
 .PHONY: pack
-pack: $(TARGET_BIN)
+pack: $(TARGET_BIN) $(BUILD_DIR)/msx_core_itcm.bin
 	python3 ../../tools/pack_core.py \
 		--elf $(TARGET_ELF) --bin $(TARGET_BIN) \
 		--system name="MSX",dirname=msx,ext="dsk rom mx1 mx2 cdk lzma",parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_msx,header_logo=../../Core/Src/retro-go/rg_logos.c:header_msx \
+		--segment itcm:__ITCM_CORE_START__:__CORE_ITCM_CODE_END__:__CORE_ITCM_BSS_END__:$(BUILD_DIR)/msx_core_itcm.bin \
 		--core-name "blueMSX" \
 		--out $(PACKED_BIN)
 

@@ -86,11 +86,12 @@ extern int __real_fflush(FILE *stream);
 static void *abi_mem_alloc(gw_mem_pool_t pool, size_t count, size_t size)
 {
     switch (pool) {
-    case GW_MEM_ITC:  return itc_calloc(count, size);
-    case GW_MEM_RAM:  return ram_calloc(count, size);
-    case GW_MEM_AHB:  return ahb_calloc(count, size);
-    case GW_MEM_DTCM: return dtcm_calloc(count, size);
-    default:          return NULL;
+    case GW_MEM_ITC:        return itc_calloc(count, size);
+    case GW_MEM_RAM:        return ram_calloc(count, size);
+    case GW_MEM_AHB:        return ahb_calloc(count, size);
+    case GW_MEM_DTCM:       return dtcm_calloc(count, size);
+    case GW_MEM_DTCM_ARENA: return dtcm_arena_calloc(count, size);
+    default:                return NULL;
     }
 }
 

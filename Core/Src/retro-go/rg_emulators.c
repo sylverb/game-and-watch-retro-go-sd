@@ -1949,6 +1949,7 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     // It will free all ram allocated memory for use by emulators
     ahb_init();
     itc_init();
+    dtcm_arena_init();
     ram_start = 0;
     emulators = NULL;
     systems = NULL;
