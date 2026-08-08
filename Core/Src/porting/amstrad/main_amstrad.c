@@ -17,6 +17,7 @@
 #include "amstrad_loader.h"
 
 #include "gw_core_bridge.h"
+#include "amstrad_i18n.h"
 
 #define AMSTRAD_FPS 50
 #define AMSTRAD_SAMPLE_RATE 22050
@@ -192,10 +193,10 @@ typedef enum
     CAP32_SCREEN,
 } CPC_KEYS;
 
-static char palette_name[7];
+static char palette_name[16];
 static int selected_palette_index = 0;
 
-static char controls_name[10];
+static char controls_name[24];
 static int selected_controls_index = 0;
 
 static char disk_name[128];
@@ -218,12 +219,12 @@ int amstrad_button_time_key = CPC_RETURN;
 int amstrad_button_start_key = CPC_SPACE;
 int amstrad_button_select_key = CPC_RETURN;
 
-static char game_button_name[10];
-static char time_button_name[10];
-static char start_button_name[10];
-static char select_button_name[10];
-static char a_button_name[10];
-static char b_button_name[10];
+static char game_button_name[16];
+static char time_button_name[16];
+static char start_button_name[16];
+static char select_button_name[16];
+static char a_button_name[16];
+static char b_button_name[16];
 
 #define RELEASE_KEY_DELAY 5
 static int selected_key_index = 0;
@@ -625,7 +626,7 @@ static bool update_disk_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t
 static bool update_palette_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     const char *palette_names[] = {
-        "Color", "Green", "Grey"};
+        gw_i18n(amstrad_i18n_palette_color), gw_i18n(amstrad_i18n_palette_green), gw_i18n(amstrad_i18n_palette_grey)};
 
     int max = 2;
 
@@ -644,7 +645,7 @@ static bool update_palette_cb(odroid_dialog_choice_t *option, odroid_dialog_even
 static bool update_controls_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     const char *controls_names[] = {
-        "Joystick", "Keyboard"};
+        gw_i18n(amstrad_i18n_controls_joystick), gw_i18n(amstrad_i18n_controls_keyboard)};
     int max = 1;
 
     if (event == ODROID_DIALOG_PREV) selected_controls_index = selected_controls_index > 0 ? selected_controls_index - 1 : max;
@@ -689,63 +690,63 @@ static void createOptionMenu(odroid_dialog_choice_t *options)
 {
     int index = 0;
     options[index].id = 100;
-    options[index].label = "Palette";
+    options[index].label = gw_i18n(amstrad_i18n_palette);
     options[index].value = palette_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_palette_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "Change Dsk";
+    options[index].label = gw_i18n(amstrad_i18n_change_dsk);
     options[index].value = disk_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_disk_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "Controls";
+    options[index].label = gw_i18n(amstrad_i18n_controls);
     options[index].value = controls_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_controls_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "Game Button";
+    options[index].label = gw_i18n(amstrad_i18n_game_button);
     options[index].value = game_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_game_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "Time Button";
+    options[index].label = gw_i18n(amstrad_i18n_time_button);
     options[index].value = time_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_time_button_cb;
     index++;
     if (!get_ofw_is_mario()) {
         options[index].id = 100;
-        options[index].label = "Start Button";
+        options[index].label = gw_i18n(amstrad_i18n_start_button);
         options[index].value = start_button_name;
         options[index].enabled = 1;
         options[index].update_cb = &update_start_button_cb;
         index++;
         options[index].id = 100;
-        options[index].label = "Select Button";
+        options[index].label = gw_i18n(amstrad_i18n_select_button);
         options[index].value = select_button_name;
         options[index].enabled = 1;
         options[index].update_cb = &update_select_button_cb;
         index++;
     }
     options[index].id = 100;
-    options[index].label = "A Button";
+    options[index].label = gw_i18n(amstrad_i18n_a_button);
     options[index].value = a_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_a_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "B Button";
+    options[index].label = gw_i18n(amstrad_i18n_b_button);
     options[index].value = b_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_b_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "Press Key";
+    options[index].label = gw_i18n(amstrad_i18n_press_key);
     options[index].value = key_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_keyboard_cb;

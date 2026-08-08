@@ -22,7 +22,8 @@ $(CORE_GW)/src/cpus/sm510base.c \
 $(CORE_GW)/src/gw_sys/gw_romloader.c \
 $(CORE_GW)/src/gw_sys/gw_graphic.c \
 $(CORE_GW)/src/gw_sys/gw_system.c \
-$(CORE_PORTING_GW)/main_gw.c
+$(CORE_PORTING_GW)/main_gw.c \
+$(CORE_PORTING_GW)/gw_i18n.c
 
 CORE_C_INCLUDES := \
 -I$(CORE_GW)/src \

@@ -55,6 +55,7 @@ __license__ = "GPLv3"
  * this header turns later *uses* of those identifiers into live
  * ABI-pointer accesses. */
 #include "gw_core_bridge.h"
+#include "md_i18n.h"
 
 /* ROM_DATA/ROM_DATA_LENGTH/ROM_EXT (extern-declared by rom_manager.h,
  * included above) used to be owned by the firmware (rg_emulators.c),
@@ -417,10 +418,6 @@ static bool gwenesis_submenu_setAudioFilter(odroid_dialog_choice_t *option, odro
     gwenesis_lpfilter = gwenesis_lpfilter == 0 ? 1 : 0;
     }
 
-    /* No i18n for this core yet (curr_lang lives in the firmware, not
-     * exposed over the ABI) — "\x05"/"\x06" are the ON/OFF checkbox glyph
-     * codes this custom font uses in place of literal text (see
-     * rg_i18n_en_us.c: s_Option_ON/s_Option_OFF), kept pixel-identical. */
     if (gwenesis_lpfilter == 0) strcpy(option->value, "\x05");
     if (gwenesis_lpfilter == 1) strcpy(option->value, "\x06");
 
@@ -458,19 +455,19 @@ static bool gwenesis_submenu_sync_mode(odroid_dialog_choice_t *option, odroid_di
     gwenesis_vsync_mode = gwenesis_vsync_mode == 0 ? 1 : 0;
   }
 
-    if (gwenesis_vsync_mode == 0) strcpy(option->value, "AUDIO");
-    if (gwenesis_vsync_mode == 1) strcpy(option->value, "VSYNC");
+    if (gwenesis_vsync_mode == 0) strcpy(option->value, gw_i18n(md_i18n_synchro_audio));
+    if (gwenesis_vsync_mode == 1) strcpy(option->value, gw_i18n(md_i18n_synchro_vsync));
 
     return event == ODROID_DIALOG_ENTER;
 }
 
 static char debug_bar_str[2];
 static char VideoUpscaler_str[2];
-static char gwenesis_sync_mode_str[8];
+static char gwenesis_sync_mode_str[16];
 #endif
 
 static char AudioFilter_str[2];
-static char gwenesis_region_str[8];
+static char gwenesis_region_str[16];
 /* Pending region selection in the menu (0=USA, 1=Europe, 2=Japan).
  * Initialised from gwenesis_detected_region at game start. */
 static int gwenesis_pending_region;
@@ -478,9 +475,9 @@ static int gwenesis_pending_region;
 static void gwenesis_region_code_to_str(int code, char *buf)
 {
     switch (code) {
-    case 1:  strcpy(buf, "Europe"); break;
-    case 2:  strcpy(buf, "Japan");  break;
-    default: strcpy(buf, "USA");    break;
+    case 1:  strcpy(buf, gw_i18n(md_i18n_region_europe)); break;
+    case 2:  strcpy(buf, gw_i18n(md_i18n_region_japan));  break;
+    default: strcpy(buf, gw_i18n(md_i18n_region_usa));    break;
     }
 }
 
@@ -781,19 +778,15 @@ int app_main_gwenesis(uint8_t load_state, uint8_t start_paused, int8_t save_slot
         joystick.values[ODROID_INPUT_SELECT] = key_state;
       }
 
-    /* No i18n for this core yet (curr_lang lives in the firmware, not
-     * exposed over the ABI) — labels are hardcoded English, matching the
-     * strings this menu already used (see rg_i18n_en_us.c: s_Reset,
-     * s_md_keydefine and friends). */
     odroid_dialog_choice_t options[] = {
-        {300, "Reset", NULL, 1, &gwenesis_submenu_reset},
-        {301, "keys: A-B-C", ABCkeys_str, 1, &gwenesis_submenu_setABC},
-        {302, "Audio Filter", AudioFilter_str, 1, &gwenesis_submenu_setAudioFilter},
-        {305, "Region", gwenesis_region_str, 1, &gwenesis_submenu_region},
+        {300, gw_i18n(md_i18n_reset), NULL, 1, &gwenesis_submenu_reset},
+        {301, gw_i18n(md_i18n_keydefine), ABCkeys_str, 1, &gwenesis_submenu_setABC},
+        {302, gw_i18n(md_i18n_audio_filter), AudioFilter_str, 1, &gwenesis_submenu_setAudioFilter},
+        {305, gw_i18n(md_i18n_region), gwenesis_region_str, 1, &gwenesis_submenu_region},
 #if ENABLE_DEBUG_OPTIONS != 0
-        {303, "Video Upscaler", VideoUpscaler_str, 1, &gwenesis_submenu_setVideoUpscaler},
-        {304, "Synchro", gwenesis_sync_mode_str, 1, &gwenesis_submenu_sync_mode},
-        {310, "Debug bar", debug_bar_str, 1, &gwenesis_submenu_debug_bar},
+        {303, gw_i18n(md_i18n_video_upscaler), VideoUpscaler_str, 1, &gwenesis_submenu_setVideoUpscaler},
+        {304, gw_i18n(md_i18n_synchro), gwenesis_sync_mode_str, 1, &gwenesis_submenu_sync_mode},
+        {310, gw_i18n(md_i18n_debug_bar), debug_bar_str, 1, &gwenesis_submenu_debug_bar},
 #endif
         //  {320, "+GameGenie", gwenesis_GameGenie_str, 0, &gwenesis_submenu_GameGenie},
         //  {330, "-GameGenie", gwenesis_GameGenie_reverse_str, 0, &gwenesis_submenu_GameGenie_reverse},

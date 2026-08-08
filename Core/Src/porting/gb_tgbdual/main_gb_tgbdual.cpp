@@ -21,6 +21,7 @@ extern "C" {
 #include "odroid_settings.h"
 
 #include "gw_core_bridge.h"
+#include "gb_i18n.h"
 }
 
 static void gb_process_blit();
@@ -663,9 +664,6 @@ static bool sgb_border_update_cb(odroid_dialog_choice_t *option,
         odroid_settings_app_int32_set("SGBBorder", sgb_border_enabled ? 1 : 0);
     }
 
-    /* No i18n for this core yet (curr_lang lives in the firmware, not
-     * exposed over the ABI) — "\x06"/"\x05" are the ON/OFF glyph codes
-     * this menu already used (see rg_i18n_en_us.c: s_Option_ON/OFF). */
     snprintf(option->value, 16, "%s", sgb_border_enabled ? "\x06" : "\x05");
     return event == ODROID_DIALOG_ENTER;
 }
@@ -873,16 +871,12 @@ extern "C" void app_main_gb_tgbdual(uint8_t load_state, uint8_t start_paused, ui
     gb_console_label(gb_console_mode, system_values, sizeof(system_values));
     char sgb_border_values[16] = {0};
     odroid_dialog_choice_t options[] = {
-        /* No i18n for this core yet (curr_lang lives in the firmware, not
-         * exposed over the ABI) — labels are hardcoded English, matching
-         * the strings this menu already used (see rg_i18n_en_us.c:
-         * s_System/s_SGB_Border/s_Palette/s_Reset).
-         * Only cycle when more than one mode is valid (GB↔SGB). GBC is fixed. */
-        {301, "System", system_values, 1, &system_update_cb},
+        /* Only cycle when more than one mode is valid (GB↔SGB). GBC is fixed. */
+        {301, gw_i18n(gb_i18n_system), system_values, 1, &system_update_cb},
         /* enabled updated each frame: custom palettes only in GB (type 1) */
-        {302, "SGB Border", sgb_border_values, -1, &sgb_border_update_cb},
-        {300, "Palette", (char *)palette_values, 1, &palette_update_cb},
-        {300, "Reset", NULL, 1, &reset_cb},
+        {302, gw_i18n(gb_i18n_sgb_border), sgb_border_values, -1, &sgb_border_update_cb},
+        {300, gw_i18n(gb_i18n_palette), (char *)palette_values, 1, &palette_update_cb},
+        {300, gw_i18n(gb_i18n_reset), NULL, 1, &reset_cb},
         ODROID_DIALOG_CHOICE_LAST
     };
 

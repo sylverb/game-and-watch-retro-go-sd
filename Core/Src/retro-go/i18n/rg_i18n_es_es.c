@@ -1,7 +1,6 @@
 //#include "rg_i18n_lang.h"
 //Stand Spanish
 
-
 int es_es_fmt_Title_Date_Format(char *outstr, const char *datefmt, uint16_t day, uint16_t month, const char *weekday, uint16_t hour, uint16_t minutes, uint16_t seconds)
 {
     return sprintf(outstr, datefmt, day, month, weekday, hour, minutes, seconds);
@@ -24,125 +23,10 @@ const lang_t lang_es_es LANG_DATA = {
     .s_LangUI = "Idioma",
     .s_LangName = "Spanish",
 
-    // Core\Src\porting\nes-fceu\main_nes_fceu.c ===========================
-    .s_Crop_Vertical_Overscan = "Cortar sobrebarrido Vertical",
-    .s_Crop_Horizontal_Overscan = "Cortar sobrebarrido Horizontal",
-    .s_Disable_Sprite_Limit = "Desactivar limite sprites",
+    // Shared (firmware overlays); core-specific strings are in *_i18n.c
     .s_Reset = "Reset",
-    .s_NES_CPU_OC = "Overclocking de NES CPU",
-    .s_NES_Eject_Insert_FDS = "Sacar/Insertar Disco",
-    .s_NES_Eject_FDS = "Sacar Disco",
-    .s_NES_Insert_FDS = "Insertar Disco",
-    .s_NES_Swap_Side_FDS = "Cambiar cara Disco",
-    .s_NES_FDS_Side_Format = "Disco %d cara %s",
-    //=====================================================================
-
-    // Core\Src\porting\gb\main_gb.c =======================================
     .s_Palette = "Paleta",
-    .s_System = "Sistema",
-    .s_SGB_Border = "Marco SGB",
-    //=====================================================================
-
-    // Core\Src\porting\nes\main_nes.c =====================================
-    //.s_Palette= "Palette" dul
     .s_Default = "Por defecto",
-    //=====================================================================
-
-    // Core\Src\porting\pkmini\main_pkmini.c ==============================
-    .s_pkmini_LCD_Filter = "Filtro LCD",
-    .s_pkmini_LCD_Mode = "Modo LCD",
-    .s_pkmini_Piezo_Filter = "Filtro Piezo",
-    .s_pkmini_Low_Pass_Filter = "Filtro Paso-Bajo",
-    // PokeMini palette names
-    .s_pkmini_palette_Default = "Predeterminado",
-    .s_pkmini_palette_Old = "Antiguo",
-    .s_pkmini_palette_BlackWhite = "Blanco y Negro",
-    .s_pkmini_palette_Green = "Verde",
-    .s_pkmini_palette_InvertedGreen = "Verde Invertido",
-    .s_pkmini_palette_Red = "Rojo",
-    .s_pkmini_palette_InvertedRed = "Rojo Invertido",
-    .s_pkmini_palette_BlueLCD = "LCD Azul",
-    .s_pkmini_palette_LEDBacklight = "Retroiluminación LED",
-    .s_pkmini_palette_GirlPower = "Girl Power",
-    .s_pkmini_palette_Blue = "Azul",
-    .s_pkmini_palette_InvertedBlue = "Azul Invertido",
-    .s_pkmini_palette_Sepia = "Sepia",
-    .s_pkmini_palette_InvertedBlackWhite = "Blanco y Negro Invertido",
-    // PokeMini LCD filter names
-    .s_pkmini_lcd_filter_None = "Ninguno",
-    .s_pkmini_lcd_filter_DotMatrix = "Matriz de puntos",
-    .s_pkmini_lcd_filter_Scanlines = "Líneas de barrido",
-    // PokeMini LCD mode names
-    .s_pkmini_lcd_mode_Analog = "Analógico",
-    .s_pkmini_lcd_mode_3Shades = "3 Tonos",
-    .s_pkmini_lcd_mode_2Shades = "2 Tonos",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_gwenesis.c ================================
-    .s_md_keydefine = "Teclas: A-B-C",
-    .s_md_Synchro = "Sincronía",
-    .s_md_Synchro_Audio = "AUDIO",
-    .s_md_Synchro_Vsync = "VSYNC",
-    .s_md_Dithering = "Tramado",
-    .s_md_Debug_bar = "Barra depuración",
-    .s_md_AudioFilter = "Filtro de audio",
-    .s_md_VideoUpscaler = "Sobreescalar video",
-    .s_md_Region = "Región",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_wsv.c ================================
-    .s_wsv_palette_Default = "Por defecto",
-    .s_wsv_palette_Amber = "Ambar",
-    .s_wsv_palette_Green = "Verde",
-    .s_wsv_palette_Blue = "Azul",
-    .s_wsv_palette_BGB = "BGB",
-    .s_wsv_palette_Wataroo = "Wataroo",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_msx.c ================================
-    .s_msx_Change_Dsk = "Cambiar disco",
-    .s_msx_Select_MSX = "Seleccionar MSX",
-    .s_msx_MSX1_EUR = "MSX1 (EUR)",
-    .s_msx_MSX2_EUR = "MSX2 (EUR)",
-    .s_msx_MSX2_JP = "MSX2+ (JP)",
-    .s_msx_Frequency = "Frecuencia",
-    .s_msx_Freq_Auto = "Auto",
-    .s_msx_Freq_50 = "50Hz",
-    .s_msx_Freq_60 = "60Hz",
-    .s_msx_A_Button = "Botón A",
-    .s_msx_B_Button = "Botón B",
-    .s_msx_Press_Key = "Pulsar tecla",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_amstrad.c ================================
-    .s_amd_Change_Dsk = "Cambiar disco",
-    .s_amd_Controls = "Controles",
-    .s_amd_Controls_Joystick = "Joystick",
-    .s_amd_Controls_Keyboard = "Teclado",
-    .s_amd_palette_Color = "Color",
-    .s_amd_palette_Green = "Verde",
-    .s_amd_palette_Grey = "Gris",
-    .s_amd_game_Button = "Botón Game",
-    .s_amd_time_Button = "Botón Time",
-    .s_amd_start_Button = "Botón Start",
-    .s_amd_select_Button = "Botón Select",
-    .s_amd_A_Button = "Botón A",
-    .s_amd_B_Button = "Botón B",
-    .s_amd_Press_Key = "Pulsar tecla",
-    //=====================================================================
-
-    // Core\Src\porting\gw\main_gw.c =======================================
-    .s_copy_RTC_to_GW_time = "Copiar RTC a hora G&W",
-    .s_copy_GW_time_to_RTC = "Copiar hora G&W a RTC",
-    .s_LCD_filter = "Filtro LCD",
-    .s_Display_RAM = "Mostrar RAM",
-    .s_Press_ACL = "Pulsar ACL o RESET",
-    .s_Press_TIME = "Pulsar TIME [B+TIME]",
-    .s_Press_ALARM = "Pulsar ALARM [B+GAME]",
-    .s_filter_0_none = "0-Ninguno",
-    .s_filter_1_medium = "1-Medio",
-    .s_filter_2_high = "2-Alto",
-    //=====================================================================
 
     // Core\Src\porting\odroid_overlay.c ===================================
     .s_Option_ON = "\x6",

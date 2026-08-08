@@ -33,7 +33,8 @@ $(CORE_PKMINI)/source/PokeMini.c \
 $(CORE_PKMINI)/source/Video_x3.c \
 $(CORE_PKMINI)/source/Video.c \
 $(CORE_PKMINI)/resource/PokeMini_ColorPal.c \
-$(CORE_PORTING_PKMINI)/main_pkmini.c
+$(CORE_PORTING_PKMINI)/main_pkmini.c \
+$(CORE_PORTING_PKMINI)/pkmini_i18n.c
 
 CORE_C_INCLUDES := \
 -I$(CORE_PKMINI)/source \

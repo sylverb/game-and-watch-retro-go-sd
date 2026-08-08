@@ -27,7 +27,8 @@ $(CORE_GWENESIS)/src/io/gwenesis_io.c \
 $(CORE_GWENESIS)/src/vdp/gwenesis_vdp_mem.c \
 $(CORE_GWENESIS)/src/vdp/gwenesis_vdp_gfx.c \
 $(CORE_GWENESIS)/src/savestate/gwenesis_savestate.c \
-../../Core/Src/porting/gwenesis/main_gwenesis.c
+../../Core/Src/porting/gwenesis/main_gwenesis.c \
+../../Core/Src/porting/gwenesis/md_i18n.c
 
 CORE_C_INCLUDES := \
 -I$(CORE_GWENESIS)/src/cpus/M68K \
@@ -36,7 +37,8 @@ CORE_C_INCLUDES := \
 -I$(CORE_GWENESIS)/src/bus \
 -I$(CORE_GWENESIS)/src/vdp \
 -I$(CORE_GWENESIS)/src/io \
--I$(CORE_GWENESIS)/src/savestate
+-I$(CORE_GWENESIS)/src/savestate \
+-I../../Core/Inc/porting/gwenesis
 
 # LSB_FIRST/TABLES_FULL: mirrors the (disabled) MD_C_DEFS in the root
 # Makefile — required by the M68K core (macros.h/m68kops.h) and Z80.h.

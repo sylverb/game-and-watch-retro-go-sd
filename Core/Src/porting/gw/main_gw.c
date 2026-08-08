@@ -26,6 +26,7 @@
 #include "sm510.h"
 
 #include "gw_core_bridge.h"
+#include "gw_i18n.h"
 
 /* From rg_i18n.h — avoid pulling the full i18n table into the core. */
 #define ODROID_DIALOG_CHOICE_SEPARATOR {0x0F0F0F0E, "-", "-", -1, NULL}
@@ -339,7 +340,7 @@ static bool gw_debug_submenu_press_alarm(odroid_dialog_choice_t *option, odroid_
 }
 
 
-static char LCD_deflicker_value[10];
+static char LCD_deflicker_value[16];
 static bool gw_debug_submenu_set_deflicker(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     /* LCD deflicker filter level */
@@ -356,16 +357,16 @@ static bool gw_debug_submenu_set_deflicker(odroid_dialog_choice_t *option, odroi
     if (event == ODROID_DIALOG_NEXT)
         flag_lcd_deflicker_level = flag_lcd_deflicker_level < max_flag_lcd_deflicker_level ? flag_lcd_deflicker_level + 1 : 0;
 
-    if (flag_lcd_deflicker_level == 0) strcpy(option->value, "None");
-    if (flag_lcd_deflicker_level == 1) strcpy(option->value, "Medium");
-    if (flag_lcd_deflicker_level == 2) strcpy(option->value, "High");
+    if (flag_lcd_deflicker_level == 0) strcpy(option->value, gw_i18n(gw_i18n_filter_none));
+    if (flag_lcd_deflicker_level == 1) strcpy(option->value, gw_i18n(gw_i18n_filter_medium));
+    if (flag_lcd_deflicker_level == 2) strcpy(option->value, gw_i18n(gw_i18n_filter_high));
 
     return event == ODROID_DIALOG_ENTER;
 }
 
 // Debug menu strings
 
-static char display_ram_value[10];
+static char display_ram_value[16];
 
 // Display RAM bool
 static unsigned int debug_display_ram = 0;
@@ -374,8 +375,8 @@ static bool gw_debug_submenu_display_ram(odroid_dialog_choice_t *option, odroid_
     if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT)
         debug_display_ram = debug_display_ram == 0 ? 1 : 0;
 
-    if (debug_display_ram == 0) strcpy(option->value, "No");
-    if (debug_display_ram == 1) strcpy(option->value, "Yes");
+    if (debug_display_ram == 0) strcpy(option->value, gw_i18n(gw_i18n_no));
+    if (debug_display_ram == 1) strcpy(option->value, gw_i18n(gw_i18n_yes));
 
     return event == ODROID_DIALOG_ENTER;
 }
@@ -404,13 +405,13 @@ void app_main_gw(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
     odroid_dialog_choice_t options[] = {
         ODROID_DIALOG_CHOICE_SEPARATOR,
-        {309, "Press ACL", "", 1, &gw_debug_submenu_autoclear},
-        {310, "Press TIME", "", 1, &gw_debug_submenu_press_time},
-        {320, "Press ALARM", "", 1, &gw_debug_submenu_press_alarm},
-        {330, "Copy RTC to GW time", "", 1, &gw_debug_submenu_autoset_time},
-        {331, "Copy GW time to RTC", "", 1, &gw_debug_submenu_autoget_time},
-        {360, "LCD filter", LCD_deflicker_value, 1, &gw_debug_submenu_set_deflicker},
-        {370, "Display RAM", display_ram_value, 1, &gw_debug_submenu_display_ram},
+        {309, gw_i18n(gw_i18n_press_acl), "", 1, &gw_debug_submenu_autoclear},
+        {310, gw_i18n(gw_i18n_press_time), "", 1, &gw_debug_submenu_press_time},
+        {320, gw_i18n(gw_i18n_press_alarm), "", 1, &gw_debug_submenu_press_alarm},
+        {330, gw_i18n(gw_i18n_copy_rtc_to_gw), "", 1, &gw_debug_submenu_autoset_time},
+        {331, gw_i18n(gw_i18n_copy_gw_to_rtc), "", 1, &gw_debug_submenu_autoget_time},
+        {360, gw_i18n(gw_i18n_lcd_filter), LCD_deflicker_value, 1, &gw_debug_submenu_set_deflicker},
+        {370, gw_i18n(gw_i18n_display_ram), display_ram_value, 1, &gw_debug_submenu_display_ram},
         ODROID_DIALOG_CHOICE_LAST};
 
     odroid_system_init(ODROID_APPID_GW, GW_AUDIO_FREQ);

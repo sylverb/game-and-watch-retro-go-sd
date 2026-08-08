@@ -80,6 +80,7 @@ $(CORE_MSX)/Src/Board/Machine.c \
 $(CORE_MSX)/Src/Board/MSX.c \
 $(CORE_MSX)/Src/Input/InputEvent.c \
 $(CORE_PORTING_MSX)/main_msx.c \
+$(CORE_PORTING_MSX)/msx_i18n.c \
 $(CORE_PORTING_MSX)/msx_database.c \
 $(CORE_PORTING_MSX)/save_msx.c
 

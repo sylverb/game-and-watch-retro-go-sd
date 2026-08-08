@@ -22,6 +22,7 @@ CORE_PORTING_NES := ../../Core/Src/porting/nes_fceu
 # Engine + shared boards only (sidecars are MAPPER_C_SOURCES below).
 CORE_C_SOURCES := \
 $(CORE_PORTING_NES)/main_nes_fceu.c \
+$(CORE_PORTING_NES)/nes_i18n.c \
 $(CORE_PORTING_NES)/nes_fceu_mappers.c \
 $(CORE_FCEUMM)/src/cheat.c \
 $(CORE_FCEUMM)/src/fceu-cart.c \

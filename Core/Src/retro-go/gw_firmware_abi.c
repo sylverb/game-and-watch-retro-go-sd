@@ -22,6 +22,7 @@
 #include "gw_malloc.h"
 #include "gw_buttons.h"
 #include "main.h"
+#include "rg_i18n.h"
 #include "rg_rtc.h"
 #include "common.h"
 #include "odroid_system.h"
@@ -379,4 +380,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .lcd_backlight_set           = lcd_backlight_set,
     .lcd_sync                    = lcd_sync,
     .draw_error_screen           = draw_error_screen,
+
+    /* v2 append: per-core option i18n */
+    .i18n_lang_code              = i18n_lang_code,
 };

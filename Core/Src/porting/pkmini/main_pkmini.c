@@ -27,6 +27,7 @@
 #include "Video_x3.h"
 
 #include "gw_core_bridge.h"
+#include "pkmini_i18n.h"
 
 #define PKMINI_FPS 72
 #define PKMINI_SAMPLE_RATE 44100
@@ -293,20 +294,20 @@ static bool palette_update_cb(odroid_dialog_choice_t *option, odroid_dialog_even
    
    const char* palette_name;
    switch(pal) {
-      case 0: palette_name = "Default"; break;
-      case 1: palette_name = "Old"; break;
-      case 2: palette_name = "Black & White"; break;
-      case 3: palette_name = "Green"; break;
-      case 4: palette_name = "Inverted Green"; break;
-      case 5: palette_name = "Red"; break;
-      case 6: palette_name = "Inverted Red"; break;
-      case 7: palette_name = "Blue LCD"; break;
-      case 8: palette_name = "LED Backlight"; break;
-      case 9: palette_name = "Girl Power"; break;
-      case 10: palette_name = "Blue"; break;
-      case 11: palette_name = "Inverted Blue"; break;
-      case 12: palette_name = "Sepia"; break;
-      case 13: palette_name = "Inverted Black & White"; break;
+      case 0: palette_name = gw_i18n(pkmini_i18n_pal_default); break;
+      case 1: palette_name = gw_i18n(pkmini_i18n_pal_old); break;
+      case 2: palette_name = gw_i18n(pkmini_i18n_pal_bw); break;
+      case 3: palette_name = gw_i18n(pkmini_i18n_pal_green); break;
+      case 4: palette_name = gw_i18n(pkmini_i18n_pal_green_inv); break;
+      case 5: palette_name = gw_i18n(pkmini_i18n_pal_red); break;
+      case 6: palette_name = gw_i18n(pkmini_i18n_pal_red_inv); break;
+      case 7: palette_name = gw_i18n(pkmini_i18n_pal_blue_lcd); break;
+      case 8: palette_name = gw_i18n(pkmini_i18n_pal_led); break;
+      case 9: palette_name = gw_i18n(pkmini_i18n_pal_girl); break;
+      case 10: palette_name = gw_i18n(pkmini_i18n_pal_blue); break;
+      case 11: palette_name = gw_i18n(pkmini_i18n_pal_blue_inv); break;
+      case 12: palette_name = gw_i18n(pkmini_i18n_pal_sepia); break;
+      case 13: palette_name = gw_i18n(pkmini_i18n_pal_bw_inv); break;
       default: palette_name = "Unknown"; break;
    }
    
@@ -329,9 +330,9 @@ static bool lcd_filter_update_cb(odroid_dialog_choice_t *option, odroid_dialog_e
    
    const char* filter_name;
    switch(filter) {
-      case 0: filter_name = "None"; break;
-      case 1: filter_name = "Dot Matrix"; break;
-      case 2: filter_name = "Scanlines"; break;
+      case 0: filter_name = gw_i18n(pkmini_i18n_filt_none); break;
+      case 1: filter_name = gw_i18n(pkmini_i18n_filt_dot); break;
+      case 2: filter_name = gw_i18n(pkmini_i18n_filt_scan); break;
       default: filter_name = "Unknown"; break;
    }
    
@@ -354,9 +355,9 @@ static bool lcd_mode_update_cb(odroid_dialog_choice_t *option, odroid_dialog_eve
    
    const char* mode_name;
    switch(mode) {
-      case 0: mode_name = "Analog"; break;
-      case 1: mode_name = "3 Shades"; break;
-      case 2: mode_name = "2 Shades"; break;
+      case 0: mode_name = gw_i18n(pkmini_i18n_mode_analog); break;
+      case 1: mode_name = gw_i18n(pkmini_i18n_mode_3); break;
+      case 2: mode_name = gw_i18n(pkmini_i18n_mode_2); break;
       default: mode_name = "Unknown"; break;
    }
    
@@ -406,17 +407,17 @@ static bool low_pass_filter_update_cb(odroid_dialog_choice_t *option, odroid_dia
 }
 
 _Noreturn void app_main_pkmini(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
-    char palette_values[23];
+    char palette_values[40];
     char lcd_filter_values[32];
     char lcd_mode_values[32];
     char piezo_filter_values[16];
     char low_pass_filter_values[16];
     odroid_dialog_choice_t options[] = {
-        {100, "Palette", (char *)palette_values, 1, &palette_update_cb},
-        {100, "LCD Filter", (char *)lcd_filter_values, 1, &lcd_filter_update_cb},
-        {100, "LCD Mode", (char *)lcd_mode_values, 1, &lcd_mode_update_cb},
-        {100, "Piezo Filter", (char *)piezo_filter_values, 1, &piezo_filter_update_cb},
-        {100, "Low Pass Filter", (char *)low_pass_filter_values, 1, &low_pass_filter_update_cb},
+        {100, gw_i18n(pkmini_i18n_palette), (char *)palette_values, 1, &palette_update_cb},
+        {100, gw_i18n(pkmini_i18n_lcd_filter), (char *)lcd_filter_values, 1, &lcd_filter_update_cb},
+        {100, gw_i18n(pkmini_i18n_lcd_mode), (char *)lcd_mode_values, 1, &lcd_mode_update_cb},
+        {100, gw_i18n(pkmini_i18n_piezo), (char *)piezo_filter_values, 1, &piezo_filter_update_cb},
+        {100, gw_i18n(pkmini_i18n_lpf), (char *)low_pass_filter_values, 1, &low_pass_filter_update_cb},
         ODROID_DIALOG_CHOICE_LAST
     };
     TPokeMini_VideoSpec *video_spec = NULL;

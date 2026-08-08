@@ -33,6 +33,10 @@ lang_t *i18n_load_language(int idx);
  * to list available languages without loading their strings. */
 const char *i18n_lang_display_name(int idx);
 
+/* Active UI language code ("en_us", "fr_fr", ...). Used by standalone
+ * cores via gw_firmware_abi_t.i18n_lang_code / gw_i18n(). */
+const char *i18n_lang_code(void);
+
 int i18n_get_text_height();
 
 int  i18n_get_text_width(const char *text);

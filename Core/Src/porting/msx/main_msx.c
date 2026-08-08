@@ -52,6 +52,7 @@
 #include "msx_database.h"
 
 #include "gw_core_bridge.h"
+#include "msx_i18n.h"
 
 /* Unpack window = free RAM after this core's BSS (same role as the old
  * overlay's _MSX_ROM_UNPACK_BUFFER). Kept for the #ifndef
@@ -104,13 +105,13 @@ static char current_disk_path[PROP_MAXPATH] = {0};
 
 static int selected_key_index = 0;
 
-/* strings for options */
+/* strings for options (sized for UTF-8 i18n values) */
 static char disk_name[128];
-static char msx_name[11];
+static char msx_name[24];
 static char key_name[10];
-static char frequency_name[10];
-static char a_button_name[10];
-static char b_button_name[10];
+static char frequency_name[16];
+static char a_button_name[16];
+static char b_button_name[16];
 
 /* Volume management */
 static int8_t currentVolume = -1;
@@ -514,13 +515,13 @@ static bool update_frequency_cb(odroid_dialog_choice_t *option, odroid_dialog_ev
 
     switch (selected_frequency_index) {
         case FREQUENCY_VDP_AUTO:
-            strcpy(option->value, "Auto");
+            strcpy(option->value, gw_i18n(msx_i18n_freq_auto));
             break;
         case FREQUENCY_VDP_50HZ: // Force 50Hz
-            strcpy(option->value, "50Hz");
+            strcpy(option->value, gw_i18n(msx_i18n_freq_50));
             break;
         case FREQUENCY_VDP_60HZ: // Force 60Hz
-            strcpy(option->value, "60Hz");
+            strcpy(option->value, gw_i18n(msx_i18n_freq_60));
             break;
     }
 
@@ -563,15 +564,15 @@ static bool update_msx_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t 
     switch (selected_msx_index) {
         case 0: // MSX1;
             msx2_dif = 0;
-            strcpy(option->value, "MSX1 (EUR)");
+            strcpy(option->value, gw_i18n(msx_i18n_msx1_eur));
             break;
         case 1: // MSX2;
             msx2_dif = 10;
-            strcpy(option->value, "MSX2 (EUR)");
+            strcpy(option->value, gw_i18n(msx_i18n_msx2_eur));
             break;
         case 2: // MSX2+;
             msx2_dif = 10;
-            strcpy(option->value, "MSX2+ (JP)");
+            strcpy(option->value, gw_i18n(msx_i18n_msx2_jp));
             break;
     }
 
@@ -844,38 +845,38 @@ static void createOptionMenu(odroid_dialog_choice_t *options) {
     int index=0;
     if (msx_game_type == MSX_GAME_DISK) {
         options[index].id = 100;
-        options[index].label = "Change Dsk";
+        options[index].label = gw_i18n(msx_i18n_change_dsk);
         options[index].value = disk_name;
         options[index].enabled = 1;
         options[index].update_cb = &update_disk_cb;
         index++;
     }
     options[index].id = 100;
-    options[index].label = "Select MSX";
+    options[index].label = gw_i18n(msx_i18n_select_msx);
     options[index].value = msx_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_msx_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "Frequency";
+    options[index].label = gw_i18n(msx_i18n_frequency);
     options[index].value = frequency_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_frequency_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "A Button";
+    options[index].label = gw_i18n(msx_i18n_a_button);
     options[index].value = a_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_a_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "B Button";
+    options[index].label = gw_i18n(msx_i18n_b_button);
     options[index].value = b_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_b_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = "Press Key";
+    options[index].label = gw_i18n(msx_i18n_press_key);
     options[index].value = key_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_keyboard_cb;

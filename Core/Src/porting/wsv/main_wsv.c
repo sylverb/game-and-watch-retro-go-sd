@@ -18,6 +18,7 @@
  * common_emu_state/ACTIVE_FILE/ram_start are parsed before this header
  * turns later *uses* of those identifiers into live ABI-pointer accesses. */
 #include "gw_core_bridge.h"
+#include "wsv_i18n.h"
 
 #include "wsv_sound.h"
 #include "memorymap.h"
@@ -433,20 +434,16 @@ static void blit(void) {
 }
 
 
-/* No i18n for this core yet (curr_lang lives in the firmware, not exposed
- * over the ABI) — labels are hardcoded English, matching the strings this
- * menu already used (see rg_i18n_en_us.c: s_wsv_palette_Default and
- * friends, and s_Palette). */
 static bool palette_update_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
 
     const char *palette_names[] = {
-        "Default",
-        "Amber",
-        "Green",
-        "Blue",
-        "BGB",
-        "Wataroo"};
+        gw_i18n(wsv_i18n_pal_default),
+        gw_i18n(wsv_i18n_pal_amber),
+        gw_i18n(wsv_i18n_pal_green),
+        gw_i18n(wsv_i18n_pal_blue),
+        gw_i18n(wsv_i18n_pal_bgb),
+        gw_i18n(wsv_i18n_pal_wataroo)};
 
     int8 wsv_pal = supervision_get_color_scheme();
     int max = SV_COLOR_SCHEME_COUNT - 1;
@@ -525,7 +522,7 @@ int app_main_wsv(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     uint8 *rom_ptr = NULL;
     odroid_gamepad_state_t joystick;
     odroid_dialog_choice_t options[] = {
-        {100, "Palette", pal_name, 1, &palette_update_cb},
+        {100, gw_i18n(wsv_i18n_palette), pal_name, 1, &palette_update_cb},
         ODROID_DIALOG_CHOICE_LAST
     };
 

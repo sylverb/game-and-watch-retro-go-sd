@@ -509,6 +509,14 @@ typedef struct {
     void     (*lcd_sync)(void);
     void     (*draw_error_screen)(const char *main_line, const char *line_1, const char *line_2);
 
+    /* ================================================================
+     * v2 append: per-core option i18n. Returns the active UI language
+     * code ("en_us", "fr_fr", "zh_cn", ...). Cores look up their own
+     * string tables via gw_i18n() (core_common) with English fallback —
+     * curr_lang / lang_t stay firmware-private.
+     * ================================================================ */
+    const char *(*i18n_lang_code)(void);
+
 } gw_firmware_abi_t;
 
 /* The firmware publishes this instance at GW_FIRMWARE_ABI_ADDRESS via the

@@ -19,6 +19,7 @@ $(CORE_AMSTRAD)/cap32/psg.c \
 $(CORE_AMSTRAD)/cap32/slots.c \
 $(CORE_AMSTRAD)/cap32/cap32_z80.c \
 $(CORE_PORTING_AMSTRAD)/main_amstrad.c \
+$(CORE_PORTING_AMSTRAD)/amstrad_i18n.c \
 $(CORE_PORTING_AMSTRAD)/amstrad_catalog.c \
 $(CORE_PORTING_AMSTRAD)/amstrad_format.c \
 $(CORE_PORTING_AMSTRAD)/amstrad_loader.c \

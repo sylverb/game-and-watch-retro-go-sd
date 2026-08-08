@@ -23,9 +23,10 @@ $(CORE_WSV)/common/timer.c \
 $(CORE_WSV)/common/watara.c \
 $(CORE_WSV)/common/wsv_sound.c \
 ../../Core/Src/porting/wsv/main_wsv.c \
+../../Core/Src/porting/wsv/wsv_i18n.c \
 ../../Core/Src/bilinear.c
 
-CORE_C_INCLUDES := -I$(CORE_WSV)/common
+CORE_C_INCLUDES := -I$(CORE_WSV)/common -I../../Core/Inc/porting/wsv
 
 include ../_template/Makefile
 

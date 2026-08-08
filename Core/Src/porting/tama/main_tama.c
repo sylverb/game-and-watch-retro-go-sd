@@ -21,6 +21,7 @@
 #include "tamalib.h"
 
 #include "gw_core_bridge.h"
+#include "tama_i18n.h"
 
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -109,7 +110,7 @@ static bool debug_display_ram_cb(odroid_dialog_choice_t *option, odroid_dialog_e
     if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT)
         debug_display_ram = !debug_display_ram;
 
-    strcpy(option->value, debug_display_ram ? "Yes" : "No");
+    strcpy(option->value, debug_display_ram ? gw_i18n(tama_i18n_yes) : gw_i18n(tama_i18n_no));
 
     return event == ODROID_DIALOG_ENTER;
 }
@@ -455,10 +456,10 @@ static void main_tama(uint8_t start_paused) {
         LoadStateFromFile();
     }
 
-    char debug_display_ram_text[10];
+    char debug_display_ram_text[16];
     odroid_dialog_choice_t options[] = {
             ODROID_DIALOG_CHOICE_SEPARATOR,
-            {100, "Display RAM", debug_display_ram_text, 1, &debug_display_ram_cb},
+            {100, gw_i18n(tama_i18n_display_ram), debug_display_ram_text, 1, &debug_display_ram_cb},
             ODROID_DIALOG_CHOICE_LAST};
 
     /* Initialize audio */

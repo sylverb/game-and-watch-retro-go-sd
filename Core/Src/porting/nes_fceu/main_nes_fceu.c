@@ -27,6 +27,7 @@
  * common_emu_state/ACTIVE_FILE/ram_start are parsed before this header
  * turns later *uses* of those identifiers into live ABI-pointer accesses. */
 #include "gw_core_bridge.h"
+#include "nes_i18n.h"
 
 #define NES_WIDTH  256
 #define NES_HEIGHT 240
@@ -38,9 +39,9 @@ static bool crop_overscan_v;
 static bool crop_overscan_h;
 
 static char palette_values_text[50];
-static char sprite_limit_text[5];
-static char crop_overscan_v_text[5];
-static char crop_overscan_h_text[5];
+static char sprite_limit_text[16];
+static char crop_overscan_v_text[16];
+static char crop_overscan_h_text[16];
 static char next_disk_text[32];
 static char eject_insert_text[32];
 static char overclocking_text[32];
@@ -649,7 +650,7 @@ static bool palette_update_cb(odroid_dialog_choice_t *option, odroid_dialog_even
             apply_palette(palette_index);
         }
         if (palette_index == 0) {
-            sprintf(option->value, "%10s", "Default");
+            sprintf(option->value, "%10s", gw_i18n(nes_i18n_default));
         } else {
             get_palette_name(palette_index - 1, palette.name);
             sprintf(option->value, "%10s", palette.name);
@@ -666,7 +667,7 @@ static bool sprite_limit_cb(odroid_dialog_choice_t *option, odroid_dialog_event_
     if ((event == ODROID_DIALOG_NEXT) || (event == ODROID_DIALOG_PREV)) {
         disable_sprite_limit = !disable_sprite_limit;
     }
-    sprintf(option->value,"%s",disable_sprite_limit?"Yes":"No");
+    sprintf(option->value, "%s", disable_sprite_limit ? gw_i18n(nes_i18n_yes) : gw_i18n(nes_i18n_no));
 
     FCEUI_DisableSpriteLimitation(disable_sprite_limit);
 
@@ -713,21 +714,21 @@ static bool overclocking_cb(odroid_dialog_choice_t *option, odroid_dialog_event_
             extrascanlines         = 0;
             vblankscanlines        = 0;
             overclock_enabled      = 0;
-            sprintf(option->value,"%s","No");
+            sprintf(option->value, "%s", gw_i18n(nes_i18n_no));
             break;
         case 1: // 2x-Postrender
             skip_7bit_overclocking = 1;
             extrascanlines         = 266;
             vblankscanlines        = 0;
             overclock_enabled      = 1;
-            sprintf(option->value,"%s","2x-Postrender");
+            sprintf(option->value, "%s", gw_i18n(nes_i18n_oc_postrender));
             break;
         case 2: // 2x-VBlank
             skip_7bit_overclocking = 1;
             extrascanlines         = 0;
             vblankscanlines        = 266;
             overclock_enabled      = 1;
-            sprintf(option->value,"%s","2x-VBlank");
+            sprintf(option->value, "%s", gw_i18n(nes_i18n_oc_vblank));
             break;
     }
     return event == ODROID_DIALOG_ENTER;
@@ -738,7 +739,7 @@ static bool crop_overscan_v_cb(odroid_dialog_choice_t *option, odroid_dialog_eve
     if ((event == ODROID_DIALOG_NEXT) || (event == ODROID_DIALOG_PREV)) {
         crop_overscan_v = (crop_overscan_v+1)%2;
     }
-    sprintf(option->value,"%s",crop_overscan_v?"Yes":"No");
+    sprintf(option->value, "%s", crop_overscan_v ? gw_i18n(nes_i18n_yes) : gw_i18n(nes_i18n_no));
     return event == ODROID_DIALOG_ENTER;
 }
 
@@ -747,7 +748,7 @@ static bool crop_overscan_h_cb(odroid_dialog_choice_t *option, odroid_dialog_eve
     if ((event == ODROID_DIALOG_NEXT) || (event == ODROID_DIALOG_PREV)) {
         crop_overscan_h = (crop_overscan_h+1)%2;
     }
-    sprintf(option->value,"%s",crop_overscan_h?"Yes":"No");
+    sprintf(option->value, "%s", crop_overscan_h ? gw_i18n(nes_i18n_yes) : gw_i18n(nes_i18n_no));
     return event == ODROID_DIALOG_ENTER;
 }
 
@@ -768,7 +769,7 @@ static bool fds_side_swap_cb(odroid_dialog_choice_t *option, odroid_dialog_event
         FCEU_FDSSelect_previous(); /* Swap FDisk side */
     }
     int8 diskinfo = FCEU_FDSCurrentSideDisk();
-    sprintf(option->value,"Disk %d Side %s",1+((diskinfo&2)>>1),(diskinfo&1)?"B":"A");
+    sprintf(option->value, gw_i18n(nes_i18n_fds_side_fmt), 1 + ((diskinfo & 2) >> 1), (diskinfo & 1) ? "B" : "A");
     if (event == ODROID_DIALOG_ENTER) {
         allow_swap_disk = false;
         FCEU_FDSInsert(-1);        /* Insert the disk */
@@ -787,7 +788,7 @@ static bool fds_eject_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t e
         }
         FCEU_FDSInsert(-1);        /* Insert or eject the disk */
     }
-    sprintf(option->value,inserted?"Eject Disk":"Insert Disk");
+    sprintf(option->value, "%s", inserted ? gw_i18n(nes_i18n_eject) : gw_i18n(nes_i18n_insert));
     return event == ODROID_DIALOG_ENTER;
 }
 
@@ -997,14 +998,14 @@ int app_main_nes_fceu(uint8_t load_state, uint8_t start_paused, int8_t save_slot
     while(1) {
         odroid_dialog_choice_t options[] = {
             // {101, "More...", "", 1, &advanced_settings_cb},
-            {302, "Palette", palette_values_text, palettes_count > 0 ? 1 : -1, &palette_update_cb},
-            {302, "Reset", NULL, 1, &reset_cb},
-            {302, "Crop Vertical Overscan",crop_overscan_v_text,1,&crop_overscan_v_cb},
-            {302, "Crop Horizontal Overscan",crop_overscan_h_text,1,&crop_overscan_h_cb},
-            {302, "Disable sprite limit",sprite_limit_text,1,&sprite_limit_cb},
-            {302, "NES CPU Overclocking",overclocking_text,1,&overclocking_cb},
-            {302, "Eject/Insert Disk",eject_insert_text,GameInfo->type == GIT_FDS ? 1 : -1,&fds_eject_cb},
-            {302, "Swap FDisk side",next_disk_text,allow_swap_disk ? 1 : -1,&fds_side_swap_cb},
+            {302, gw_i18n(nes_i18n_palette), palette_values_text, palettes_count > 0 ? 1 : -1, &palette_update_cb},
+            {302, gw_i18n(nes_i18n_reset), NULL, 1, &reset_cb},
+            {302, gw_i18n(nes_i18n_crop_v), crop_overscan_v_text, 1, &crop_overscan_v_cb},
+            {302, gw_i18n(nes_i18n_crop_h), crop_overscan_h_text, 1, &crop_overscan_h_cb},
+            {302, gw_i18n(nes_i18n_sprite_limit), sprite_limit_text, 1, &sprite_limit_cb},
+            {302, gw_i18n(nes_i18n_cpu_oc), overclocking_text, 1, &overclocking_cb},
+            {302, gw_i18n(nes_i18n_eject_insert), eject_insert_text, GameInfo->type == GIT_FDS ? 1 : -1, &fds_eject_cb},
+            {302, gw_i18n(nes_i18n_swap_side), next_disk_text, allow_swap_disk ? 1 : -1, &fds_side_swap_cb},
             ODROID_DIALOG_CHOICE_LAST
         };
 

@@ -208,7 +208,9 @@ LDFLAGS = $(MCU) -nostdlib $(CORE_LDLIBS) -lgcc -T$(CORE_LDSCRIPT) -L$(ROOT_DIR)
 #######################################
 # object lists
 #######################################
-BRIDGE_C_SOURCES := $(ROOT_DIR)/Core/Src/porting/core_common/gw_core_bridge.c
+BRIDGE_C_SOURCES := \
+$(ROOT_DIR)/Core/Src/porting/core_common/gw_core_bridge.c \
+$(ROOT_DIR)/Core/Src/porting/core_common/gw_core_i18n.c
 BRIDGE_ASM_SOURCES := $(ROOT_DIR)/Core/Src/porting/core_common/gw_core_entry.S
 REDEFINE_SYMS_FILE := $(ROOT_DIR)/Core/Src/porting/core_common/gw_core_bridge_redefine_syms.txt
 
@@ -226,6 +228,9 @@ C_OBJECTS   := $(addprefix $(BUILD_DIR)/,$(notdir $(ALL_C_SOURCES:.c=.o)))
 CXX_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(patsubst %.cc,%.o,$(patsubst %.cxx,%.o,$(patsubst %.cpp,%.o,$(ALL_CXX_SOURCES))))))
 ASM_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(ALL_ASM_SOURCES:.S=.o)))
 BRIDGE_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(BRIDGE_C_SOURCES:.c=.o)))
+# Only the trampoline object must skip redefine-syms (it defines core_*).
+# gw_core_i18n.o still needs strcmp/strlen renamed — keep it out of this list.
+BRIDGE_NO_REDEFINE := $(BUILD_DIR)/gw_core_bridge.o
 BRIDGE_ASM_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(BRIDGE_ASM_SOURCES:.S=.o)))
 
 # After the bridge redefine-syms pass, optionally apply CORE_EXTRA_REDEFINE_SYMS.
@@ -266,12 +271,13 @@ $(BUILD_DIR):
 $(BRIDGE_OBJECTS): CFLAGS += -fno-builtin-memcpy -fno-builtin-memmove -fno-builtin-memset
 
 # Compile, then rename every libc/firmware symbol EXCEPT in the bridge
-# object itself (which defines the core_<name> targets those renames point
-# to — see gw_core_bridge_redefine_syms.txt header comment). Optional
-# CORE_EXTRA_REDEFINE_SYMS (e.g. gba_redefines) runs after the bridge pass.
+# trampoline object (which defines the core_<name> targets those renames
+# point to — see gw_core_bridge_redefine_syms.txt header comment).
+# gw_core_i18n.o is NOT exempt: it must resolve strcmp etc. via trampolines.
+# Optional CORE_EXTRA_REDEFINE_SYMS (e.g. gba_redefines) runs after.
 $(BUILD_DIR)/%.o: %.c $(REDEFINE_SYMS_FILE) | $(BUILD_DIR)
 	$(CC) -c $(CFLAGS) $< -o $@
-	if [ "$@" != "$(BRIDGE_OBJECTS)" ]; then \
+	if [ "$@" != "$(BRIDGE_NO_REDEFINE)" ]; then \
 		$(CP) --redefine-syms=$(REDEFINE_SYMS_FILE) $@ ; \
 		$(call CORE_APPLY_EXTRA_REDEFINE,$@) \
 	fi

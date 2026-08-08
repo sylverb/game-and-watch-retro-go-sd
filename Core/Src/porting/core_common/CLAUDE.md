@@ -60,8 +60,11 @@ flowchart LR
      (`common.h`, `rom_manager.h`, `gw_malloc.h`, ...) — see the comment at
      the top of `gw_core_bridge.h` for why the include order matters
      (macro-substitution of later *uses*, not the `extern` declarations).
-   - Replace any direct use of `curr_lang->...` (i18n is not exposed over
-     the ABI yet) with hardcoded English strings.
+   - For per-core option labels/values, use `gw_i18n()` tables
+     (`gw_core_i18n.h`) + ABI `i18n_lang_code()` — do **not** reach into
+     firmware `curr_lang` / `lang_t`. Keep tables in a dedicated
+     `<system>_i18n.c` (see MSX: `msx_i18n.c`). English row required;
+     other languages optional.
    - Replace any `odroid_settings_<Something>_set/get` wrapper with the
      generic `odroid_settings_app_int32_get/set("Name", ...)` already in the
      ABI.

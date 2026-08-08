@@ -16,6 +16,7 @@ $(CORE_TAMA)/tamalib_hw.c \
 $(CORE_TAMA)/tamalib.c \
 $(CORE_PORTING_TAMA)/state_tama.c \
 $(CORE_PORTING_TAMA)/main_tama.c \
+$(CORE_PORTING_TAMA)/tama_i18n.c \
 ../../Core/Src/retro-go/sha256.c
 
 CORE_C_INCLUDES := \
