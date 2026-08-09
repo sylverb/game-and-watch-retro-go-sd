@@ -80,31 +80,60 @@ static uint32_t gw_abi_jpeg_ctl(gw_jpeg_op_t op, uint32_t a, uint32_t b, uint32_
     }
 }
 
-/* Unified LCD framebuffer get/clear (replaces five former ABI slots). */
-static void *gw_abi_lcd_buffer(gw_lcd_buf_t which, uint32_t flags)
+/* Unified LCD — see lcd_ctl in gw_firmware_abi.h. */
+static uintptr_t gw_abi_lcd_ctl(gw_lcd_op_t op, uint32_t a, uint32_t b, uint32_t c)
 {
-    const int do_clear = (flags & GW_LCD_CLEAR) != 0;
-
-    switch (which) {
-    case GW_LCD_BUF_ACTIVE:
-        return do_clear ? lcd_clear_active_buffer() : lcd_get_active_buffer();
-    case GW_LCD_BUF_INACTIVE:
-        return do_clear ? lcd_clear_inactive_buffer() : lcd_get_inactive_buffer();
-    case GW_LCD_BUF_BOTH:
-        if (do_clear)
-            lcd_clear_buffers();
-        return NULL;
-    default:
-        return NULL;
+    (void)c;
+    switch (op) {
+    case GW_LCD_SWAP:
+        lcd_swap();
+        return 0;
+    case GW_LCD_BUFFER: {
+        const int do_clear = (b & GW_LCD_CLEAR) != 0;
+        switch ((gw_lcd_buf_t)a) {
+        case GW_LCD_BUF_ACTIVE:
+            return (uintptr_t)(do_clear ? lcd_clear_active_buffer() : lcd_get_active_buffer());
+        case GW_LCD_BUF_INACTIVE:
+            return (uintptr_t)(do_clear ? lcd_clear_inactive_buffer() : lcd_get_inactive_buffer());
+        case GW_LCD_BUF_BOTH:
+            if (do_clear)
+                lcd_clear_buffers();
+            return 0;
+        default:
+            return 0;
+        }
     }
-}
-
-static void gw_abi_lcd_copy_fb(gw_lcd_copy_t dir)
-{
-    if (dir == GW_LCD_COPY_INACTIVE_TO_ACTIVE)
-        lcd_clone();
-    else
-        lcd_sync();  /* ACTIVE_TO_INACTIVE (and unknown → sync) */
+    case GW_LCD_COPY_FB:
+        if ((gw_lcd_copy_t)a == GW_LCD_COPY_INACTIVE_TO_ACTIVE)
+            lcd_clone();
+        else
+            lcd_sync();
+        return 0;
+    case GW_LCD_SETUP_FB:
+        lcd_setup_framebuffers((lcd_mode_t)a);
+        return 0;
+    case GW_LCD_GET_BONUS_POOL:
+        lcd_get_bonus_pool((uint8_t **)(uintptr_t)a, (size_t *)(uintptr_t)b);
+        return 0;
+    case GW_LCD_SET_CLUT:
+        lcd_set_clut((const uint32_t *)(uintptr_t)a, (uint16_t)b);
+        return 0;
+    case GW_LCD_WAIT_VBLANK:
+        lcd_wait_for_vblank();
+        return 0;
+    case GW_LCD_SET_REFRESH:
+        lcd_set_refresh_rate(a);
+        return 0;
+    case GW_LCD_GET_PIXEL_POS:
+        return (uintptr_t)lcd_get_pixel_position();
+    case GW_LCD_IS_SWAP_PENDING:
+        return (uintptr_t)lcd_is_swap_pending();
+    case GW_LCD_BACKLIGHT_SET:
+        lcd_backlight_set((uint8_t)a);
+        return 0;
+    default:
+        return 0;
+    }
 }
 
 /* Unified audio DMA / odroid helpers — see audio_ctl in gw_firmware_abi.h. */
@@ -145,6 +174,63 @@ static uintptr_t gw_abi_audio_ctl(gw_audio_op_t op, uint32_t a)
         return 0;
     case GW_AUDIO_VOLUME_GET:
         return (uintptr_t)(unsigned)odroid_audio_volume_get();
+    default:
+        return 0;
+    }
+}
+
+/* FatFs directory ops. */
+static FRESULT gw_abi_fatfs_dir_ctl(gw_fatfs_dir_op_t op, void *a, void *b)
+{
+    switch (op) {
+    case GW_FATFS_OPENDIR:
+        return f_opendir((DIR *)a, (const TCHAR *)b);
+    case GW_FATFS_CLOSEDIR:
+        return f_closedir((DIR *)a);
+    case GW_FATFS_READDIR:
+        return f_readdir((DIR *)a, (FILINFO *)b);
+    default:
+        return FR_INVALID_PARAMETER;
+    }
+}
+
+/* Odroid display scaling / filter. */
+static uintptr_t gw_abi_display_ctl(gw_disp_op_t op, uint32_t a)
+{
+    switch (op) {
+    case GW_DISP_GET_SCALING:
+        return (uintptr_t)odroid_display_get_scaling_mode();
+    case GW_DISP_SET_SCALING:
+        odroid_display_set_scaling_mode((odroid_display_scaling_t)a);
+        return 0;
+    case GW_DISP_GET_FILTER:
+        return (uintptr_t)(unsigned)odroid_display_get_filter_mode();
+    default:
+        return 0;
+    }
+}
+
+/* Hardware SHA-1. */
+static int8_t gw_abi_sha1_ctl(gw_sha1_op_t op, uintptr_t a, uintptr_t b, uintptr_t c)
+{
+    switch (op) {
+    case GW_SHA1_FILE_LIMIT:
+        return calculate_sha1_file_limit((const char *)a, (ssize_t)b, (uint8_t *)c);
+    case GW_SHA1_HW:
+        return calculate_sha1_hw((const uint8_t *)a, (size_t)b, (uint8_t *)c);
+    default:
+        return -1;
+    }
+}
+
+/* LZ4 helpers. */
+static unsigned int gw_abi_lz4_ctl(gw_lz4_op_t op, const void *a, void *b)
+{
+    switch (op) {
+    case GW_LZ4_UNCOMPRESS:
+        return lz4_uncompress(a, b);
+    case GW_LZ4_GET_SIZE:
+        return lz4_get_file_size(a);
     default:
         return 0;
     }
@@ -320,14 +406,10 @@ const gw_firmware_abi_t g_firmware_abi = {
     .uldivmod_rem  = abi_uldivmod_rem,
 
     /* FatFs */
-    .f_opendir  = f_opendir,
-    .f_closedir = f_closedir,
-    .f_readdir  = f_readdir,
+    .fatfs_dir_ctl = gw_abi_fatfs_dir_ctl,
 
     /* G&W LCD */
-    .lcd_swap                  = lcd_swap,
-    .lcd_buffer                = gw_abi_lcd_buffer,
-    .lcd_copy_fb               = gw_abi_lcd_copy_fb,
+    .lcd_ctl = gw_abi_lcd_ctl,
 
     /* G&W audio */
     .audio_ctl = gw_abi_audio_ctl,
@@ -348,16 +430,14 @@ const gw_firmware_abi_t g_firmware_abi = {
     .odroid_system_switch_app = odroid_system_switch_app,
 
     /* retro-go: input / display */
-    .odroid_input_read_gamepad       = odroid_input_read_gamepad,
-    .odroid_display_get_scaling_mode = odroid_display_get_scaling_mode,
-    .odroid_display_set_scaling_mode = odroid_display_set_scaling_mode,
+    .odroid_input_read_gamepad = odroid_input_read_gamepad,
+    .display_ctl               = gw_abi_display_ctl,
 
     /* retro-go: overlay / SD / settings */
-    .odroid_overlay_draw_text           = odroid_overlay_draw_text,
-    .odroid_overlay_cache_file_in_flash = odroid_overlay_cache_file_in_flash,
-    .odroid_sdcard_mkdir                = odroid_sdcard_mkdir,
-    .odroid_settings_app_int32_get      = odroid_settings_app_int32_get,
-    .odroid_settings_app_int32_set      = odroid_settings_app_int32_set,
+    .odroid_overlay_draw_text      = odroid_overlay_draw_text,
+    .odroid_sdcard_mkdir           = odroid_sdcard_mkdir,
+    .odroid_settings_app_int32_get = odroid_settings_app_int32_get,
+    .odroid_settings_app_int32_set = odroid_settings_app_int32_set,
 
     /* retro-go: common emulator loop */
     .common_emu_frame_loop             = common_emu_frame_loop,
@@ -387,40 +467,20 @@ const gw_firmware_abi_t g_firmware_abi = {
 
     .odroid_system_emu_load_state = odroid_system_emu_load_state,
 
-    /* lcd_setup_framebuffers takes lcd_mode_t (enum); ABI exposes it as
-     * `int` so the header doesn't need to leak the enum / pull in the
-     * heavy gw_lcd.h. The cast is safe — enum and int are interchangeable
-     * for parameter passing in C. */
-    .lcd_setup_framebuffers       = (void (*)(int))lcd_setup_framebuffers,
-    .lcd_get_bonus_pool           = lcd_get_bonus_pool,
-    .lcd_set_clut                 = lcd_set_clut,
-
     /* v1 append: classic-core porting surface (see gw_firmware_abi.h) */
     .strcpy  = strcpy,
     .malloc  = malloc,
 
-    .lcd_wait_for_vblank  = lcd_wait_for_vblank,
-    .lcd_set_refresh_rate = lcd_set_refresh_rate,
-
-    .odroid_display_get_filter_mode = (int (*)(void))odroid_display_get_filter_mode,
-
     .odroid_overlay_cache_file_in_ram = odroid_overlay_cache_file_in_ram,
 
-    /* v1 append: Mega Drive / gwenesis (audio_* folded into audio_ctl) */
-    .common_emu_enable_dwt_cycles = common_emu_enable_dwt_cycles,
-    .common_emu_get_dwt_cycles    = common_emu_get_dwt_cycles,
-    .common_emu_clear_dwt_cycles  = common_emu_clear_dwt_cycles,
-
+    /* v1 append: Mega Drive / gwenesis (DWT local in bridge; audio → audio_ctl) */
     .odroid_settings_cpu_oc_level_get = odroid_settings_cpu_oc_level_get,
     .SystemClock_Config               = SystemClock_Config,
 
     .get_ofw_is_mario = get_ofw_is_mario,
 
-    /* odroid_system_get_path takes emu_path_type_t (enum); see the `int`
-     * cast rationale above lcd_setup_framebuffers/odroid_display_get_filter_mode. */
+    /* odroid_system_get_path takes emu_path_type_t (enum); cast to int. */
     .odroid_system_get_path = (char *(*)(int, const char *))odroid_system_get_path,
-
-    .lcd_get_pixel_position       = lcd_get_pixel_position,
 
     .frame_counter_ptr = &frame_counter,
 
@@ -444,11 +504,8 @@ const gw_firmware_abi_t g_firmware_abi = {
     .rg_storage_copy_file_range_to_ram =
         (size_t (*)(char *, uint8_t *, uint32_t, uint32_t, gw_file_progress_cb_t))rg_storage_copy_file_range_to_ram,
 
-    /* v2 append: blueMSX (MSX) porting surface
-     * (ahb_* / odroid_audio_volume_get folded into mem_ctl / audio_ctl) */
-    .calculate_sha1_file         = calculate_sha1_file,
-    .calculate_sha1_file_limit   = calculate_sha1_file_limit,
-    .calculate_sha1_hw           = calculate_sha1_hw,
+    /* v2 append: blueMSX (MSX) — sha1_ctl; ahb/audio volume already folded */
+    .sha1_ctl                    = gw_abi_sha1_ctl,
 
     .localtime                   = localtime,
     .gettimeofday                = gw_abi_gettimeofday,
@@ -458,11 +515,9 @@ const gw_firmware_abi_t g_firmware_abi = {
 
     /* v2 append: LCD-Game-Emulator (Game & Watch) */
     .GW_SetUnixTM                = GW_SetUnixTM,
-    .lcd_is_swap_pending         = lcd_is_swap_pending,
     .jpeg_ctl                    = gw_abi_jpeg_ctl,
     .lzma_inflate                = lzma_inflate,
-    .lz4_uncompress              = lz4_uncompress,
-    .lz4_get_file_size           = lz4_get_file_size,
+    .lz4_ctl                     = gw_abi_lz4_ctl,
 
     /* v2 append: Tamagotchi P1 */
     .common_emu_frame_loop_reset = common_emu_frame_loop_reset,
@@ -470,7 +525,6 @@ const gw_firmware_abi_t g_firmware_abi = {
     /* v2 append: GBA (gpSP) */
     .get_SystemCoreClock         = gw_abi_get_SystemCoreClock,
     .odroid_overlay_cache_file_in_flash_relocate = odroid_overlay_cache_file_in_flash_relocate,
-    .lcd_backlight_set           = lcd_backlight_set,
     .draw_error_screen           = draw_error_screen,
 
     /* v2 append: per-core option i18n */

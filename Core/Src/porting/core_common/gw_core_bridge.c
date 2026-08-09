@@ -38,6 +38,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <sys/types.h>
 #include <sys/time.h>
 #include <time.h>
 #include <ctype.h>
@@ -428,62 +429,101 @@ void core_longjmp(jmp_buf env, int val)
 }
 
 /* ====================================================================
- * FatFs (ff.h)
+ * FatFs (ff.h) — via fatfs_dir_ctl()
  * ==================================================================== */
-FRESULT core_f_opendir(DIR *dp, const TCHAR *path) { return gw_firmware_abi()->f_opendir(dp, path); }
-FRESULT core_f_closedir(DIR *dp) { return gw_firmware_abi()->f_closedir(dp); }
-FRESULT core_f_readdir(DIR *dp, FILINFO *fno) { return gw_firmware_abi()->f_readdir(dp, fno); }
+FRESULT core_f_opendir(DIR *dp, const TCHAR *path)
+{
+    return gw_firmware_abi()->fatfs_dir_ctl(GW_FATFS_OPENDIR, dp, (void *)path);
+}
+FRESULT core_f_closedir(DIR *dp)
+{
+    return gw_firmware_abi()->fatfs_dir_ctl(GW_FATFS_CLOSEDIR, dp, NULL);
+}
+FRESULT core_f_readdir(DIR *dp, FILINFO *fno)
+{
+    return gw_firmware_abi()->fatfs_dir_ctl(GW_FATFS_READDIR, dp, fno);
+}
 
 /* ====================================================================
- * G&W hardware: LCD
+ * G&W hardware: LCD — all via lcd_ctl(); historical names kept for
+ * --redefine-syms. lcd_sleep_while_swap_pending composed from
+ * IS_SWAP_PENDING + WFI.
  * ==================================================================== */
-/* ====================================================================
- * G&W hardware: LCD
- *
- * ABI exposes lcd_buffer / lcd_copy_fb; historical names stay as thin
- * wrappers so core source (and redefine-syms) is unchanged.
- * lcd_sleep_while_swap_pending is composed here from lcd_is_swap_pending
- * + WFI — no ABI slot.
- * ==================================================================== */
-void  core_lcd_swap(void) { gw_firmware_abi()->lcd_swap(); }
+void core_lcd_swap(void)
+{
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_SWAP, 0, 0, 0);
+}
 void *core_lcd_get_active_buffer(void)
 {
-    return gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_ACTIVE, 0);
+    return (void *)gw_firmware_abi()->lcd_ctl(GW_LCD_BUFFER, GW_LCD_BUF_ACTIVE, 0, 0);
 }
 void *core_lcd_get_inactive_buffer(void)
 {
-    return gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_INACTIVE, 0);
+    return (void *)gw_firmware_abi()->lcd_ctl(GW_LCD_BUFFER, GW_LCD_BUF_INACTIVE, 0, 0);
 }
 void *core_lcd_clear_active_buffer(void)
 {
-    return gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_ACTIVE, GW_LCD_CLEAR);
+    return (void *)gw_firmware_abi()->lcd_ctl(GW_LCD_BUFFER, GW_LCD_BUF_ACTIVE, GW_LCD_CLEAR, 0);
 }
 void *core_lcd_clear_inactive_buffer(void)
 {
-    return gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_INACTIVE, GW_LCD_CLEAR);
+    return (void *)gw_firmware_abi()->lcd_ctl(GW_LCD_BUFFER, GW_LCD_BUF_INACTIVE, GW_LCD_CLEAR, 0);
 }
 void core_lcd_clear_buffers(void)
 {
-    (void)gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_BOTH, GW_LCD_CLEAR);
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_BUFFER, GW_LCD_BUF_BOTH, GW_LCD_CLEAR, 0);
 }
-void core_lcd_wait_for_vblank(void) { gw_firmware_abi()->lcd_wait_for_vblank(); }
-void core_lcd_set_refresh_rate(uint32_t frequency) { gw_firmware_abi()->lcd_set_refresh_rate(frequency); }
+void core_lcd_wait_for_vblank(void)
+{
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_WAIT_VBLANK, 0, 0, 0);
+}
+void core_lcd_set_refresh_rate(uint32_t frequency)
+{
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_SET_REFRESH, frequency, 0, 0);
+}
 void core_lcd_sync(void)
 {
-    gw_firmware_abi()->lcd_copy_fb(GW_LCD_COPY_ACTIVE_TO_INACTIVE);
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_COPY_FB, GW_LCD_COPY_ACTIVE_TO_INACTIVE, 0, 0);
 }
 void core_lcd_clone(void)
 {
-    gw_firmware_abi()->lcd_copy_fb(GW_LCD_COPY_INACTIVE_TO_ACTIVE);
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_COPY_FB, GW_LCD_COPY_INACTIVE_TO_ACTIVE, 0, 0);
 }
 bool core_lcd_sleep_while_swap_pending(void)
 {
     bool pending = false;
-    while (gw_firmware_abi()->lcd_is_swap_pending()) {
+    while (gw_firmware_abi()->lcd_ctl(GW_LCD_IS_SWAP_PENDING, 0, 0, 0)) {
         pending = true;
         __asm volatile ("wfi");
     }
     return pending;
+}
+uint32_t core_lcd_get_pixel_position(void)
+{
+    return (uint32_t)gw_firmware_abi()->lcd_ctl(GW_LCD_GET_PIXEL_POS, 0, 0, 0);
+}
+uint32_t core_lcd_is_swap_pending(void)
+{
+    return (uint32_t)gw_firmware_abi()->lcd_ctl(GW_LCD_IS_SWAP_PENDING, 0, 0, 0);
+}
+void core_lcd_backlight_set(uint8_t brightness)
+{
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_BACKLIGHT_SET, brightness, 0, 0);
+}
+void core_lcd_setup_framebuffers(int lcd_mode)
+{
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_SETUP_FB, (uint32_t)lcd_mode, 0, 0);
+}
+void core_lcd_get_bonus_pool(uint8_t **out_ptr, size_t *out_size)
+{
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_GET_BONUS_POOL,
+                                     (uint32_t)(uintptr_t)out_ptr,
+                                     (uint32_t)(uintptr_t)out_size, 0);
+}
+void core_lcd_set_clut(const uint32_t *clut, uint16_t count)
+{
+    (void)gw_firmware_abi()->lcd_ctl(GW_LCD_SET_CLUT,
+                                     (uint32_t)(uintptr_t)clut, count, 0);
 }
 
 /* ====================================================================
@@ -655,12 +695,21 @@ bool core_odroid_system_emu_load_state(int slot) { return gw_firmware_abi()->odr
  * retro-go: input / display
  * ==================================================================== */
 void core_odroid_input_read_gamepad(odroid_gamepad_state_t *out_state) { gw_firmware_abi()->odroid_input_read_gamepad(out_state); }
-odroid_display_scaling_t core_odroid_display_get_scaling_mode(void) { return gw_firmware_abi()->odroid_display_get_scaling_mode(); }
-void core_odroid_display_set_scaling_mode(odroid_display_scaling_t mode) { gw_firmware_abi()->odroid_display_set_scaling_mode(mode); }
+odroid_display_scaling_t core_odroid_display_get_scaling_mode(void)
+{
+    return (odroid_display_scaling_t)gw_firmware_abi()->display_ctl(GW_DISP_GET_SCALING, 0);
+}
+void core_odroid_display_set_scaling_mode(odroid_display_scaling_t mode)
+{
+    (void)gw_firmware_abi()->display_ctl(GW_DISP_SET_SCALING, (uint32_t)mode);
+}
 /* Real return type is odroid_display_filter_t; ABI forwards it as plain int
  * so this header doesn't have to pull odroid_display.h's enum in — the enum
  * values themselves are ABI-stable (see gw_firmware_abi.h). */
-int core_odroid_display_get_filter_mode(void) { return gw_firmware_abi()->odroid_display_get_filter_mode(); }
+int core_odroid_display_get_filter_mode(void)
+{
+    return (int)gw_firmware_abi()->display_ctl(GW_DISP_GET_FILTER, 0);
+}
 
 /* ====================================================================
  * retro-go: overlay / SD / settings
@@ -672,7 +721,8 @@ int core_odroid_overlay_draw_text(uint16_t x, uint16_t y, uint16_t width,
 }
 uint8_t *core_odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap)
 {
-    return gw_firmware_abi()->odroid_overlay_cache_file_in_flash(file_path, file_size_p, byte_swap);
+    return gw_firmware_abi()->odroid_overlay_cache_file_in_flash_relocate(
+        file_path, file_size_p, byte_swap, NULL);
 }
 size_t core_odroid_overlay_cache_file_in_ram(const char *file_path, uint8_t *dest_address)
 {
@@ -704,9 +754,28 @@ uint8_t core_common_emu_sound_get_volume(void) { return gw_firmware_abi()->commo
 bool    core_common_emu_sound_loop_is_muted(void) { return gw_firmware_abi()->common_emu_sound_loop_is_muted(); }
 void    core_common_emu_sound_sync(bool use_nops) { gw_firmware_abi()->common_emu_sound_sync(use_nops); }
 void    core_common_ingame_overlay(void) { gw_firmware_abi()->common_ingame_overlay(); }
-void    core_common_emu_enable_dwt_cycles(void) { gw_firmware_abi()->common_emu_enable_dwt_cycles(); }
-unsigned int core_common_emu_get_dwt_cycles(void) { return gw_firmware_abi()->common_emu_get_dwt_cycles(); }
-void    core_common_emu_clear_dwt_cycles(void) { gw_firmware_abi()->common_emu_clear_dwt_cycles(); }
+/* DWT cycle counter — fixed CMSIS MMIO, no ABI slot (hot path; same
+ * addresses as firmware common.c). */
+void core_common_emu_enable_dwt_cycles(void)
+{
+    volatile unsigned int *DEMCR = (volatile unsigned int *)0xE000EDFCu;
+    volatile unsigned int *LAR = (volatile unsigned int *)0xE0001FB0u;
+    volatile unsigned int *DWT_CYCCNT = (volatile unsigned int *)0xE0001004u;
+    volatile unsigned int *DWT_CONTROL = (volatile unsigned int *)0xE0001000u;
+
+    *DEMCR = *DEMCR | 0x01000000u;
+    *LAR = 0xC5ACCE55u;
+    *DWT_CYCCNT = 0;
+    *DWT_CONTROL = *DWT_CONTROL | 1u;
+}
+unsigned int core_common_emu_get_dwt_cycles(void)
+{
+    return *(volatile unsigned int *)0xE0001004u;
+}
+void core_common_emu_clear_dwt_cycles(void)
+{
+    *(volatile unsigned int *)0xE0001004u = 0;
+}
 
 /* ====================================================================
  * v1 append: Mega Drive / gwenesis porting surface
@@ -729,8 +798,6 @@ char *core_odroid_system_get_path(int type, const char *romPath)
 {
     return gw_firmware_abi()->odroid_system_get_path(type, romPath);
 }
-
-uint32_t core_lcd_get_pixel_position(void) { return gw_firmware_abi()->lcd_get_pixel_position(); }
 
 /* ====================================================================
  * v2 append: PC Engine / PC Engine CD porting surface
@@ -903,15 +970,24 @@ void *core_ahb_only_malloc(size_t size)
 }
 int8_t core_calculate_sha1_file(const char *file_path, uint8_t *output)
 {
-    return gw_firmware_abi()->calculate_sha1_file(file_path, output);
+    return gw_firmware_abi()->sha1_ctl(GW_SHA1_FILE_LIMIT,
+                                       (uintptr_t)file_path,
+                                       (uintptr_t)(ssize_t)-1,
+                                       (uintptr_t)output);
 }
 int8_t core_calculate_sha1_file_limit(const char *file_path, ssize_t max_bytes, uint8_t *output)
 {
-    return gw_firmware_abi()->calculate_sha1_file_limit(file_path, max_bytes, output);
+    return gw_firmware_abi()->sha1_ctl(GW_SHA1_FILE_LIMIT,
+                                       (uintptr_t)file_path,
+                                       (uintptr_t)max_bytes,
+                                       (uintptr_t)output);
 }
 int8_t core_calculate_sha1_hw(const uint8_t *data, size_t len, uint8_t *output)
 {
-    return gw_firmware_abi()->calculate_sha1_hw(data, len, output);
+    return gw_firmware_abi()->sha1_ctl(GW_SHA1_HW,
+                                       (uintptr_t)data,
+                                       (uintptr_t)len,
+                                       (uintptr_t)output);
 }
 
 /* libc localtime/gettimeofday — core_time (above) pairs with this one for
@@ -957,7 +1033,6 @@ const char *core_rg_basename(const char *path)
  * unchanged (redefine-syms still maps those names → core_*).
  * ==================================================================== */
 void core_GW_SetUnixTM(struct tm *tm) { gw_firmware_abi()->GW_SetUnixTM(tm); }
-uint32_t core_lcd_is_swap_pending(void) { return gw_firmware_abi()->lcd_is_swap_pending(); }
 uint32_t core_JPEG_DecodeToFrameInit(uint32_t JPEG_Buffer, uint32_t JPEG_Buffer_Size)
 {
     return gw_firmware_abi()->jpeg_ctl(GW_JPEG_INIT, JPEG_Buffer, JPEG_Buffer_Size, 0, 0);
@@ -984,11 +1059,11 @@ size_t core_lzma_inflate(uint8_t *dst, size_t dst_size, const uint8_t *src, size
 }
 unsigned int core_lz4_uncompress(const void *src, void *dst)
 {
-    return gw_firmware_abi()->lz4_uncompress(src, dst);
+    return gw_firmware_abi()->lz4_ctl(GW_LZ4_UNCOMPRESS, src, dst);
 }
 unsigned int core_lz4_get_file_size(const void *src)
 {
-    return gw_firmware_abi()->lz4_get_file_size(src);
+    return gw_firmware_abi()->lz4_ctl(GW_LZ4_GET_SIZE, src, NULL);
 }
 void core_odroid_system_switch_app(int app)
 {
@@ -1019,11 +1094,6 @@ uint8_t *core_odroid_overlay_cache_file_in_flash_relocate(
 {
     return gw_firmware_abi()->odroid_overlay_cache_file_in_flash_relocate(
         file_path, file_size_p, byte_swap, relocate_cb);
-}
-
-void core_lcd_backlight_set(uint8_t brightness)
-{
-    gw_firmware_abi()->lcd_backlight_set(brightness);
 }
 
 void core_draw_error_screen(const char *main_line, const char *line_1, const char *line_2)
