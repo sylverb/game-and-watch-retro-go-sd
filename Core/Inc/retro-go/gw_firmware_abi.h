@@ -89,6 +89,16 @@ typedef enum {
     GW_MEM_DTCM_ARENA = 4,
 } gw_mem_pool_t;
 
+/* Hardware JPEG ops for jpeg_ctl() below. Replaces four ABI slots
+ * (JPEG_DecodeToFrameInit/ToFrame/GetSize/DeInit) with one entry —
+ * only the LCD-Game-Emulator core uses this surface. */
+typedef enum {
+    GW_JPEG_INIT     = 0,  /* a=JPEG_Buffer, b=JPEG_Buffer_Size */
+    GW_JPEG_DECODE   = 1,  /* a=Src, b=Dest, c=(x<<16)|y, d=luma_alpha */
+    GW_JPEG_GET_SIZE = 2,  /* a=Src, b=(uintptr_t)width*, c=(uintptr_t)height* */
+    GW_JPEG_DEINIT   = 3,  /* no args */
+} gw_jpeg_op_t;
+
 typedef struct {
     /* Header — every plugin checks these before using the rest. */
     uint32_t version;        /* == GW_FIRMWARE_ABI_VERSION for this build */
@@ -488,14 +498,15 @@ typedef struct {
      * v2 append: LCD-Game-Emulator (Game & Watch handhelds).
      * GW_SetUnixTM is the only RTC write entry left after the read-side
      * getters were dropped (no portable libc setter on this firmware).
+     * jpeg_ctl replaces the former four JPEG_Decode* slots (same
+     * mem_alloc-style unification; still ABI v2 while cores are in
+     * active development). Bridge re-exposes JPEG_DecodeToFrameInit /
+     * ToFrame / GetSize / DeInit as thin wrappers so gw_romloader.c
+     * is unchanged.
      * ================================================================ */
     void     (*GW_SetUnixTM)(struct tm *tm);
     uint32_t (*lcd_is_swap_pending)(void);
-    uint32_t (*JPEG_DecodeToFrameInit)(uint32_t JPEG_Buffer, uint32_t JPEG_Buffer_Size);
-    uint32_t (*JPEG_DecodeToFrame)(uint32_t SrcAddress, uint32_t DestAddress,
-                                   uint16_t x, uint16_t y, uint8_t luma_alpha);
-    uint32_t (*JPEG_DecodeGetSize)(uint32_t SrcAddress, uint32_t *width, uint32_t *height);
-    uint32_t (*JPEG_DecodeDeInit)(void);
+    uint32_t (*jpeg_ctl)(gw_jpeg_op_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d);
     size_t   (*lzma_inflate)(uint8_t *dst, size_t dst_size, const uint8_t *src, size_t src_size);
     unsigned int (*lz4_uncompress)(const void *src, void *dst);
     unsigned int (*lz4_get_file_size)(const void *src);

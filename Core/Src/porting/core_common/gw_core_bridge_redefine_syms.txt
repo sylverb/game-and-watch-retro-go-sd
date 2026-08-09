@@ -200,6 +200,8 @@ rg_storage_get_adjacent_files core_rg_storage_get_adjacent_files
 rg_basename core_rg_basename
 audio_stop_playing core_audio_stop_playing
 # --- LCD-Game-Emulator (Game & Watch) ---
+# JPEG_Decode* stay mapped to core_* wrappers that call jpeg_ctl on the
+# ABI (4 historical names, 1 ABI slot — see gw_core_bridge.c).
 GW_SetUnixTM core_GW_SetUnixTM
 lcd_is_swap_pending core_lcd_is_swap_pending
 JPEG_DecodeToFrameInit core_JPEG_DecodeToFrameInit

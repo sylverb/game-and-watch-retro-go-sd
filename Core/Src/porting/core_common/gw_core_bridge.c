@@ -842,23 +842,34 @@ void core_audio_stop_playing(void) { gw_firmware_abi()->audio_stop_playing(); }
  * poll, hardware JPEG (background images), LZ4/LZMA ROM unpack.
  * odroid_system_switch_app was already on the ABI but missing a
  * trampoline — first consumer is main_gw.c on ROM-load failure.
+ *
+ * JPEG: ABI exposes a single jpeg_ctl(op,…); the historical
+ * JPEG_DecodeToFrameInit/ToFrame/GetSize/DeInit names stay as thin
+ * wrappers so external/LCD-Game-Emulator/src/gw_sys/gw_romloader.c is
+ * unchanged (redefine-syms still maps those names → core_*).
  * ==================================================================== */
 void core_GW_SetUnixTM(struct tm *tm) { gw_firmware_abi()->GW_SetUnixTM(tm); }
 uint32_t core_lcd_is_swap_pending(void) { return gw_firmware_abi()->lcd_is_swap_pending(); }
 uint32_t core_JPEG_DecodeToFrameInit(uint32_t JPEG_Buffer, uint32_t JPEG_Buffer_Size)
 {
-    return gw_firmware_abi()->JPEG_DecodeToFrameInit(JPEG_Buffer, JPEG_Buffer_Size);
+    return gw_firmware_abi()->jpeg_ctl(GW_JPEG_INIT, JPEG_Buffer, JPEG_Buffer_Size, 0, 0);
 }
 uint32_t core_JPEG_DecodeToFrame(uint32_t SrcAddress, uint32_t DestAddress,
                                  uint16_t x, uint16_t y, uint8_t luma_alpha)
 {
-    return gw_firmware_abi()->JPEG_DecodeToFrame(SrcAddress, DestAddress, x, y, luma_alpha);
+    return gw_firmware_abi()->jpeg_ctl(GW_JPEG_DECODE, SrcAddress, DestAddress,
+                                       ((uint32_t)x << 16) | (uint32_t)y, luma_alpha);
 }
 uint32_t core_JPEG_DecodeGetSize(uint32_t SrcAddress, uint32_t *width, uint32_t *height)
 {
-    return gw_firmware_abi()->JPEG_DecodeGetSize(SrcAddress, width, height);
+    return gw_firmware_abi()->jpeg_ctl(GW_JPEG_GET_SIZE, SrcAddress,
+                                       (uint32_t)(uintptr_t)width,
+                                       (uint32_t)(uintptr_t)height, 0);
 }
-uint32_t core_JPEG_DecodeDeInit(void) { return gw_firmware_abi()->JPEG_DecodeDeInit(); }
+uint32_t core_JPEG_DecodeDeInit(void)
+{
+    return gw_firmware_abi()->jpeg_ctl(GW_JPEG_DEINIT, 0, 0, 0, 0);
+}
 size_t core_lzma_inflate(uint8_t *dst, size_t dst_size, const uint8_t *src, size_t src_size)
 {
     return gw_firmware_abi()->lzma_inflate(dst, dst_size, src, src_size);

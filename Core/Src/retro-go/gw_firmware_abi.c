@@ -61,6 +61,25 @@ static uint32_t gw_abi_get_SystemCoreClock(void)
     return SystemCoreClock;
 }
 
+/* Single ABI entry for the hardware JPEG decoder (LCD-Game-Emulator).
+ * Dispatches to the historical JPEG_Decode* helpers; argument packing
+ * matches gw_jpeg_op_t in gw_firmware_abi.h. */
+static uint32_t gw_abi_jpeg_ctl(gw_jpeg_op_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d)
+{
+    switch (op) {
+    case GW_JPEG_INIT:
+        return JPEG_DecodeToFrameInit(a, b);
+    case GW_JPEG_DECODE:
+        return JPEG_DecodeToFrame(a, b, (uint16_t)(c >> 16), (uint16_t)c, (uint8_t)d);
+    case GW_JPEG_GET_SIZE:
+        return JPEG_DecodeGetSize(a, (uint32_t *)(uintptr_t)b, (uint32_t *)(uintptr_t)c);
+    case GW_JPEG_DEINIT:
+        return JPEG_DecodeDeInit();
+    default:
+        return (uint32_t)-1;
+    }
+}
+
 /* These are defined in rg_emulators.c */
 extern uint8_t *pico8_code_flash_addr;
 extern uint32_t pico8_code_flash_size;
@@ -357,10 +376,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     /* v2 append: LCD-Game-Emulator (Game & Watch) */
     .GW_SetUnixTM                = GW_SetUnixTM,
     .lcd_is_swap_pending         = lcd_is_swap_pending,
-    .JPEG_DecodeToFrameInit      = JPEG_DecodeToFrameInit,
-    .JPEG_DecodeToFrame          = JPEG_DecodeToFrame,
-    .JPEG_DecodeGetSize          = JPEG_DecodeGetSize,
-    .JPEG_DecodeDeInit           = JPEG_DecodeDeInit,
+    .jpeg_ctl                    = gw_abi_jpeg_ctl,
     .lzma_inflate                = lzma_inflate,
     .lz4_uncompress              = lz4_uncompress,
     .lz4_get_file_size           = lz4_get_file_size,
