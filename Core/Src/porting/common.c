@@ -16,12 +16,11 @@
 static void set_ingame_overlay(ingame_overlay_t type);
 
 /* Per-system automatic CPU boost. A core that needs more headroom than stock
- * 280MHz calls this once at app start. Levels 0/1/2 match the launcher menu;
- * level 3 is core-private (~353 MHz) and must not be exposed in settings.
- * NOT persisted: leaving an emulator resets the system, restoring the user's
- * configured clock. Same OSPI1-hardware guard as the launcher menu.
- *
- * It is a FLOOR, not a setting: if the user already chose a higher OC, keep it.
+ * 280MHz calls SystemClock_Config(level) once at app start (see MSX / PCE-CD /
+ * GBA). Levels 0/1/2 match the launcher menu; level 3 is core-private
+ * (~353 MHz) and must not be exposed in settings. NOT persisted: leaving an
+ * emulator resets the system, restoring the user's configured clock.
+ * SystemClock_Config itself refuses OC on OSPI1 SD hardware.
  */
 uint8_t odroid_settings_cpu_oc_level_get(void);
 

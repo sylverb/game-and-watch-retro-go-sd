@@ -187,6 +187,18 @@ typedef enum {
     GW_LZ4_GET_SIZE   = 1,  /* a=src → file size */
 } gw_lz4_op_t;
 
+/* DMA2D ops for dma2d_ctl() — RGB565 M2M blit used by the SNES core
+ * (async present while audio runs). Firmware owns the HAL handle; cores
+ * must not link stm32h7xx_hal_dma2d. Reconfigure+start every frame so a
+ * prior JPEG/cover path that left different Mode/offsets cannot poison
+ * the next blit (same rule as jshsakura main_snes.c). */
+typedef enum {
+    /* a=src, b=dst, c=(width<<16)|height → 0 ok, nonzero0 HAL failure */
+    GW_DMA2D_M2M_RGB565_START = 0,
+    /* a=timeout_ms → HAL_StatusTypeDef (HAL_OK=0, HAL_TIMEOUT, …) */
+    GW_DMA2D_POLL             = 1,
+} gw_dma2d_op_t;
+
 typedef struct {
     /* Header — every plugin checks these before using the rest. */
     uint32_t version;        /* == GW_FIRMWARE_ABI_VERSION for this build */
@@ -476,7 +488,8 @@ typedef struct {
      * ================================================================ */
     uint8_t  (*odroid_settings_cpu_oc_level_get)(void);
     /* SystemClock_Config's argument is the CPU overclock level (0 = stock);
-     * see Core/Inc/main.h. */
+     * see Core/Src/main.c. On OSPI1 SD hardware any non-zero request is
+     * forced back to stock inside SystemClock_Config. */
     void     (*SystemClock_Config)(uint8_t new_oc_level);
 
     bool     (*get_ofw_is_mario)(void);
@@ -616,9 +629,10 @@ typedef struct {
     rg_app_desc_t *(*odroid_system_get_app)(void);
 
     /* ================================================================
-     * v2 append: per-core CPU boost floor (Virtual Boy, etc.).
+     * v2 append: DMA2D M2M RGB565 for external cores (SNES present_frame).
+     * Append-only while ABI v2 is unpublished — no version bump.
      * ================================================================ */
-    void (*common_emu_auto_oc)(uint8_t level);
+    uint32_t (*dma2d_ctl)(gw_dma2d_op_t op, uint32_t a, uint32_t b, uint32_t c);
 
 } gw_firmware_abi_t;
 

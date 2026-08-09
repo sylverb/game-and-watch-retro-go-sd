@@ -700,9 +700,9 @@ rg_app_desc_t *core_odroid_system_get_app(void)
     return gw_firmware_abi()->odroid_system_get_app();
 }
 
-void core_common_emu_auto_oc(uint8_t level)
+uint32_t core_dma2d_ctl(gw_dma2d_op_t op, uint32_t a, uint32_t b, uint32_t c)
 {
-    gw_firmware_abi()->common_emu_auto_oc(level);
+    return gw_firmware_abi()->dma2d_ctl(op, a, b, c);
 }
 
 /* ====================================================================

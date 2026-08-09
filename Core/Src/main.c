@@ -416,6 +416,13 @@ int main(void)
   */
 void SystemClock_Config(uint8_t oc_level)
 {
+  /* Soft-SPI-over-OSPI SD (Yota9) is unstable when the core/OSPI PLL is
+   * boosted — refuse any OC request on that hardware and stay at stock. */
+#if SD_CARD == 1
+  if (oc_level != 0 && sdcard_hw_type == SDCARD_HW_OSPI1)
+    oc_level = 0;
+#endif
+
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};

@@ -80,6 +80,48 @@ static uint32_t gw_abi_jpeg_ctl(gw_jpeg_op_t op, uint32_t a, uint32_t b, uint32_
     }
 }
 
+/* DMA2D M2M RGB565 for external cores. Own handle (JPEG has another);
+ * both drive the same peripheral — START always re-Inits + ConfigLayer. */
+static DMA2D_HandleTypeDef gw_abi_dma2d;
+
+static uint32_t gw_abi_dma2d_ctl(gw_dma2d_op_t op, uint32_t a, uint32_t b, uint32_t c)
+{
+    switch (op) {
+    case GW_DMA2D_M2M_RGB565_START: {
+        uint16_t width  = (uint16_t)(c >> 16);
+        uint16_t height = (uint16_t)c;
+
+        gw_abi_dma2d.Instance = DMA2D;
+        gw_abi_dma2d.Init.Mode = DMA2D_M2M;
+        gw_abi_dma2d.Init.ColorMode = DMA2D_OUTPUT_RGB565;
+        gw_abi_dma2d.Init.OutputOffset = 0;
+        gw_abi_dma2d.Init.AlphaInverted = DMA2D_REGULAR_ALPHA;
+        gw_abi_dma2d.Init.RedBlueSwap = DMA2D_RB_REGULAR;
+        gw_abi_dma2d.Init.BytesSwap = DMA2D_BYTES_REGULAR;
+        gw_abi_dma2d.Init.LineOffsetMode = DMA2D_LOM_PIXELS;
+        if (HAL_DMA2D_Init(&gw_abi_dma2d) != HAL_OK)
+            return 1;
+
+        gw_abi_dma2d.LayerCfg[1].InputColorMode = DMA2D_INPUT_RGB565;
+        gw_abi_dma2d.LayerCfg[1].InputOffset = 0;
+        gw_abi_dma2d.LayerCfg[1].AlphaMode = DMA2D_NO_MODIF_ALPHA;
+        gw_abi_dma2d.LayerCfg[1].InputAlpha = 0xFF;
+        gw_abi_dma2d.LayerCfg[1].AlphaInverted = DMA2D_REGULAR_ALPHA;
+        gw_abi_dma2d.LayerCfg[1].RedBlueSwap = DMA2D_RB_REGULAR;
+        if (HAL_DMA2D_ConfigLayer(&gw_abi_dma2d, 1) != HAL_OK)
+            return 1;
+
+        if (HAL_DMA2D_Start(&gw_abi_dma2d, a, b, width, height) != HAL_OK)
+            return 1;
+        return 0;
+    }
+    case GW_DMA2D_POLL:
+        return (uint32_t)HAL_DMA2D_PollForTransfer(&gw_abi_dma2d, a);
+    default:
+        return (uint32_t)-1;
+    }
+}
+
 /* Unified LCD — see lcd_ctl in gw_firmware_abi.h. */
 static uintptr_t gw_abi_lcd_ctl(gw_lcd_op_t op, uint32_t a, uint32_t b, uint32_t c)
 {
@@ -533,6 +575,6 @@ const gw_firmware_abi_t g_firmware_abi = {
     /* v2 append: live app descriptor (speedup / handlers) */
     .odroid_system_get_app       = odroid_system_get_app,
 
-    /* v2 append: per-core CPU boost (Virtual Boy, …) */
-    .common_emu_auto_oc          = common_emu_auto_oc,
+    /* v2 append: DMA2D M2M for external SNES (and similar) */
+    .dma2d_ctl                   = gw_abi_dma2d_ctl,
 };
