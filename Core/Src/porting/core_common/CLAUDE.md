@@ -106,11 +106,16 @@ Follow the checklist already documented in `docs/PICO8_EXTERNAL_MODULE.md`
 4. `Core/Src/porting/core_common/gw_core_bridge.c` — add the
    `core_real_name` trampoline forwarding through `gw_firmware_abi()`.
 
-Bump `GW_FIRMWARE_ABI_VERSION` only for an incompatible layout change (never
-for a pure append) — see the comment above that define. A core built
-against an older/smaller ABI keeps working: `gnw_core_probe()` /
-`gwhb_header_t` checks compare `required_abi_min_size <=
-sizeof(g_firmware_abi)`, not equality.
+Bump `GW_FIRMWARE_ABI_VERSION` only for an incompatible layout change once
+an ABI is *released* (never for a pure append) — see the comment above that
+define. While external cores are still in active development (packaged
+cores are gitignored; nothing is distributed as a prebuilt blob yet),
+fields may be removed/reordered without bumping — same policy as the
+`odroid_system_emu_init` cheat_update_cb signature change. Within a
+released version, `gnw_core_probe()` / `gwhb_header_t` checks compare
+`required_abi_min_size <= sizeof(g_firmware_abi)`, not equality. RTC read
+slots (`GW_GetCurrent*`, `GW_GetUnixTM`, `mktime`) were dropped in favor of
+`time()`+`localtime()`.
 
 ## Shared globals: macros, not snapshots
 

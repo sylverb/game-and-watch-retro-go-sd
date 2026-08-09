@@ -43,7 +43,12 @@
 extern "C" {
 #endif
 
-/* Bump on any removal, reorder, or signature change. Append-only is safe. */
+/* Bump on any removal, reorder, or signature change. Append-only is safe
+ * within a released version. While external cores are still in active
+ * development (no released ABI compatibility window), fields may still
+ * be removed/reordered without bumping — see the odroid_system_emu_init
+ * comment further down. RTC read getters (GW_GetCurrent*, GW_GetUnixTM,
+ * mktime) were dropped in favor of time()+localtime(). */
 #define GW_FIRMWARE_ABI_VERSION  2u
 
 /* Progress callback for ranged SD→RAM copies (matches rg_storage.h). Declared
@@ -165,6 +170,10 @@ typedef struct {
 
     /* ================================================================
      * libc: time.h / setjmp.h / locale.h / libm
+     *
+     * time() is the canonical wall-clock read for cores: pair with
+     * localtime() further down for calendar fields. Do not re-add
+     * per-field RTC getters.
      * ================================================================ */
     time_t         (*time)(time_t *);
     int            (*setjmp)(jmp_buf env);
@@ -236,15 +245,12 @@ typedef struct {
     void   (*itc_init)(void);
     size_t (*ram_get_free_size)(void);
 
-    /* ================================================================
-     * G&W hardware: RTC
-     * ================================================================ */
-    uint8_t (*GW_GetCurrentYear)(void);
-    uint8_t (*GW_GetCurrentMonth)(void);
-    uint8_t (*GW_GetCurrentDay)(void);
-    uint8_t (*GW_GetCurrentHour)(void);
-    uint8_t (*GW_GetCurrentMinute)(void);
-    uint8_t (*GW_GetCurrentSecond)(void);
+    /* G&W hardware RTC getters (GW_GetCurrentYear/Month/Day/Hour/Minute/
+     * Second, GW_GetUnixTM, mktime) were removed during external-core
+     * development (still ABI v2 — no released compatibility window).
+     * Cores get wall-clock via time()+localtime() (and gettimeofday for
+     * sub-second). Firmware UI still calls the rg_rtc.c helpers directly.
+     * GW_SetUnixTM (write path) remains further down. */
 
     /* ================================================================
      * G&W hardware: watchdog + HAL
@@ -439,10 +445,9 @@ typedef struct {
      * v2 append: surface required to port TGB Dual (Game Boy / Game Boy
      * Color, C++) to the external-core model. Identified by porting
      * Core/Src/porting/gb_tgbdual/main_gb_tgbdual.cpp (+ gw_renderer.cpp)
-     * against this ABI.
+     * against this ABI. (GW_GetUnixTM/mktime were dropped during
+     * external-core development — use time()+localtime() instead.)
      * ================================================================ */
-    void     (*GW_GetUnixTM)(struct tm *tm);
-    time_t   (*mktime)(struct tm *tm);
     void     (*lcd_clone)(void);
     int32_t  (*odroid_settings_Palette_get)(void);
     void     (*odroid_settings_Palette_set)(int32_t value);
@@ -481,6 +486,8 @@ typedef struct {
 
     /* ================================================================
      * v2 append: LCD-Game-Emulator (Game & Watch handhelds).
+     * GW_SetUnixTM is the only RTC write entry left after the read-side
+     * getters were dropped (no portable libc setter on this firmware).
      * ================================================================ */
     void     (*GW_SetUnixTM)(struct tm *tm);
     uint32_t (*lcd_is_swap_pending)(void);

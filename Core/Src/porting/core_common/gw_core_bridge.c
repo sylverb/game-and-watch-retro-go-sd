@@ -481,13 +481,16 @@ void  *core_dtcm_arena_malloc(size_t size) { return gw_firmware_abi()->mem_alloc
 void  *core_dtcm_arena_calloc(size_t count, size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_DTCM_ARENA, count, size); }
 
 /* ====================================================================
- * G&W hardware: RTC (fields on ABI since v1; trampolines added for
- * Tamagotchi). Millis/SubSeconds composed from gettimeofday — firmware
- * _gettimeofday is itself backed by GW_GetCurrentMillis().
+ * G&W hardware: RTC. Per-field getters and GW_GetUnixTM/mktime were
+ * dropped from the firmware table during external-core development
+ * (still ABI v2). Every core reads "now" through core_time() +
+ * core_localtime() instead. GW_SetUnixTM (below) stays — writing the
+ * RTC has no portable libc equivalent wired into the ABI.
+ * Millis/SubSeconds composed from gettimeofday — firmware _gettimeofday
+ * is itself backed by GW_GetCurrentMillis(); kept as their own
+ * trampolines since struct tm/time_t have no sub-second field.
  * ==================================================================== */
-uint8_t core_GW_GetCurrentHour(void) { return gw_firmware_abi()->GW_GetCurrentHour(); }
-uint8_t core_GW_GetCurrentMinute(void) { return gw_firmware_abi()->GW_GetCurrentMinute(); }
-uint8_t core_GW_GetCurrentSecond(void) { return gw_firmware_abi()->GW_GetCurrentSecond(); }
+time_t core_time(time_t *t) { return gw_firmware_abi()->time(t); }
 uint64_t core_GW_GetCurrentMillis(void)
 {
     struct timeval tv;
@@ -635,8 +638,6 @@ int core_sscanf(const char *str, const char *fmt, ...)
 /* ====================================================================
  * v2 append: TGB Dual (Game Boy / Game Boy Color, C++) porting surface
  * ==================================================================== */
-void   core_GW_GetUnixTM(struct tm *tm) { gw_firmware_abi()->GW_GetUnixTM(tm); }
-time_t core_mktime(struct tm *tm) { return gw_firmware_abi()->mktime(tm); }
 void   core_lcd_clone(void) { gw_firmware_abi()->lcd_clone(); }
 int32_t core_odroid_settings_Palette_get(void) { return gw_firmware_abi()->odroid_settings_Palette_get(); }
 void    core_odroid_settings_Palette_set(int32_t value) { gw_firmware_abi()->odroid_settings_Palette_set(value); }
@@ -804,9 +805,12 @@ uint16_t core_audio_get_buffer_size(void)
     return (uint16_t)(gw_firmware_abi()->audio_get_buffer_length() * sizeof(int16_t));
 }
 
-/* libc time / gettimeofday — ABI has .time already; localtime/gettimeofday
- * appended for blueMSX RTC + archGetSystemUpTime. */
-time_t core_time(time_t *t) { return gw_firmware_abi()->time(t); }
+/* libc localtime/gettimeofday — core_time (above) pairs with this one for
+ * every "get now as calendar fields" need (time()+localtime(), see the RTC
+ * block above). gettimeofday is real RTC access, kept for
+ * archGetSystemUpTime (external/blueMSX-go/Src/Libretro/Timer.c) and the
+ * Millis/SubSeconds composition above. mktime is not exported: convert
+ * "now" with time(); convert an arbitrary time_t with localtime only. */
 struct tm *core_localtime(const time_t *timer) { return gw_firmware_abi()->localtime(timer); }
 int core_gettimeofday(struct timeval *tv, void *tz)
 {

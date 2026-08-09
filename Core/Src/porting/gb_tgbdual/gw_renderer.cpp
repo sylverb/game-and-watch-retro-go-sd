@@ -26,7 +26,6 @@ extern "C" {
 #include "common.h"
 #include "gw_lcd.h"
 #include "main_gb_tgbdual.h"
-#include "rg_rtc.h"
 
 #include "gw_core_bridge.h"
 }
@@ -63,19 +62,19 @@ word gw_renderer::map_color(word gb_col)
 void gw_renderer::refresh() {
    this->snd_render->render(stream, SAMPLES_PER_FRAME);
    gb_pcm_submit(stream, SAMPLES_PER_FRAME);
-   /* ~1 Hz wall clock is enough for MBC3; avoid time(NULL)/mktime @60Hz. */
+   /* ~1 Hz wall clock is enough for MBC3; avoid time(NULL) @60Hz. */
    static uint8_t sync_div;
    if (!cal_valid || ++sync_div >= 60) {
       sync_div = 0;
-      struct tm tm;
-      GW_GetUnixTM(&tm);
-      fixed_time = mktime(&tm);
-      cal_year = (byte)(tm.tm_year % 100);
-      cal_month = (byte)(tm.tm_mon + 1);
-      cal_day = (byte)tm.tm_mday;
-      cal_hour = (byte)tm.tm_hour;
-      cal_minute = (byte)tm.tm_min;
-      cal_second = (byte)tm.tm_sec;
+      time_t t = time(NULL);
+      struct tm *tm = localtime(&t);
+      fixed_time = t;
+      cal_year = (byte)(tm->tm_year % 100);
+      cal_month = (byte)(tm->tm_mon + 1);
+      cal_day = (byte)tm->tm_mday;
+      cal_hour = (byte)tm->tm_hour;
+      cal_minute = (byte)tm->tm_min;
+      cal_second = (byte)tm->tm_sec;
       cal_valid = true;
    }
 }
@@ -190,14 +189,14 @@ void gw_renderer::get_calendar_time(byte *year,byte *month,byte *day,
                                     byte *hour,byte *minute,byte *second)
 {
    if (!cal_valid) {
-      struct tm tm;
-      GW_GetUnixTM(&tm);
-      cal_year = (byte)(tm.tm_year % 100);
-      cal_month = (byte)(tm.tm_mon + 1);
-      cal_day = (byte)tm.tm_mday;
-      cal_hour = (byte)tm.tm_hour;
-      cal_minute = (byte)tm.tm_min;
-      cal_second = (byte)tm.tm_sec;
+      time_t t = time(NULL);
+      struct tm *tm = localtime(&t);
+      cal_year = (byte)(tm->tm_year % 100);
+      cal_month = (byte)(tm->tm_mon + 1);
+      cal_day = (byte)tm->tm_mday;
+      cal_hour = (byte)tm->tm_hour;
+      cal_minute = (byte)tm->tm_min;
+      cal_second = (byte)tm->tm_sec;
       cal_valid = true;
    }
    if (year) *year = cal_year;

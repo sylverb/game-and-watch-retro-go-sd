@@ -105,9 +105,9 @@ ram_malloc core_ram_malloc
 ram_get_free_size core_ram_get_free_size
 dtcm_malloc core_dtcm_malloc
 # --- G&W hardware: RTC ---
-GW_GetCurrentHour core_GW_GetCurrentHour
-GW_GetCurrentMinute core_GW_GetCurrentMinute
-GW_GetCurrentSecond core_GW_GetCurrentSecond
+# NOTE: per-field RTC getters and GW_GetUnixTM/mktime were dropped from
+# the firmware table. Cores read "now" via time()+localtime() only.
+time core_time
 GW_GetCurrentMillis core_GW_GetCurrentMillis
 GW_GetCurrentSubSeconds core_GW_GetCurrentSubSeconds
 # --- G&W hardware: watchdog + HAL ---
@@ -164,9 +164,8 @@ odroid_settings_ActiveGameGenieCodes_is_enabled core_odroid_settings_ActiveGameG
 # --- v2 append: TGB Dual (Game Boy / Game Boy Color, C++) porting surface ---
 # NOTE: strtok is intentionally NOT here — gw_core_bridge.c defines a real
 # local implementation (static per-core state), same reasoning as
-# memcpy/memset/memmove above.
-GW_GetUnixTM core_GW_GetUnixTM
-mktime core_mktime
+# memcpy/memset/memmove above. NOTE: GW_GetUnixTM/mktime were dropped —
+# use time()+localtime() (see "time core_time" above).
 lcd_clone core_lcd_clone
 odroid_settings_Palette_get core_odroid_settings_Palette_get
 odroid_settings_Palette_set core_odroid_settings_Palette_set
@@ -193,7 +192,6 @@ calculate_sha1_file_limit core_calculate_sha1_file_limit
 calculate_sha1_hw core_calculate_sha1_hw
 audio_clear_buffers core_audio_clear_buffers
 audio_get_buffer_size core_audio_get_buffer_size
-time core_time
 localtime core_localtime
 gettimeofday core_gettimeofday
 rg_storage_stat core_rg_storage_stat

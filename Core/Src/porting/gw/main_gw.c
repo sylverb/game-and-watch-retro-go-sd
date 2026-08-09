@@ -54,33 +54,34 @@ static unsigned int softkey_duration = 0;
 
 static void gw_set_time() {
 
-    struct tm tm;
-    GW_GetUnixTM(&tm);
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
 
-    gw_time_t time;
-    time.hours = tm.tm_hour;
-    time.minutes = tm.tm_min;
-    time.seconds = tm.tm_sec;
+    gw_time_t emu_time;
+    emu_time.hours = tm->tm_hour;
+    emu_time.minutes = tm->tm_min;
+    emu_time.seconds = tm->tm_sec;
 
     // set time of the emulated system
-    gw_system_set_time(time);
+    gw_system_set_time(emu_time);
     printf("Set time done!\n");
 }
 
 static void gw_get_time() {
 
-    gw_time_t time = {0};
+    gw_time_t emu_time = {0};
 
     // check if the system is able to get the time
-    time = gw_system_get_time();
-    if (time.hours > 24) return;
+    emu_time = gw_system_get_time();
+    if (emu_time.hours > 24) return;
 
-    // Set times
-    struct tm tm;
-    GW_GetUnixTM(&tm);
-    tm.tm_hour = time.hours;
-    tm.tm_min = time.minutes;
-    tm.tm_sec = time.seconds;
+    // Set times (read "now" via time()/localtime, write via GW_SetUnixTM —
+    // there is no portable libc setter wired into the ABI).
+    time_t now = time(NULL);
+    struct tm tm = *localtime(&now);
+    tm.tm_hour = emu_time.hours;
+    tm.tm_min = emu_time.minutes;
+    tm.tm_sec = emu_time.seconds;
     GW_SetUnixTM(&tm);
 }
 
@@ -88,19 +89,19 @@ static void gw_check_time() {
 
     static unsigned int is_gw_time_sync=0;
 
-    struct tm tm;
-    GW_GetUnixTM(&tm);
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
 
     // Set times
-    gw_time_t time;
-    time.hours = tm.tm_hour;
-    time.minutes = tm.tm_min;
-    time.seconds = tm.tm_sec;
+    gw_time_t emu_time;
+    emu_time.hours = tm->tm_hour;
+    emu_time.minutes = tm->tm_min;
+    emu_time.seconds = tm->tm_sec;
 
     // update time every 30s
-    if ( (time.seconds == 30) || (is_gw_time_sync==0) ) {
+    if ( (emu_time.seconds == 30) || (is_gw_time_sync==0) ) {
         is_gw_time_sync = 1;
-        gw_system_set_time(time);
+        gw_system_set_time(emu_time);
     }
 }
 static unsigned char state_save_buffer[sizeof(gw_state_t)];

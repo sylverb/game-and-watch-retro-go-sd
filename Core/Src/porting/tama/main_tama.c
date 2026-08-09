@@ -366,15 +366,14 @@ static void update_clock() {
     // Test if this rom is the original P1 rom as it is the only one that I could find and verify the offsets
     // Note that this is NOT the file hash but the hash of the processed rom after load_rom()
     if (strncmp("48a716bbae6395ad8b5f43c1a6f57f84ce8abffcdfda0786007b75c2e3a35665", sha256, sizeof(sha256)) == 0) {
-        uint8_t ss = GW_GetCurrentSecond();
-        set_memory(0x10, ss % 10);
-        set_memory(0x11, ss / 10);
-        uint8_t mm = GW_GetCurrentMinute();
-        set_memory(0x12, mm % 10);
-        set_memory(0x13, mm / 10);
-        uint8_t hh = GW_GetCurrentHour();
-        set_memory(0x14, hh & 0x0F);
-        set_memory(0x15, hh >> 4);
+        time_t t = time(NULL);
+        struct tm *tm = localtime(&t);
+        set_memory(0x10, tm->tm_sec % 10);
+        set_memory(0x11, tm->tm_sec / 10);
+        set_memory(0x12, tm->tm_min % 10);
+        set_memory(0x13, tm->tm_min / 10);
+        set_memory(0x14, tm->tm_hour & 0x0F);
+        set_memory(0x15, tm->tm_hour >> 4);
     }
 }
 

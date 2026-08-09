@@ -220,13 +220,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .itc_init          = itc_init,
     .ram_get_free_size = ram_get_free_size,
 
-    /* G&W RTC */
-    .GW_GetCurrentYear   = GW_GetCurrentYear,
-    .GW_GetCurrentMonth  = GW_GetCurrentMonth,
-    .GW_GetCurrentDay    = GW_GetCurrentDay,
-    .GW_GetCurrentHour   = GW_GetCurrentHour,
-    .GW_GetCurrentMinute = GW_GetCurrentMinute,
-    .GW_GetCurrentSecond = GW_GetCurrentSecond,
+    /* G&W RTC getters removed — cores use time()/localtime(). */
 
     /* G&W watchdog + HAL */
     .wdog_refresh = wdog_refresh,
@@ -335,9 +329,8 @@ const gw_firmware_abi_t g_firmware_abi = {
     .dma_counter_ptr                 = &dma_counter,
     .common_emu_sound_dma_marker_ptr = &common_emu_sound_dma_marker,
 
-    /* v2 append: TGB Dual (Game Boy / Game Boy Color) porting surface */
-    .GW_GetUnixTM                    = GW_GetUnixTM,
-    .mktime                          = mktime,
+    /* TGB Dual (Game Boy / Game Boy Color) porting surface.
+     * GW_GetUnixTM/mktime dropped — use time()/localtime(). */
     .lcd_clone                       = lcd_clone,
     .odroid_settings_Palette_get     = odroid_settings_Palette_get,
     .odroid_settings_Palette_set     = odroid_settings_Palette_set,
