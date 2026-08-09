@@ -227,8 +227,26 @@ void gui_event(gui_event_t event, tab_t *tab)
         (*tab->event_handler)(event, tab);
 }
 
+void gui_ensure_tab_capacity(int capacity)
+{
+    if (capacity < 1)
+        capacity = 1;
+    if (gui.tabs != NULL) {
+        /* AHB bump allocator cannot grow in place — capacity is fixed at
+         * the first call (from emulators_init after counting /cores). */
+        assert(capacity <= gui.tab_capacity);
+        return;
+    }
+    gui.tabs = ahb_calloc((size_t)capacity, sizeof(tab_t *));
+    gui.tab_capacity = capacity;
+}
+
 tab_t *gui_add_tab(const char *name, int16_t logo_idx, int16_t header_idx, void *arg, void *event_handler)
 {
+    if (gui.tabs == NULL)
+        gui_ensure_tab_capacity(32);
+    assert(gui.tabcount < gui.tab_capacity);
+
     tab_t *tab = ahb_calloc(1, sizeof(tab_t));
 
     sprintf(tab->name, "%s", name);
@@ -242,8 +260,6 @@ tab_t *gui_add_tab(const char *name, int16_t logo_idx, int16_t header_idx, void 
     tab->arg = arg;
 
     gui.tabs[gui.tabcount++] = tab;
-
-    //printf("gui_add_tab: Tab '%s' added at index %d\n", tab->name, gui.tabcount - 1);
 
     return tab;
 }

@@ -23,9 +23,10 @@ static retro_logo_image** logo_image_cache;
  * compile-time RG_LOGO_* enum value, yet still round-trip cleanly through
  * add_emulator()'s uint16_t/tab_t's int16_t logo_idx/header_idx fields.
  *
- * Two slots per launcher tab (pad + header). MAX_EMULATORS is 22 and
- * multi-system cores (sms×4, pce×2, tgb×2, …) push past 32 — bump so the
- * last cores scanned from /cores/*.bin still get their navbar/banner art. */
+ * Two slots per launcher tab (pad + header). Capacity follows however
+ * many systems emulators_init() sized from /cores/*.bin (plus builtins);
+ * keep this comfortably above 2× that count so late-scanned cores still
+ * get navbar/banner art. */
 #define RG_LOGO_DYNAMIC_BASE (-1000)
 #define RG_LOGO_DYNAMIC_MAX  64
 static const retro_logo_image *dynamic_logos[RG_LOGO_DYNAMIC_MAX];

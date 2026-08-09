@@ -236,11 +236,14 @@ static retro_emulator_file_t *shared_files = NULL;
 #if !defined(COVERFLOW)
 #define COVERFLOW 0
 #endif /* COVERFLOW */
-// Increase when adding new emulators
-#define MAX_EMULATORS 22
+/* Builtin launcher systems that are not discovered from /cores/*.bin
+ * (Homebrew + PICO-8). Capacity for emulators[]/systems[] is sized at boot
+ * as BUILTIN_SYSTEM_EMULATORS + systems described by probeable CORE bins. */
+#define BUILTIN_SYSTEM_EMULATORS 2
 static retro_emulator_t *emulators;
 static rom_system_t *systems;
 static int emulators_count = 0;
+static int emulators_capacity = 0;
 
 #if CHEAT_CODES == 1
 static retro_emulator_file_t *CHOSEN_FILE = NULL;
@@ -558,7 +561,7 @@ static void add_emulator_ex(const char *system, const char *dirname, const char*
                             int16_t logo_idx, int16_t header_idx, game_data_type_t game_data_type,
                             uint32_t parse_type, const char *core_path)
 {
-    assert(emulators_count < MAX_EMULATORS);
+    assert(emulators != NULL && emulators_count < emulators_capacity);
     retro_emulator_t *p = &emulators[emulators_count];
     rom_system_t *s = &systems[emulators_count];
     emulators_count++;
@@ -1623,8 +1626,9 @@ static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_p
     for (uint32_t i = 0; i < meta->systems_count; i++) {
         const gnw_core_system_t *sys = &meta->systems[i];
 
-        if (emulators_count >= MAX_EMULATORS) {
-            printf("CORE: '%s' system '%s' ignored, MAX_EMULATORS reached\n", core_path, sys->system_name);
+        if (emulators_count >= emulators_capacity) {
+            printf("CORE: '%s' system '%s' ignored, emulator table full (%d)\n",
+                   core_path, sys->system_name, emulators_capacity);
             return;
         }
 
@@ -1646,6 +1650,33 @@ static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_p
  * probe-able core. Files that aren't a "CORE"/GNW_CORE_META_VERSION
  * container (pico8.bin, pico8_stub.bin, pico8.ro, ...) are silently
  * skipped. */
+static int count_core_systems(void)
+{
+    DIR dir;
+    FILINFO fno;
+    gnw_core_meta_t meta;
+    char path[128];
+    int total = 0;
+
+    if (f_opendir(&dir, "/cores") != FR_OK)
+        return 0;
+
+    while (f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != 0) {
+        if (fno.fattrib & AM_DIR)
+            continue;
+        const char *ext = get_extension(fno.fname);
+        if (!ext || strcasecmp(ext, "bin") != 0)
+            continue;
+
+        snprintf(path, sizeof(path), "/cores/%s", fno.fname);
+        if (gnw_core_probe(path, &meta, NULL))
+            total += (int)meta.systems_count;
+    }
+
+    f_closedir(&dir);
+    return total;
+}
+
 static void emulators_scan_cores(void)
 {
     DIR dir;
@@ -2074,10 +2105,32 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 
 void emulators_init()
 {
-    if (!emulators) {
-        emulators = (retro_emulator_t *)ahb_calloc(MAX_EMULATORS, sizeof(retro_emulator_t));
-        systems = (rom_system_t *)ahb_calloc(MAX_EMULATORS, sizeof(rom_system_t));
-    }
+    int from_cores = 0;
+#if SD_CARD == 1
+    from_cores = count_core_systems();
+#endif
+    /* Exact fit: builtins + every system described by CORE headers on the
+     * SD card. AHB is a bump allocator (no realloc), so size once up front. */
+    emulators_capacity = BUILTIN_SYSTEM_EMULATORS + from_cores;
+    if (emulators_capacity < BUILTIN_SYSTEM_EMULATORS)
+        emulators_capacity = BUILTIN_SYSTEM_EMULATORS;
+
+    /* After ahb_init() (cold boot or return from a core) the previous
+     * emulators[]/gui.tabs allocations are gone — drop dangling pointers
+     * before allocating fresh tables. */
+    emulators = NULL;
+    systems = NULL;
+    emulators_count = 0;
+    gui.tabs = NULL;
+    gui.tab_capacity = 0;
+    gui.tabcount = 0;
+    gui.selected = 0;
+
+    emulators = (retro_emulator_t *)ahb_calloc((size_t)emulators_capacity, sizeof(retro_emulator_t));
+    systems = (rom_system_t *)ahb_calloc((size_t)emulators_capacity, sizeof(rom_system_t));
+
+    /* Favorites tab + one launcher tab per emulator slot. */
+    gui_ensure_tab_capacity(1 + emulators_capacity);
 
     /* ★ Favorites must be the FIRST tab (index 0), before every system tab. */
     rg_favorites_register_tab();
@@ -2099,8 +2152,11 @@ void emulators_init()
 #if SD_CARD == 1
     /* Migrated systems (Watara Supervision, ...) register themselves here
      * by dropping a packaged .bin under /cores/ on the SD card — no
-     * firmware rebuild needed to add/update/remove one. */
+     * firmware rebuild needed to add/update/remove one. Capacity was
+     * sized from count_core_systems() above so new cores are not dropped. */
     emulators_scan_cores();
+    printf("CORE: %d system tab(s) (%d from /cores, capacity %d)\n",
+           emulators_count, from_cores, emulators_capacity);
 #endif
 }
 

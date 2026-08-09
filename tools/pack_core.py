@@ -24,6 +24,26 @@ File layout produced (all integers little-endian):
                      firmware zeroes each segment's bss_size bytes right
                      after loading it into that segment's fixed region)
 
+Logos (pad = controller icon in the footer, header = console name glyph)
+can come from either:
+
+  - PNG/BMP/GIF/JPEG via --pad-logo / --header-logo (or pad_logo=img.png
+    inside --system). Converted to packed 1bpp retro_logo_image (same
+    rules as tools/png_to_logo.py). Requires Pillow.
+  - Existing C arrays via --pad-logo-c / --header-logo-c (or
+    pad_logo=.../rg_logos.c:varname) for pixel-identical migration from
+    the firmware's baked-in rg_logos.c.
+
+Usage — image logos (template / new cores):
+
+    tools/pack_core.py \
+        --elf build/example_core.elf --bin build/example_core.bin \
+        --system-name "Example Core" --dirname example \
+        --extensions "bin" \
+        --pad-logo assets/pad.png \
+        --header-logo assets/header.png \
+        --out example.bin
+
 Usage — single-system, single-segment core (see cores/wsv/Makefile):
 
     tools/pack_core.py \\
@@ -52,12 +72,18 @@ header_logo=../../Core/Src/retro-go/rg_logos.c:header_pcecd \\
         --segment itcm:__ITCM_CORE_START__:__CORE_ITCM_CODE_END__:__CORE_ITCM_BSS_END__:build/pce_core_itcm.bin \\
         --out ../pce.bin
 
+Extra ITCM/AHB segments are auto-detected from ELF symbols
+(__CORE_ITCM_* / __CORE_AHB_*, section .core_itcm / .core_ahb) when
+present; pass --no-auto-segments to disable. Explicit --segment still
+wins for a given region.
+
 --system/--segment are repeatable (up to GNW_CORE_MAX_SYSTEMS=4 /
 GNW_CORE_MAX_SEGMENTS=4, segment 0 already implied by --elf/--bin so
 --segment only covers segments 1..3). The legacy --system-name/--dirname/
---extensions/--pad-logo-c/--header-logo-c flags remain as sugar for "one
-system, parse=rom" so cores/wsv/Makefile and cores/md/Makefile need no
-changes. --system and the legacy flags are mutually exclusive.
+--extensions/--pad-logo/--pad-logo-c/--header-logo/--header-logo-c flags
+remain as sugar for "one system, parse=rom". --system and the legacy
+flags are mutually exclusive. Image vs C logo specs are auto-detected
+(see resolve_logo()).
 """
 import argparse
 import re
@@ -65,6 +91,8 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+
+IMAGE_LOGO_EXTENSIONS = {".png", ".bmp", ".gif", ".jpg", ".jpeg"}
 
 CORE_HEADER_MAGIC = b"CORE"
 CORE_HEADER_MIN_SIZE = 8
@@ -119,13 +147,14 @@ def parse_version(spec):
 
 
 class SystemSpec:
-    def __init__(self, name, dirname, extensions, parse_type, pad_logo_c=None, header_logo_c=None):
+    def __init__(self, name, dirname, extensions, parse_type, pad_logo=None, header_logo=None):
         self.name = name
         self.dirname = dirname
         self.extensions = extensions
         self.parse_type = parse_type
-        self.pad_logo_c = pad_logo_c
-        self.header_logo_c = header_logo_c
+        # Image path (*.png/...), C extract PATH:VAR, or None.
+        self.pad_logo = pad_logo
+        self.header_logo = header_logo
 
     def validate(self):
         if len(self.name.encode()) >= 32:
@@ -134,6 +163,104 @@ class SystemSpec:
             sys.exit(f"error: dirname too long (max 15 bytes): {self.dirname!r}")
         if len(self.extensions.encode()) >= 32:
             sys.exit(f"error: extensions too long (max 31 bytes): {self.extensions!r}")
+
+
+def logo_from_image(path, *, invert=False, target_width=None, target_height=None):
+    """Convert PNG/BMP(/GIF/JPEG) to packed retro_logo_image bytes.
+
+    Same thresholding / width-pad-to-8 / MSB-first packing as tools/png_to_logo.py
+    so assets authored for that tool drop straight into a core .bin.
+    """
+    try:
+        from PIL import Image, ImageOps
+    except ImportError as e:
+        sys.exit(
+            "error: converting logos from images requires Pillow "
+            f"(pip install pillow) — while loading {path}: {e}"
+        )
+
+    path = Path(path)
+    if not path.is_file():
+        sys.exit(f"error: logo image not found: {path}")
+
+    img = Image.open(path)
+
+    if target_height is not None or target_width is not None:
+        original_width, original_height = img.size
+        aspect_ratio = original_width / original_height if original_height else 1.0
+        if target_width is not None and target_height is not None:
+            new_width, new_height = target_width, target_height
+        elif target_width is not None:
+            new_width = target_width
+            new_height = max(1, int(target_width / aspect_ratio))
+        else:
+            new_height = target_height
+            new_width = max(1, int(target_height * aspect_ratio))
+        img = img.resize((new_width, new_height), Image.Resampling.NEAREST)
+
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+
+    result = Image.new("1", img.size, 0)
+    for x in range(img.width):
+        for y in range(img.height):
+            r, g, b, a = img.getpixel((x, y))
+            if a == 0:
+                continue
+            if (r + g + b) < 384:
+                result.putpixel((x, y), 255)
+
+    if invert:
+        result = ImageOps.invert(result)
+
+    width, height = result.size
+    padded_width = ((width + 7) // 8) * 8
+    if padded_width != width:
+        padded = Image.new("1", (padded_width, height), 0)
+        padded.paste(result, (0, 0))
+        result = padded
+        width = padded_width
+
+    pixels = [0 if p == 0 else 1 for p in result.getdata()]
+    byte_data = bytearray()
+    for y in range(height):
+        for x in range(0, width, 8):
+            byte = 0
+            for bit in range(8):
+                if x + bit < width and pixels[y * width + (x + bit)]:
+                    byte |= 1 << (7 - bit)
+            byte_data.append(byte)
+
+    return struct.pack("<HH", width, height) + bytes(byte_data)
+
+
+def looks_like_c_logo_spec(spec):
+    """True for 'path/to/file.c:varname' (existing rg_logos.c extracts)."""
+    if ":" not in spec:
+        return False
+    path_str, _, varname = spec.rpartition(":")
+    if not path_str or not varname:
+        return False
+    suffix = Path(path_str).suffix.lower()
+    return suffix in {".c", ".h", ".cpp", ".cc"} or Path(path_str).name == "rg_logos.c"
+
+
+def resolve_logo(spec, *, invert=False, target_width=None, target_height=None):
+    """Resolve a logo argument to packed retro_logo_image bytes (or b'')."""
+    if not spec:
+        return b""
+    if looks_like_c_logo_spec(spec):
+        return extract_logo_from_c(spec)
+    path = Path(spec)
+    if path.suffix.lower() in IMAGE_LOGO_EXTENSIONS:
+        return logo_from_image(path, invert=invert, target_width=target_width,
+                               target_height=target_height)
+    if ":" in spec:
+        return extract_logo_from_c(spec)
+    sys.exit(
+        f"error: logo {spec!r} must be an image "
+        f"({', '.join(sorted(IMAGE_LOGO_EXTENSIONS))}) or PATH:VARNAME into a .c file"
+    )
 
 
 def run_nm(nm_tool, elf_path):
@@ -226,8 +353,9 @@ def extract_logo_from_c(spec):
 
 def parse_system_arg(spec):
     """Parses one --system 'name=...,dirname=...,ext=...,parse=rom|cdrom,
-    pad_logo=PATH:VAR,header_logo=PATH:VAR' argument. pad_logo/header_logo
-    are optional; unrecognized keys are rejected to catch typos early."""
+    pad_logo=IMG_OR_C,header_logo=IMG_OR_C' argument. pad_logo/header_logo
+    are optional; each value is an image path or PATH:VAR into a .c file
+    (see resolve_logo). pad_logo_c/header_logo_c are accepted aliases."""
     fields = {}
     for token in spec.split(","):
         if "=" not in token:
@@ -235,7 +363,8 @@ def parse_system_arg(spec):
         key, _, value = token.partition("=")
         fields[key.strip()] = value.strip()
 
-    unknown = set(fields) - {"name", "dirname", "ext", "parse", "pad_logo", "header_logo"}
+    unknown = set(fields) - {"name", "dirname", "ext", "parse", "pad_logo", "header_logo",
+                             "pad_logo_c", "header_logo_c"}
     if unknown:
         sys.exit(f"error: --system has unknown key(s) {sorted(unknown)} (spec: {spec!r})")
     for required in ("name", "dirname", "ext", "parse"):
@@ -246,8 +375,9 @@ def parse_system_arg(spec):
     if parse_type is None:
         sys.exit(f"error: --system parse={fields['parse']!r} must be one of {sorted(PARSE_NAME_TO_ID)}")
 
-    return SystemSpec(fields["name"], fields["dirname"], fields["ext"], parse_type,
-                       fields.get("pad_logo"), fields.get("header_logo"))
+    pad = fields.get("pad_logo") or fields.get("pad_logo_c")
+    header = fields.get("header_logo") or fields.get("header_logo_c")
+    return SystemSpec(fields["name"], fields["dirname"], fields["ext"], parse_type, pad, header)
 
 
 def parse_segment_arg(spec):
@@ -260,6 +390,87 @@ def parse_segment_arg(spec):
     if region is None:
         sys.exit(f"error: --segment region {region_name!r} must be one of {sorted(REGION_NAME_TO_ID)}")
     return region, start_symbol, code_end_symbol, bss_end_symbol, Path(bin_file)
+
+
+# Optional extra segments discovered from ELF symbols when a custom
+# linker script defines them (see cores/pce/pce_core.ld, cores/gba/…).
+# If the triple is absent, packing is a no-op for that region.
+AUTO_EXTRA_SEGMENTS = (
+    {
+        "region": "itcm",
+        "start": "__ITCM_CORE_START__",
+        "code_end": "__CORE_ITCM_CODE_END__",
+        "bss_end": "__CORE_ITCM_BSS_END__",
+        "section": ".core_itcm",
+    },
+    {
+        "region": "ahb",
+        "start": "__AHB_CORE_START__",
+        "code_end": "__CORE_AHB_CODE_END__",
+        "bss_end": "__CORE_AHB_BSS_END__",
+        "section": ".core_ahb",
+    },
+)
+
+
+def objcopy_tool_from_nm(nm_tool):
+    """arm-none-eabi-nm → arm-none-eabi-objcopy (and likewise for a path)."""
+    nm_tool = str(nm_tool)
+    if nm_tool.endswith("nm"):
+        return nm_tool[:-2] + "objcopy"
+    return "arm-none-eabi-objcopy"
+
+
+def extract_section_bytes(objcopy, elf_path, section, expected_size):
+    """objcopy --only-section into a temp file. Empty segment → b''."""
+    if expected_size == 0:
+        return b""
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+    try:
+        subprocess.run(
+            [objcopy, "-O", "binary", f"--only-section={section}", str(elf_path), str(tmp_path)],
+            check=True, capture_output=True, text=True,
+        )
+        data = tmp_path.read_bytes()
+    except subprocess.CalledProcessError as e:
+        sys.exit(
+            f"error: objcopy failed extracting {section} from {elf_path}: "
+            f"{e.stderr or e.stdout or e}"
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+    if len(data) != expected_size:
+        sys.exit(
+            f"error: section {section} extracted as {len(data)} bytes, "
+            f"expected code_size={expected_size}"
+        )
+    return data
+
+
+def discover_auto_segments(symbols, elf_path, objcopy):
+    """Return [(region_id, start_sym, code_end_sym, bss_end_sym, payload_bytes)]
+    for every AUTO_EXTRA_SEGMENTS entry whose linker symbols exist."""
+    found = []
+    for spec in AUTO_EXTRA_SEGMENTS:
+        needed = (spec["start"], spec["code_end"], spec["bss_end"])
+        if not all(name in symbols for name in needed):
+            continue
+        region = REGION_NAME_TO_ID[spec["region"]]
+        seg_start = symbols[spec["start"]]
+        seg_code_end = symbols[spec["code_end"]]
+        seg_bss_end = symbols[spec["bss_end"]]
+        code_size = seg_code_end - seg_start
+        bss_size = seg_bss_end - seg_code_end
+        if code_size < 0 or bss_size < 0:
+            sys.exit(
+                f"error: auto segment {spec['region']}: negative size "
+                f"(code={code_size}, bss={bss_size}) — check linker script symbols"
+            )
+        payload = extract_section_bytes(objcopy, elf_path, spec["section"], code_size)
+        found.append((region, code_size, bss_size, payload, spec["region"]))
+    return found
 
 
 def pack_segment(region, code_size, bss_size):
@@ -288,12 +499,25 @@ def main():
     ap.add_argument("--system-name", help='e.g. "Watara Supervision" (single-system sugar for --system)')
     ap.add_argument("--dirname", help='ROM subdirectory under /roms, e.g. "wsv" (single-system sugar)')
     ap.add_argument("--extensions", help='space-separated, e.g. "wsv sv bin lzma" (single-system sugar)')
-    ap.add_argument("--pad-logo-c", help="PATH:VARNAME to extract the pad (controller) logo (single-system sugar)")
-    ap.add_argument("--header-logo-c", help="PATH:VARNAME to extract the header (console) logo (single-system sugar)")
+    ap.add_argument("--pad-logo",
+                     help="pad (controller) logo image (.png/.bmp/...) (single-system sugar)")
+    ap.add_argument("--header-logo",
+                     help="header (console) logo image (.png/.bmp/...) (single-system sugar)")
+    ap.add_argument("--pad-logo-c",
+                     help="PATH:VARNAME to extract the pad logo from a .c file (single-system sugar)")
+    ap.add_argument("--header-logo-c",
+                     help="PATH:VARNAME to extract the header logo from a .c file (single-system sugar)")
+    ap.add_argument("--logo-invert", action="store_true",
+                     help="invert colors when converting image logos")
+    ap.add_argument("--logo-width", type=int, default=None,
+                     help="optional resize width for image logos (keeps aspect if height omitted)")
+    ap.add_argument("--logo-height", type=int, default=None,
+                     help="optional resize height for image logos (keeps aspect if width omitted)")
 
     # v3 multi-system / multi-segment flags.
     ap.add_argument("--system", action="append", default=[],
-                     help="repeatable: name=...,dirname=...,ext=...,parse=rom|cdrom[,pad_logo=PATH:VAR][,header_logo=PATH:VAR]")
+                     help="repeatable: name=...,dirname=...,ext=...,parse=rom|cdrom"
+                          "[,pad_logo=IMG_OR_C][,header_logo=IMG_OR_C]")
     ap.add_argument("--segment", action="append", default=[],
                      help="repeatable: region:start_symbol:code_end_symbol:bss_end_symbol:bin_file (segments 1..3; segment 0 is --elf/--bin)")
 
@@ -306,6 +530,11 @@ def main():
                           f"(max {CORE_NAME_MAX} chars). Default: --out stem "
                           "(e.g. sms.bin → 'sms')")
     ap.add_argument("--nm", default="arm-none-eabi-nm", help="nm tool to use (default: %(default)s)")
+    ap.add_argument("--objcopy", default=None,
+                     help="objcopy tool (default: derived from --nm, e.g. arm-none-eabi-objcopy)")
+    ap.add_argument("--no-auto-segments", action="store_true",
+                     help="do not auto-detect ITCM/AHB segments from ELF symbols "
+                          "(only use explicit --segment)")
     ap.add_argument("--out", required=True, type=Path)
     args = ap.parse_args()
     version_major, version_minor, version_patch = parse_version(args.version)
@@ -319,9 +548,10 @@ def main():
     if len(core_name.encode()) > CORE_NAME_MAX:
         sys.exit(f"error: --core-name too long (max {CORE_NAME_MAX} bytes): {core_name!r}")
 
-    legacy_used = any([args.system_name, args.dirname, args.extensions, args.pad_logo_c, args.header_logo_c])
+    legacy_used = any([args.system_name, args.dirname, args.extensions,
+                       args.pad_logo, args.header_logo, args.pad_logo_c, args.header_logo_c])
     if legacy_used and args.system:
-        sys.exit("error: --system-name/--dirname/--extensions/--pad-logo-c/--header-logo-c "
+        sys.exit("error: --system-name/--dirname/--extensions/--pad-logo*/--header-logo* "
                   "are mutually exclusive with --system")
 
     if args.system:
@@ -329,19 +559,23 @@ def main():
     else:
         if not (args.system_name and args.dirname and args.extensions):
             sys.exit("error: need either --system (repeatable) or --system-name/--dirname/--extensions")
+        if args.pad_logo and args.pad_logo_c:
+            sys.exit("error: use only one of --pad-logo / --pad-logo-c")
+        if args.header_logo and args.header_logo_c:
+            sys.exit("error: use only one of --header-logo / --header-logo-c")
         systems = [SystemSpec(args.system_name, args.dirname, args.extensions, PARSE_NAME_TO_ID["rom"],
-                               args.pad_logo_c, args.header_logo_c)]
+                               args.pad_logo or args.pad_logo_c,
+                               args.header_logo or args.header_logo_c)]
 
     if len(systems) > GNW_CORE_MAX_SYSTEMS:
         sys.exit(f"error: {len(systems)} systems given, max is {GNW_CORE_MAX_SYSTEMS}")
     for s in systems:
         s.validate()
 
-    extra_segments = [parse_segment_arg(s) for s in args.segment]
-    if 1 + len(extra_segments) > GNW_CORE_MAX_SEGMENTS:
-        sys.exit(f"error: {1 + len(extra_segments)} segments given, max is {GNW_CORE_MAX_SEGMENTS}")
+    explicit_segments = [parse_segment_arg(s) for s in args.segment]
 
     symbols = run_nm(args.nm, args.elf)
+    objcopy = args.objcopy or objcopy_tool_from_nm(args.nm)
 
     def sym(name):
         if name not in symbols:
@@ -370,8 +604,9 @@ def main():
     segments = [(REGION_NAME_TO_ID["ram_emu"], seg0_code_size, seg0_bss_size)]
     payloads = [seg0_payload]
 
-    # --- Extra segments (ITCM/AHB), each its own start/code_end/bss_end symbol triple ---
-    for region, start_symbol, code_end_symbol, bss_end_symbol, bin_file in extra_segments:
+    # --- Extra segments: explicit --segment first, then auto-detect ITCM/AHB ---
+    used_regions = {REGION_NAME_TO_ID["ram_emu"]}
+    for region, start_symbol, code_end_symbol, bss_end_symbol, bin_file in explicit_segments:
         seg_start = sym(start_symbol)
         seg_code_end = sym(code_end_symbol)
         seg_bss_end = sym(bss_end_symbol)
@@ -385,14 +620,31 @@ def main():
 
         segments.append((region, seg_code_size, seg_bss_size))
         payloads.append(seg_payload)
+        used_regions.add(region)
+
+    if not args.no_auto_segments:
+        for region, code_size, bss_size, payload, region_name in discover_auto_segments(
+                symbols, args.elf, objcopy):
+            if region in used_regions:
+                continue  # explicit --segment already covered this region
+            print(f"pack_core: auto segment {region_name} "
+                  f"(code={code_size}B bss={bss_size}B)")
+            segments.append((region, code_size, bss_size))
+            payloads.append(payload)
+            used_regions.add(region)
+
+    if len(segments) > GNW_CORE_MAX_SEGMENTS:
+        sys.exit(f"error: {len(segments)} segments total, max is {GNW_CORE_MAX_SEGMENTS}")
 
     # --- Logos: extracted per-system, laid out back to back right after the meta struct ---
     logo_offset = CORE_HEADER_MIN_SIZE + META_STRUCT_SIZE
     logo_blobs = []
     system_logo_info = []  # (pad_logo_offset, pad_logo_size, header_logo_offset, header_logo_size)
+    logo_kw = dict(invert=args.logo_invert, target_width=args.logo_width,
+                   target_height=args.logo_height)
     for s in systems:
-        pad_logo = extract_logo_from_c(s.pad_logo_c) if s.pad_logo_c else b""
-        header_logo = extract_logo_from_c(s.header_logo_c) if s.header_logo_c else b""
+        pad_logo = resolve_logo(s.pad_logo, **logo_kw)
+        header_logo = resolve_logo(s.header_logo, **logo_kw)
 
         pad_logo_offset = logo_offset if pad_logo else 0
         logo_offset += len(pad_logo)

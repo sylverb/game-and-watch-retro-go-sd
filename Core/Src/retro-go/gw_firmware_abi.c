@@ -529,4 +529,10 @@ const gw_firmware_abi_t g_firmware_abi = {
 
     /* v2 append: per-core option i18n */
     .i18n_lang_code              = i18n_lang_code,
+
+    /* v2 append: live app descriptor (speedup / handlers) */
+    .odroid_system_get_app       = odroid_system_get_app,
+
+    /* v2 append: per-core CPU boost (Virtual Boy, …) */
+    .common_emu_auto_oc          = common_emu_auto_oc,
 };

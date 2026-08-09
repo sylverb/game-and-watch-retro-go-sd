@@ -607,6 +607,19 @@ typedef struct {
      * ================================================================ */
     const char *(*i18n_lang_code)(void);
 
+    /* ================================================================
+     * v2 append: live app descriptor (speedupEnabled, handlers, …).
+     * Needed by cores that pace audio off DMA only at 1x (WonderSwan).
+     * Append-only while ABI v2 is unpublished — no version bump;
+     * required_abi_min_size grows for cores that link this slot.
+     * ================================================================ */
+    rg_app_desc_t *(*odroid_system_get_app)(void);
+
+    /* ================================================================
+     * v2 append: per-core CPU boost floor (Virtual Boy, etc.).
+     * ================================================================ */
+    void (*common_emu_auto_oc)(uint8_t level);
+
 } gw_firmware_abi_t;
 
 /* The firmware publishes this instance at GW_FIRMWARE_ABI_ADDRESS via the

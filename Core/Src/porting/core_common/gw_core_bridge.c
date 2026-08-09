@@ -614,6 +614,10 @@ void *core_ram_malloc(size_t size)
 {
     return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_RAM, 1, size);
 }
+void *core_ram_calloc(size_t count, size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_RAM, count, size);
+}
 size_t core_ram_get_free_size(void)
 {
     return (size_t)gw_firmware_abi()->mem_ctl(GW_MEM_OP_FREE_SIZE, GW_MEM_RAM, 0, 0);
@@ -690,6 +694,16 @@ void core_odroid_system_emu_init(state_handler_t load_cb,
 }
 
 bool core_odroid_system_emu_load_state(int slot) { return gw_firmware_abi()->odroid_system_emu_load_state(slot); }
+
+rg_app_desc_t *core_odroid_system_get_app(void)
+{
+    return gw_firmware_abi()->odroid_system_get_app();
+}
+
+void core_common_emu_auto_oc(uint8_t level)
+{
+    gw_firmware_abi()->common_emu_auto_oc(level);
+}
 
 /* ====================================================================
  * retro-go: input / display
