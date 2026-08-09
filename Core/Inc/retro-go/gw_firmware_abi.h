@@ -124,6 +124,27 @@ typedef enum {
     GW_LCD_COPY_INACTIVE_TO_ACTIVE = 1,  /* former lcd_clone() */
 } gw_lcd_copy_t;
 
+/* Hardware audio ops for audio_ctl() below. Replaces the former per-call
+ * ABI slots (audio_start_playing / get_active / clear_* / get_*_length /
+ * start_playing_full_length / stop_playing + odroid_audio_init / mute /
+ * sample_rate_get / volume_get) with one entry. Bridge re-exposes the
+ * historical names as thin wrappers. */
+typedef enum {
+    GW_AUDIO_START           = 0,  /* a = half-buffer sample count */
+    GW_AUDIO_START_FULL      = 1,  /* a = full DMA sample count */
+    GW_AUDIO_STOP            = 2,
+    GW_AUDIO_GET_ACTIVE      = 3,  /* → (uintptr_t)int16_t* */
+    GW_AUDIO_CLEAR_ACTIVE    = 4,
+    GW_AUDIO_CLEAR_INACTIVE  = 5,
+    GW_AUDIO_CLEAR_BOTH      = 6,  /* full DMA buffer memset */
+    GW_AUDIO_GET_LENGTH      = 7,  /* → half-buffer sample count */
+    GW_AUDIO_GET_FULL_LENGTH = 8,  /* → full DMA sample count */
+    GW_AUDIO_INIT            = 9,  /* a = sample_rate (odroid_audio_init) */
+    GW_AUDIO_SAMPLE_RATE_GET = 10,
+    GW_AUDIO_MUTE            = 11, /* a = mute bool */
+    GW_AUDIO_VOLUME_GET      = 12,
+} gw_audio_op_t;
+
 typedef struct {
     /* Header — every plugin checks these before using the rest. */
     uint32_t version;        /* == GW_FIRMWARE_ABI_VERSION for this build */
@@ -265,11 +286,15 @@ typedef struct {
 
     /* ================================================================
      * G&W hardware: audio
+     *
+     * audio_ctl() is the single entry for DMA start/stop, buffer get/
+     * clear, length queries, and the odroid mute/init/rate/volume
+     * helpers. Replaces twelve former slots (still ABI v2 while cores
+     * are in active development). Bridge re-exposes historical names
+     * (audio_start_playing, odroid_audio_mute, …) as thin wrappers;
+     * audio_get_buffer_size is composed as GET_LENGTH * sizeof(int16_t).
      * ================================================================ */
-    void     (*audio_start_playing)(uint16_t length);
-    int16_t *(*audio_get_active_buffer)(void);
-    void     (*audio_clear_active_buffer)(void);
-    void     (*audio_clear_inactive_buffer)(void);
+    uintptr_t (*audio_ctl)(gw_audio_op_t op, uint32_t a);
 
     /* ================================================================
      * G&W hardware: allocators
@@ -383,9 +408,7 @@ typedef struct {
      * savestate-path/handler logic without an engine rebuild. */
     bool                        (*odroid_system_emu_load_state)(int slot);
 
-    /* v1 append: audio mute toggle. Engine calls this when entering
-     * start_paused state. Routed through ABI for the same reason. */
-    void                        (*odroid_audio_mute)(bool mute);
+    /* (odroid_audio_mute folded into audio_ctl — see audio block above.) */
 
     /* v1 append: LCD pixel-format / framebuffer-layout switch. PICO-8 and
      * NES use this to flip into 8-bit indexed mode (LUT8), halving the
@@ -408,7 +431,7 @@ typedef struct {
     void     (*lcd_wait_for_vblank)(void);
     void     (*lcd_set_refresh_rate)(uint32_t frequency);
 
-    uint16_t (*audio_get_buffer_length)(void);
+    /* (audio_get_buffer_length folded into audio_ctl.) */
 
     /* odroid_display_get_filter_mode returns odroid_display_filter_t
      * (enum); exposed as `int` for the same reason as
@@ -423,12 +446,9 @@ typedef struct {
      * v1 append: surface required to port the Mega Drive / Genesis
      * (gwenesis) core to the external-core model. Identified by porting
      * Core/Src/porting/gwenesis/main_gwenesis.c against this ABI.
+     * (odroid_audio_init / sample_rate_get / audio_start_playing_full_length
+     * / audio_get_buffer_full_length folded into audio_ctl.)
      * ================================================================ */
-    void     (*odroid_audio_init)(int sample_rate);
-    int      (*odroid_audio_sample_rate_get)(void);
-    void     (*audio_start_playing_full_length)(uint16_t length);
-    uint16_t (*audio_get_buffer_full_length)(void);
-
     void         (*common_emu_enable_dwt_cycles)(void);
     unsigned int (*common_emu_get_dwt_cycles)(void);
     void         (*common_emu_clear_dwt_cycles)(void);
@@ -503,9 +523,9 @@ typedef struct {
     /* ================================================================
      * v2 append: blueMSX (MSX) porting surface. Identified by porting
      * Core/Src/porting/msx/main_msx.c (+ msx_database.c) against this ABI.
-     * (ahb_init / ahb_only_malloc folded into mem_ctl — see allocators.)
+     * (ahb_init / ahb_only_malloc folded into mem_ctl — see allocators;
+     * odroid_audio_volume_get folded into audio_ctl.)
      * ================================================================ */
-    int      (*odroid_audio_volume_get)(void);
     int8_t   (*calculate_sha1_file)(const char *file_path, uint8_t *output);
     int8_t   (*calculate_sha1_file_limit)(const char *file_path, ssize_t max_bytes,
                                           uint8_t *output);
@@ -520,7 +540,7 @@ typedef struct {
     bool     (*rg_storage_get_adjacent_files)(const char *path, char *prev_path,
                                               char *next_path);
     const char *(*rg_basename)(const char *path);
-    void     (*audio_stop_playing)(void);
+    /* (audio_stop_playing folded into audio_ctl.) */
 
     /* ================================================================
      * v2 append: LCD-Game-Emulator (Game & Watch handhelds).

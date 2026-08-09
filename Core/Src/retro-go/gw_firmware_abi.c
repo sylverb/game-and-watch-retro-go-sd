@@ -107,6 +107,49 @@ static void gw_abi_lcd_copy_fb(gw_lcd_copy_t dir)
         lcd_sync();  /* ACTIVE_TO_INACTIVE (and unknown → sync) */
 }
 
+/* Unified audio DMA / odroid helpers — see audio_ctl in gw_firmware_abi.h. */
+static uintptr_t gw_abi_audio_ctl(gw_audio_op_t op, uint32_t a)
+{
+    switch (op) {
+    case GW_AUDIO_START:
+        audio_start_playing((uint16_t)a);
+        return 0;
+    case GW_AUDIO_START_FULL:
+        audio_start_playing_full_length((uint16_t)a);
+        return 0;
+    case GW_AUDIO_STOP:
+        audio_stop_playing();
+        return 0;
+    case GW_AUDIO_GET_ACTIVE:
+        return (uintptr_t)audio_get_active_buffer();
+    case GW_AUDIO_CLEAR_ACTIVE:
+        audio_clear_active_buffer();
+        return 0;
+    case GW_AUDIO_CLEAR_INACTIVE:
+        audio_clear_inactive_buffer();
+        return 0;
+    case GW_AUDIO_CLEAR_BOTH:
+        audio_clear_buffers();
+        return 0;
+    case GW_AUDIO_GET_LENGTH:
+        return (uintptr_t)audio_get_buffer_length();
+    case GW_AUDIO_GET_FULL_LENGTH:
+        return (uintptr_t)audio_get_buffer_full_length();
+    case GW_AUDIO_INIT:
+        odroid_audio_init((int)a);
+        return 0;
+    case GW_AUDIO_SAMPLE_RATE_GET:
+        return (uintptr_t)(unsigned)odroid_audio_sample_rate_get();
+    case GW_AUDIO_MUTE:
+        odroid_audio_mute(a != 0);
+        return 0;
+    case GW_AUDIO_VOLUME_GET:
+        return (uintptr_t)(unsigned)odroid_audio_volume_get();
+    default:
+        return 0;
+    }
+}
+
 /* These are defined in rg_emulators.c */
 extern uint8_t *pico8_code_flash_addr;
 extern uint32_t pico8_code_flash_size;
@@ -287,10 +330,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .lcd_copy_fb               = gw_abi_lcd_copy_fb,
 
     /* G&W audio */
-    .audio_start_playing         = audio_start_playing,
-    .audio_get_active_buffer     = audio_get_active_buffer,
-    .audio_clear_active_buffer   = audio_clear_active_buffer,
-    .audio_clear_inactive_buffer = audio_clear_inactive_buffer,
+    .audio_ctl = gw_abi_audio_ctl,
 
     /* G&W allocators */
     .mem_ctl = abi_mem_ctl,
@@ -346,7 +386,6 @@ const gw_firmware_abi_t g_firmware_abi = {
     .dtcm_p8ram_start          = NULL,  /* no longer a fixed section — use dtcm_malloc */
 
     .odroid_system_emu_load_state = odroid_system_emu_load_state,
-    .odroid_audio_mute            = odroid_audio_mute,
 
     /* lcd_setup_framebuffers takes lcd_mode_t (enum); ABI exposes it as
      * `int` so the header doesn't need to leak the enum / pull in the
@@ -363,18 +402,11 @@ const gw_firmware_abi_t g_firmware_abi = {
     .lcd_wait_for_vblank  = lcd_wait_for_vblank,
     .lcd_set_refresh_rate = lcd_set_refresh_rate,
 
-    .audio_get_buffer_length = audio_get_buffer_length,
-
     .odroid_display_get_filter_mode = (int (*)(void))odroid_display_get_filter_mode,
 
     .odroid_overlay_cache_file_in_ram = odroid_overlay_cache_file_in_ram,
 
-    /* v1 append: Mega Drive / gwenesis porting surface */
-    .odroid_audio_init             = odroid_audio_init,
-    .odroid_audio_sample_rate_get  = odroid_audio_sample_rate_get,
-    .audio_start_playing_full_length = audio_start_playing_full_length,
-    .audio_get_buffer_full_length     = audio_get_buffer_full_length,
-
+    /* v1 append: Mega Drive / gwenesis (audio_* folded into audio_ctl) */
     .common_emu_enable_dwt_cycles = common_emu_enable_dwt_cycles,
     .common_emu_get_dwt_cycles    = common_emu_get_dwt_cycles,
     .common_emu_clear_dwt_cycles  = common_emu_clear_dwt_cycles,
@@ -413,8 +445,7 @@ const gw_firmware_abi_t g_firmware_abi = {
         (size_t (*)(char *, uint8_t *, uint32_t, uint32_t, gw_file_progress_cb_t))rg_storage_copy_file_range_to_ram,
 
     /* v2 append: blueMSX (MSX) porting surface
-     * (ahb_init / ahb_only_malloc folded into mem_ctl) */
-    .odroid_audio_volume_get     = odroid_audio_volume_get,
+     * (ahb_* / odroid_audio_volume_get folded into mem_ctl / audio_ctl) */
     .calculate_sha1_file         = calculate_sha1_file,
     .calculate_sha1_file_limit   = calculate_sha1_file_limit,
     .calculate_sha1_hw           = calculate_sha1_hw,
@@ -424,7 +455,6 @@ const gw_firmware_abi_t g_firmware_abi = {
     .rg_storage_stat             = rg_storage_stat,
     .rg_storage_get_adjacent_files = rg_storage_get_adjacent_files,
     .rg_basename                 = rg_basename,
-    .audio_stop_playing          = audio_stop_playing,
 
     /* v2 append: LCD-Game-Emulator (Game & Watch) */
     .GW_SetUnixTM                = GW_SetUnixTM,

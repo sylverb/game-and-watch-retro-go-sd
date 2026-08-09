@@ -489,11 +489,67 @@ bool core_lcd_sleep_while_swap_pending(void)
 /* ====================================================================
  * G&W hardware: audio
  * ==================================================================== */
-void     core_audio_start_playing(uint16_t length) { gw_firmware_abi()->audio_start_playing(length); }
-int16_t *core_audio_get_active_buffer(void) { return gw_firmware_abi()->audio_get_active_buffer(); }
-void     core_audio_clear_active_buffer(void) { gw_firmware_abi()->audio_clear_active_buffer(); }
-void     core_audio_clear_inactive_buffer(void) { gw_firmware_abi()->audio_clear_inactive_buffer(); }
-uint16_t core_audio_get_buffer_length(void) { return gw_firmware_abi()->audio_get_buffer_length(); }
+/* ====================================================================
+ * G&W hardware: audio — all via audio_ctl(); historical names kept for
+ * --redefine-syms. audio_get_buffer_size composed as length * sizeof(int16_t);
+ * audio_clear_buffers uses CLEAR_BOTH (full DMA memset).
+ * ==================================================================== */
+void core_audio_start_playing(uint16_t length)
+{
+    (void)gw_firmware_abi()->audio_ctl(GW_AUDIO_START, length);
+}
+int16_t *core_audio_get_active_buffer(void)
+{
+    return (int16_t *)gw_firmware_abi()->audio_ctl(GW_AUDIO_GET_ACTIVE, 0);
+}
+void core_audio_clear_active_buffer(void)
+{
+    (void)gw_firmware_abi()->audio_ctl(GW_AUDIO_CLEAR_ACTIVE, 0);
+}
+void core_audio_clear_inactive_buffer(void)
+{
+    (void)gw_firmware_abi()->audio_ctl(GW_AUDIO_CLEAR_INACTIVE, 0);
+}
+uint16_t core_audio_get_buffer_length(void)
+{
+    return (uint16_t)gw_firmware_abi()->audio_ctl(GW_AUDIO_GET_LENGTH, 0);
+}
+void core_audio_clear_buffers(void)
+{
+    (void)gw_firmware_abi()->audio_ctl(GW_AUDIO_CLEAR_BOTH, 0);
+}
+uint16_t core_audio_get_buffer_size(void)
+{
+    return (uint16_t)(gw_firmware_abi()->audio_ctl(GW_AUDIO_GET_LENGTH, 0) * sizeof(int16_t));
+}
+void core_audio_start_playing_full_length(uint16_t length)
+{
+    (void)gw_firmware_abi()->audio_ctl(GW_AUDIO_START_FULL, length);
+}
+uint16_t core_audio_get_buffer_full_length(void)
+{
+    return (uint16_t)gw_firmware_abi()->audio_ctl(GW_AUDIO_GET_FULL_LENGTH, 0);
+}
+void core_audio_stop_playing(void)
+{
+    (void)gw_firmware_abi()->audio_ctl(GW_AUDIO_STOP, 0);
+}
+void core_odroid_audio_mute(bool mute)
+{
+    (void)gw_firmware_abi()->audio_ctl(GW_AUDIO_MUTE, mute ? 1u : 0u);
+}
+void core_odroid_audio_init(int sample_rate)
+{
+    (void)gw_firmware_abi()->audio_ctl(GW_AUDIO_INIT, (uint32_t)sample_rate);
+}
+int core_odroid_audio_sample_rate_get(void)
+{
+    return (int)gw_firmware_abi()->audio_ctl(GW_AUDIO_SAMPLE_RATE_GET, 0);
+}
+int core_odroid_audio_volume_get(void)
+{
+    return (int)gw_firmware_abi()->audio_ctl(GW_AUDIO_VOLUME_GET, 0);
+}
 
 /* ====================================================================
  * G&W hardware: allocators
@@ -594,7 +650,6 @@ void core_odroid_system_emu_init(state_handler_t load_cb,
 }
 
 bool core_odroid_system_emu_load_state(int slot) { return gw_firmware_abi()->odroid_system_emu_load_state(slot); }
-void core_odroid_audio_mute(bool mute) { gw_firmware_abi()->odroid_audio_mute(mute); }
 
 /* ====================================================================
  * retro-go: input / display
@@ -664,11 +719,6 @@ void *core_ahb_calloc(size_t count, size_t size)
 {
     return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_AHB, count, size);
 }
-
-void core_odroid_audio_init(int sample_rate) { gw_firmware_abi()->odroid_audio_init(sample_rate); }
-int  core_odroid_audio_sample_rate_get(void) { return gw_firmware_abi()->odroid_audio_sample_rate_get(); }
-void core_audio_start_playing_full_length(uint16_t length) { gw_firmware_abi()->audio_start_playing_full_length(length); }
-uint16_t core_audio_get_buffer_full_length(void) { return gw_firmware_abi()->audio_get_buffer_full_length(); }
 
 uint8_t core_odroid_settings_cpu_oc_level_get(void) { return gw_firmware_abi()->odroid_settings_cpu_oc_level_get(); }
 void    core_SystemClock_Config(uint8_t new_oc_level) { gw_firmware_abi()->SystemClock_Config(new_oc_level); }
@@ -839,9 +889,9 @@ size_t core_rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest
 }
 
 /* ====================================================================
- * blueMSX (MSX): AHB pool reset / forced AHB alloc, volume, SHA1.
- * audio_clear_buffers / audio_get_buffer_size composed from existing ABI
- * entries (no append).
+ * blueMSX (MSX): AHB pool reset / forced AHB alloc, SHA1.
+ * (volume / clear_buffers / get_buffer_size / stop_playing live with
+ * the other audio_ctl wrappers above.)
  * ==================================================================== */
 void core_ahb_init(void)
 {
@@ -851,7 +901,6 @@ void *core_ahb_only_malloc(size_t size)
 {
     return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_AHB_ONLY, 1, size);
 }
-int    core_odroid_audio_volume_get(void) { return gw_firmware_abi()->odroid_audio_volume_get(); }
 int8_t core_calculate_sha1_file(const char *file_path, uint8_t *output)
 {
     return gw_firmware_abi()->calculate_sha1_file(file_path, output);
@@ -863,18 +912,6 @@ int8_t core_calculate_sha1_file_limit(const char *file_path, ssize_t max_bytes, 
 int8_t core_calculate_sha1_hw(const uint8_t *data, size_t len, uint8_t *output)
 {
     return gw_firmware_abi()->calculate_sha1_hw(data, len, output);
-}
-
-void core_audio_clear_buffers(void)
-{
-    const gw_firmware_abi_t *abi = gw_firmware_abi();
-    abi->audio_clear_active_buffer();
-    abi->audio_clear_inactive_buffer();
-}
-
-uint16_t core_audio_get_buffer_size(void)
-{
-    return (uint16_t)(gw_firmware_abi()->audio_get_buffer_length() * sizeof(int16_t));
 }
 
 /* libc localtime/gettimeofday — core_time (above) pairs with this one for
@@ -907,7 +944,6 @@ const char *core_rg_basename(const char *path)
 {
     return gw_firmware_abi()->rg_basename(path);
 }
-void core_audio_stop_playing(void) { gw_firmware_abi()->audio_stop_playing(); }
 
 /* ====================================================================
  * LCD-Game-Emulator (Game & Watch handhelds): RTC write-back, LCD swap
