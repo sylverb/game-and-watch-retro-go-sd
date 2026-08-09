@@ -144,11 +144,6 @@ void *ram_malloc(size_t size)
    return ret;
 }
 
-void *ahb_only_malloc(size_t size)
-{
-   return malloc(size);
-}
-
 void msxLedSetFdd1(int state)
 {
    (void)state;

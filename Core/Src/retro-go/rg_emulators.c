@@ -1919,16 +1919,11 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     newfile->ext = get_extension(newfile->path);
 
     /* Snapshotted into local stack buffers, NOT kept as pointers into
-     * emulators[]/systems[]: those arrays are ahb_calloc()'d, and
-     * ahb_calloc() tries ram_malloc() (i.e. RAM_EMU, via the global
-     * `ram_start`) before falling back to real AHB SRAM — at menu boot
-     * `ram_start` is set to __RAM_EMU_START__ (see app_main()), so
-     * emulators[]/systems[] actually live IN RAM_EMU, not AHB. The very
-     * next thing run_dynamic_core() does is load the new core's segment 0
-     * on top of __RAM_EMU_START__, which would silently clobber a
-     * dangling pointer into system_name/core_path with the core's own
-     * code bytes. Copy the strings out before ahb_init()/ram_start=0 below
-     * instead of pointing into memory about to be overwritten.
+     * emulators[]/systems[]: those arrays are ahb_calloc()'d and live in
+     * AHB SRAM. ahb_init() below resets the AHB bump and the core may
+     * immediately allocate over the same addresses, so dangling pointers
+     * into system_name/core_path would be clobbered. Copy the strings out
+     * before ahb_init()/ram_start=0.
      *
      * newfile->system is a rom_system_t*, whose system_name/core_path
      * fields are `char *`/`const char *` (pointers aliasing the real
@@ -1980,7 +1975,6 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     // It will free all ram allocated memory for use by emulators
     ahb_init();
     itc_init();
-    dtcm_arena_init();
     ram_start = 0;
     emulators = NULL;
     systems = NULL;

@@ -131,9 +131,8 @@ CORE_C_DEFS := \
 # emu2413 rate converter builds a sinc table with sin/cos at init.
 CORE_LDLIBS := -lm
 
-# ITCM for R800 + SlotManager; former itc_malloc heap → DTCM arena. blueMSX
-# calls dtcm_arena_malloc()/dtcm_arena_calloc() by name for that traffic
-# (see external/blueMSX-go), no core_itc_* override needed.
+# ITCM for R800 + SlotManager; former itc_malloc heap → ahb_malloc/ahb_calloc
+# (reset by ahb_init on machine switch; see external/blueMSX-go).
 CORE_LDSCRIPT := msx_core.ld
 CORE_EXTRA_SEGMENTS := itcm:core_itcm
 

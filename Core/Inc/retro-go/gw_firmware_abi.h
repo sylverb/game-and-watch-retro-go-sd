@@ -76,19 +76,12 @@ typedef void (*gw_flash_relocate_cb_t)(uint8_t *buffer, uint32_t length, uint32_
 /* Memory pool selector for mem_ctl() below. Replaces what used to be one
  * ABI function pointer per pool (itc_malloc/itc_calloc, ram_malloc,
  * ahb_malloc/ahb_calloc, dtcm_malloc) plus separate itc_init / ahb_init /
- * ram_get_free_size / ahb_only_malloc slots — see mem_ctl's comment. */
+ * ram_get_free_size slots — see mem_ctl's comment. */
 typedef enum {
-    GW_MEM_ITC  = 0,  /* 64KB ITCM pool; INIT also resets DTCM arena */
+    GW_MEM_ITC  = 0,  /* 64KB ITCM bump pool */
     GW_MEM_RAM  = 1,  /* RAM_EMU bump pool (this core's ram_start budget) */
-    GW_MEM_AHB  = 2,  /* AHB SRAM with RAM_EMU fallback (ahb_calloc) */
+    GW_MEM_AHB  = 2,  /* AHB SRAM bump (ahb_malloc / ahb_calloc) */
     GW_MEM_DTCM = 3,  /* DTCM newlib heap (free()-able) */
-    /* 64KB bump arena in DTCM (malloc'd once from the newlib heap, bump
-     * reset by DTCM_ARENA INIT / ITC INIT each emulator_start). Lets a
-     * core park hot code in ITCM while keeping former itc_malloc traffic
-     * in DTCM — see cores/msx. */
-    GW_MEM_DTCM_ARENA = 4,
-    /* AHB bump only — no RAM_EMU fallback (former ahb_only_malloc). */
-    GW_MEM_AHB_ONLY   = 5,
 } gw_mem_pool_t;
 
 typedef enum {
@@ -348,10 +341,10 @@ typedef struct {
      * G&W hardware: allocators
      *
      * mem_ctl() is the single entry for every pool-based allocator op
-     * (ALLOC / INIT / FREE_SIZE) across ITC / RAM_EMU / AHB / DTCM /
-     * DTCM_ARENA / AHB_ONLY. ALLOC always zeroes (calloc semantics);
+     * (ALLOC / INIT / FREE_SIZE) across ITC / RAM_EMU / AHB / DTCM.
+     * ALLOC always zeroes (calloc semantics);
      * pass count=1 for malloc(size)+zero. Replaces the former mem_alloc
-     * + itc_init + ram_get_free_size + ahb_init + ahb_only_malloc slots.
+     * + itc_init + ram_get_free_size + ahb_init slots.
      * gw_core_bridge.c re-exposes the historical per-pool names as thin
      * wrappers so core source is unaffected.
      *

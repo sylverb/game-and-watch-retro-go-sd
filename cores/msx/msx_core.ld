@@ -7,8 +7,8 @@
  * that call showed up as a measurable cost vs the classic all-RAM_EMU
  * overlay. (-ffunction-sections gives .text.vdpCommandPortLatchPending.)
  *
- * blueMSX's former itc_malloc heap now calls dtcm_arena_malloc/calloc by
- * name (GW_MEM_DTCM_ARENA firmware bump arena) so ITCM is free for code.
+ * blueMSX's former itc_malloc heap uses ahb_malloc/ahb_calloc (reset via
+ * ahb_init on machine switch) so ITCM stays free for code.
  *
  * .core_itcm is listed before .core_entry so GNU ld claims those input
  * sections first; .core_entry's *(.text*) then skips them.

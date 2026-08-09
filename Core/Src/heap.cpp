@@ -37,8 +37,8 @@ extern "C" void *heap_alloc_mem(size_t s) {
             heap_offset += aligned;
         } else {
             /* RAM_EMU bump heap full — spill into AHB (asserts if that OOMs too). */
-            DBG("-> ahb_only_malloc %d\n", (int)s);
-            ptr = ahb_only_malloc(s);
+            DBG("-> ahb_malloc %d\n", (int)s);
+            ptr = ahb_malloc(s);
         }
     }
     memset(ptr, 0, s);

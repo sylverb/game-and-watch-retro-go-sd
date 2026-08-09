@@ -627,21 +627,6 @@ void *core_dtcm_malloc(size_t size)
     return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, 1, size);
 }
 
-/* 64KB DTCM bump arena (GW_MEM_DTCM_ARENA), reset once per emulator_start.
- * MSX calls dtcm_arena_malloc()/dtcm_arena_calloc() by name (see
- * external/blueMSX-go) instead of itc_malloc()/itc_calloc() now that
- * R800/SlotManager .text live in ITCM (see cores/msx/msx_core.ld) — the
- * former itc_malloc traffic needed a new home, so it gets an honestly
- * named one instead of silently hijacking the itc_* trampolines. */
-void *core_dtcm_arena_malloc(size_t size)
-{
-    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM_ARENA, 1, size);
-}
-void *core_dtcm_arena_calloc(size_t count, size_t size)
-{
-    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM_ARENA, count, size);
-}
-
 /* ====================================================================
  * G&W hardware: RTC. Per-field getters and GW_GetUnixTM/mktime were
  * dropped from the firmware table during external-core development
@@ -970,17 +955,13 @@ size_t core_rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest
 }
 
 /* ====================================================================
- * blueMSX (MSX): AHB pool reset / forced AHB alloc, SHA1.
+ * blueMSX (MSX): AHB pool reset, SHA1.
  * (volume / clear_buffers / get_buffer_size / stop_playing live with
  * the other audio_ctl wrappers above.)
  * ==================================================================== */
 void core_ahb_init(void)
 {
     (void)gw_firmware_abi()->mem_ctl(GW_MEM_OP_INIT, GW_MEM_AHB, 0, 0);
-}
-void *core_ahb_only_malloc(size_t size)
-{
-    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_AHB_ONLY, 1, size);
 }
 int8_t core_calculate_sha1_file(const char *file_path, uint8_t *output)
 {

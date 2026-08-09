@@ -71,7 +71,7 @@ extern "C" void *heap_alloc_mem(size_t s)
     if (!ptr)
         ptr = ram_malloc(s);
     if (!ptr)
-        ptr = ahb_calloc(1, s); /* AHB pool directly — ram_malloc() already just failed */
+        ptr = ahb_calloc(1, s); /* true AHB bump — ram_malloc() already just failed */
     if (ptr)
         memset(ptr, 0, s);
 

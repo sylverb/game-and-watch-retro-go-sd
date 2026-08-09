@@ -104,8 +104,6 @@ audio_get_buffer_length core_audio_get_buffer_length
 # --- G&W hardware: allocators ---
 itc_malloc core_itc_malloc
 itc_calloc core_itc_calloc
-dtcm_arena_malloc core_dtcm_arena_malloc
-dtcm_arena_calloc core_dtcm_arena_calloc
 itc_init core_itc_init
 ram_malloc core_ram_malloc
 ram_calloc core_ram_calloc
@@ -193,7 +191,6 @@ strtoul core_strtoul
 rg_storage_copy_file_range_to_ram core_rg_storage_copy_file_range_to_ram
 # --- blueMSX (MSX) ---
 ahb_init core_ahb_init
-ahb_only_malloc core_ahb_only_malloc
 odroid_audio_volume_get core_odroid_audio_volume_get
 calculate_sha1_file core_calculate_sha1_file
 calculate_sha1_file_limit core_calculate_sha1_file_limit

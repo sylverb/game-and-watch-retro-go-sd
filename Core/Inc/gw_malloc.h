@@ -12,7 +12,6 @@ extern uint32_t ram_start;
 
 void ahb_init();
 void *ahb_malloc(size_t size);
-void *ahb_only_malloc(size_t size);
 void *ahb_calloc(size_t count,size_t size);
 
 void itc_init();
@@ -28,14 +27,6 @@ void *ram_calloc(size_t count,size_t size);
 void *dtcm_malloc(size_t size);
 void *dtcm_calloc(size_t count, size_t size);
 void dtcm_free(void *ptr);
-
-/* 64KB DTCM bump arena (GW_MEM_DTCM_ARENA). Pool allocated once from the
- * newlib DTCM heap; dtcm_arena_init() only resets the bump pointer — call
- * from emulator_start alongside itc_init()/ahb_init(). Failure sentinel
- * matches itc_malloc (0xffffffff). */
-void dtcm_arena_init(void);
-void *dtcm_arena_malloc(size_t size);
-void *dtcm_arena_calloc(size_t count, size_t size);
 
 #ifdef __cplusplus
 }

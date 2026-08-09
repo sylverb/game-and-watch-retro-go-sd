@@ -305,16 +305,10 @@ static uintptr_t abi_mem_ctl(gw_mem_op_t op, gw_mem_pool_t pool, size_t count, s
         switch (pool) {
         case GW_MEM_ITC:        p = itc_calloc(count, size); break;
         case GW_MEM_RAM:        p = ram_calloc(count, size); break;
-        case GW_MEM_AHB:        p = ahb_calloc(count, size); break;
-        case GW_MEM_DTCM:       p = dtcm_calloc(count, size); break;
-        case GW_MEM_DTCM_ARENA: p = dtcm_arena_calloc(count, size); break;
-        case GW_MEM_AHB_ONLY: {
-            size_t bytes = count * size;
-            p = ahb_only_malloc(bytes);
-            if (p)
-                memset(p, 0, bytes);
+        case GW_MEM_AHB:
+            p = ahb_calloc(count, size);
             break;
-        }
+        case GW_MEM_DTCM:       p = dtcm_calloc(count, size); break;
         default:
             break;
         }
@@ -326,11 +320,7 @@ static uintptr_t abi_mem_ctl(gw_mem_op_t op, gw_mem_pool_t pool, size_t count, s
             itc_init();
             break;
         case GW_MEM_AHB:
-        case GW_MEM_AHB_ONLY:
             ahb_init();
-            break;
-        case GW_MEM_DTCM_ARENA:
-            dtcm_arena_init();
             break;
         default:
             break;
