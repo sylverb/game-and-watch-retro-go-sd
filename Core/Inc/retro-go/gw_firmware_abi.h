@@ -73,21 +73,29 @@ typedef void (*gw_flash_relocate_cb_t)(uint8_t *buffer, uint32_t length, uint32_
  * __flash_start__ (first byte of intflash). */
 #define GW_VTOR_ADDRESS           0xE000ED08u
 
-/* Memory pool selector for mem_alloc() below. Replaces what used to be one
+/* Memory pool selector for mem_ctl() below. Replaces what used to be one
  * ABI function pointer per pool (itc_malloc/itc_calloc, ram_malloc,
- * ahb_malloc/ahb_calloc, dtcm_malloc) with a single entry point, keeping
- * the ABI table small — see mem_alloc's comment. */
+ * ahb_malloc/ahb_calloc, dtcm_malloc) plus separate itc_init / ahb_init /
+ * ram_get_free_size / ahb_only_malloc slots — see mem_ctl's comment. */
 typedef enum {
-    GW_MEM_ITC  = 0,  /* 64KB ITCM pool, reset by the firmware's itc_init() */
+    GW_MEM_ITC  = 0,  /* 64KB ITCM pool; INIT also resets DTCM arena */
     GW_MEM_RAM  = 1,  /* RAM_EMU bump pool (this core's ram_start budget) */
-    GW_MEM_AHB  = 2,  /* AHB SRAM pool, reset by the firmware's ahb_init() */
+    GW_MEM_AHB  = 2,  /* AHB SRAM with RAM_EMU fallback (ahb_calloc) */
     GW_MEM_DTCM = 3,  /* DTCM newlib heap (free()-able) */
     /* 64KB bump arena in DTCM (malloc'd once from the newlib heap, bump
-     * reset by dtcm_arena_init() each emulator_start). Lets a core park
-     * hot code in ITCM while keeping its former itc_malloc traffic in
-     * DTCM — see cores/msx. Append-only: old cores never pass this id. */
+     * reset by DTCM_ARENA INIT / ITC INIT each emulator_start). Lets a
+     * core park hot code in ITCM while keeping former itc_malloc traffic
+     * in DTCM — see cores/msx. */
     GW_MEM_DTCM_ARENA = 4,
+    /* AHB bump only — no RAM_EMU fallback (former ahb_only_malloc). */
+    GW_MEM_AHB_ONLY   = 5,
 } gw_mem_pool_t;
+
+typedef enum {
+    GW_MEM_OP_ALLOC     = 0,  /* calloc from pool; count=1 → malloc(size)+zero */
+    GW_MEM_OP_INIT      = 1,  /* reset pool bump; count/size unused */
+    GW_MEM_OP_FREE_SIZE = 2,  /* free bytes in pool (RAM only today) */
+} gw_mem_op_t;
 
 /* Hardware JPEG ops for jpeg_ctl() below. Replaces four ABI slots
  * (JPEG_DecodeToFrameInit/ToFrame/GetSize/DeInit) with one entry —
@@ -244,7 +252,7 @@ typedef struct {
      * G&W hardware: LCD
      *
      * lcd_buffer / lcd_copy_fb unify the former per-buffer get/clear and
-     * sync/clone slots (same mem_alloc-style reduction; still ABI v2 while
+     * sync/clone slots (same ctl-style reduction; still ABI v2 while
      * cores are in active development). Bridge re-exposes
      * lcd_get_active_buffer / lcd_clear_* / lcd_clear_buffers / lcd_sync /
      * lcd_clone as thin wrappers so core source is unchanged.
@@ -266,17 +274,17 @@ typedef struct {
     /* ================================================================
      * G&W hardware: allocators
      *
-     * mem_alloc() is the single entry point for every pool-based
-     * allocator (ITC/RAM_EMU/AHB/DTCM) — always zeroes the returned
-     * block (calloc semantics); pass count=1 for a plain malloc(size).
-     * gw_core_bridge.c re-exposes the historical per-pool names
-     * (itc_malloc, itc_calloc, ram_malloc, ahb_malloc, ahb_calloc,
-     * dtcm_malloc) as thin wrappers over this one function, so core
-     * source code is unaffected.
+     * mem_ctl() is the single entry for every pool-based allocator op
+     * (ALLOC / INIT / FREE_SIZE) across ITC / RAM_EMU / AHB / DTCM /
+     * DTCM_ARENA / AHB_ONLY. ALLOC always zeroes (calloc semantics);
+     * pass count=1 for malloc(size)+zero. Replaces the former mem_alloc
+     * + itc_init + ram_get_free_size + ahb_init + ahb_only_malloc slots.
+     * gw_core_bridge.c re-exposes the historical per-pool names as thin
+     * wrappers so core source is unaffected.
+     *
+     * Returns: ALLOC → (uintptr_t)ptr; INIT → 0; FREE_SIZE → free bytes.
      * ================================================================ */
-    void  *(*mem_alloc)(gw_mem_pool_t pool, size_t count, size_t size);
-    void   (*itc_init)(void);
-    size_t (*ram_get_free_size)(void);
+    uintptr_t (*mem_ctl)(gw_mem_op_t op, gw_mem_pool_t pool, size_t count, size_t size);
 
     /* G&W hardware RTC getters (GW_GetCurrentYear/Month/Day/Hour/Minute/
      * Second, GW_GetUnixTM, mktime) were removed during external-core
@@ -495,9 +503,8 @@ typedef struct {
     /* ================================================================
      * v2 append: blueMSX (MSX) porting surface. Identified by porting
      * Core/Src/porting/msx/main_msx.c (+ msx_database.c) against this ABI.
+     * (ahb_init / ahb_only_malloc folded into mem_ctl — see allocators.)
      * ================================================================ */
-    void     (*ahb_init)(void);
-    void    *(*ahb_only_malloc)(size_t size);
     int      (*odroid_audio_volume_get)(void);
     int8_t   (*calculate_sha1_file)(const char *file_path, uint8_t *output);
     int8_t   (*calculate_sha1_file_limit)(const char *file_path, ssize_t max_bytes,
@@ -520,7 +527,7 @@ typedef struct {
      * GW_SetUnixTM is the only RTC write entry left after the read-side
      * getters were dropped (no portable libc setter on this firmware).
      * jpeg_ctl replaces the former four JPEG_Decode* slots (same
-     * mem_alloc-style unification; still ABI v2 while cores are in
+     * ctl-style unification; still ABI v2 while cores are in
      * active development). Bridge re-exposes JPEG_DecodeToFrameInit /
      * ToFrame / GetSize / DeInit as thin wrappers so gw_romloader.c
      * is unchanged.

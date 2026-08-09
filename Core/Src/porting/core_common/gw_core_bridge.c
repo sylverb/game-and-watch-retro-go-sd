@@ -498,18 +498,34 @@ uint16_t core_audio_get_buffer_length(void) { return gw_firmware_abi()->audio_ge
 /* ====================================================================
  * G&W hardware: allocators
  *
- * All of these route through the single ABI entry point mem_alloc() (see
- * gw_firmware_abi.h) — kept as separate trampolines/names here purely so
- * core source code (main_wsv.c, main_gwenesis.c, external submodules)
- * keeps calling the familiar itc_malloc()/ahb_calloc()/etc. names it
- * always has, via the usual objcopy --redefine-syms indirection.
+ * All of these route through mem_ctl() (see gw_firmware_abi.h) — kept as
+ * separate trampolines/names so core source keeps calling the familiar
+ * itc_malloc()/ahb_calloc()/etc. via objcopy --redefine-syms.
  * ==================================================================== */
-void  *core_itc_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_ITC, 1, size); }
-void  *core_itc_calloc(size_t count, size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_ITC, count, size); }
-void   core_itc_init(void) { gw_firmware_abi()->itc_init(); }
-void  *core_ram_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_RAM, 1, size); }
-size_t core_ram_get_free_size(void) { return gw_firmware_abi()->ram_get_free_size(); }
-void  *core_dtcm_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_DTCM, 1, size); }
+void *core_itc_malloc(size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_ITC, 1, size);
+}
+void *core_itc_calloc(size_t count, size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_ITC, count, size);
+}
+void core_itc_init(void)
+{
+    (void)gw_firmware_abi()->mem_ctl(GW_MEM_OP_INIT, GW_MEM_ITC, 0, 0);
+}
+void *core_ram_malloc(size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_RAM, 1, size);
+}
+size_t core_ram_get_free_size(void)
+{
+    return (size_t)gw_firmware_abi()->mem_ctl(GW_MEM_OP_FREE_SIZE, GW_MEM_RAM, 0, 0);
+}
+void *core_dtcm_malloc(size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, 1, size);
+}
 
 /* 64KB DTCM bump arena (GW_MEM_DTCM_ARENA), reset once per emulator_start.
  * MSX calls dtcm_arena_malloc()/dtcm_arena_calloc() by name (see
@@ -517,8 +533,14 @@ void  *core_dtcm_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_ME
  * R800/SlotManager .text live in ITCM (see cores/msx/msx_core.ld) — the
  * former itc_malloc traffic needed a new home, so it gets an honestly
  * named one instead of silently hijacking the itc_* trampolines. */
-void  *core_dtcm_arena_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_DTCM_ARENA, 1, size); }
-void  *core_dtcm_arena_calloc(size_t count, size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_DTCM_ARENA, count, size); }
+void *core_dtcm_arena_malloc(size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM_ARENA, 1, size);
+}
+void *core_dtcm_arena_calloc(size_t count, size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM_ARENA, count, size);
+}
 
 /* ====================================================================
  * G&W hardware: RTC. Per-field getters and GW_GetUnixTM/mktime were
@@ -634,8 +656,14 @@ void    core_common_emu_clear_dwt_cycles(void) { gw_firmware_abi()->common_emu_c
 /* ====================================================================
  * v1 append: Mega Drive / gwenesis porting surface
  * ==================================================================== */
-void  *core_ahb_malloc(size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_AHB, 1, size); }
-void  *core_ahb_calloc(size_t count, size_t size) { return gw_firmware_abi()->mem_alloc(GW_MEM_AHB, count, size); }
+void *core_ahb_malloc(size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_AHB, 1, size);
+}
+void *core_ahb_calloc(size_t count, size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_AHB, count, size);
+}
 
 void core_odroid_audio_init(int sample_rate) { gw_firmware_abi()->odroid_audio_init(sample_rate); }
 int  core_odroid_audio_sample_rate_get(void) { return gw_firmware_abi()->odroid_audio_sample_rate_get(); }
@@ -727,8 +755,8 @@ char *strtok(char *str, const char *delim)
  * `#define lss_printf(fp, str) (fputs(str, fp) >= 0)` (system.h), and
  * lynxdec.cpp's public-key decrypt temps use calloc()/free(). free() is
  * already trampolined; these two fill the remaining holes. calloc routes
- * through mem_alloc(GW_MEM_DTCM, ...) so the buffers are free()-able on
- * the DTCM newlib heap (same pool dtcm_malloc uses).
+ * through mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, ...) so the buffers are
+ * free()-able on the DTCM newlib heap (same pool dtcm_malloc uses).
  * ==================================================================== */
 int core_fputs(const char *s, FILE *stream)
 {
@@ -739,7 +767,7 @@ int core_fputs(const char *s, FILE *stream)
 
 void *core_calloc(size_t nmemb, size_t size)
 {
-    return gw_firmware_abi()->mem_alloc(GW_MEM_DTCM, nmemb, size);
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, nmemb, size);
 }
 
 /* ====================================================================
@@ -815,8 +843,14 @@ size_t core_rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest
  * audio_clear_buffers / audio_get_buffer_size composed from existing ABI
  * entries (no append).
  * ==================================================================== */
-void   core_ahb_init(void) { gw_firmware_abi()->ahb_init(); }
-void  *core_ahb_only_malloc(size_t size) { return gw_firmware_abi()->ahb_only_malloc(size); }
+void core_ahb_init(void)
+{
+    (void)gw_firmware_abi()->mem_ctl(GW_MEM_OP_INIT, GW_MEM_AHB, 0, 0);
+}
+void *core_ahb_only_malloc(size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_AHB_ONLY, 1, size);
+}
 int    core_odroid_audio_volume_get(void) { return gw_firmware_abi()->odroid_audio_volume_get(); }
 int8_t core_calculate_sha1_file(const char *file_path, uint8_t *output)
 {

@@ -174,7 +174,7 @@ odroid_settings_ActiveGameGenieCodes_is_enabled core_odroid_settings_ActiveGameG
 # the LCD block above (wrapper over lcd_copy_fb).
 odroid_settings_Palette_get core_odroid_settings_Palette_get
 odroid_settings_Palette_set core_odroid_settings_Palette_set
-# --- Lynx (handy-go): fputs via fwrite/strlen; calloc via mem_alloc(DTCM) ---
+# --- Lynx (handy-go): fputs via fwrite/strlen; calloc via mem_ctl(DTCM) ---
 fputs core_fputs
 calloc core_calloc
 # --- Atari 2600 (Stella): atoi/strcasecmp composed from strtol/tolower ---

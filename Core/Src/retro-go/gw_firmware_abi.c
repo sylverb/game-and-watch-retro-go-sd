@@ -124,20 +124,53 @@ extern struct _reent *_impure_ptr;
  * __real_fflush is provided by the linker's --wrap mechanism. */
 extern int __real_fflush(FILE *stream);
 
-/* Single entry point behind mem_alloc — see gw_firmware_abi.h's comment on
- * that field. Dispatches to the pool-specific *_calloc() (gw_malloc.c),
- * which all already implement "malloc + memset" — mem_alloc always zeroes,
- * callers passing count=1 get plain malloc(size) semantics plus a free
- * zero-init. */
-static void *abi_mem_alloc(gw_mem_pool_t pool, size_t count, size_t size)
+/* Single entry for pool ALLOC / INIT / FREE_SIZE — see mem_ctl in
+ * gw_firmware_abi.h. ALLOC always zeroes (calloc); count=1 → malloc+zero. */
+static uintptr_t abi_mem_ctl(gw_mem_op_t op, gw_mem_pool_t pool, size_t count, size_t size)
 {
-    switch (pool) {
-    case GW_MEM_ITC:        return itc_calloc(count, size);
-    case GW_MEM_RAM:        return ram_calloc(count, size);
-    case GW_MEM_AHB:        return ahb_calloc(count, size);
-    case GW_MEM_DTCM:       return dtcm_calloc(count, size);
-    case GW_MEM_DTCM_ARENA: return dtcm_arena_calloc(count, size);
-    default:                return NULL;
+    switch (op) {
+    case GW_MEM_OP_ALLOC: {
+        void *p = NULL;
+        switch (pool) {
+        case GW_MEM_ITC:        p = itc_calloc(count, size); break;
+        case GW_MEM_RAM:        p = ram_calloc(count, size); break;
+        case GW_MEM_AHB:        p = ahb_calloc(count, size); break;
+        case GW_MEM_DTCM:       p = dtcm_calloc(count, size); break;
+        case GW_MEM_DTCM_ARENA: p = dtcm_arena_calloc(count, size); break;
+        case GW_MEM_AHB_ONLY: {
+            size_t bytes = count * size;
+            p = ahb_only_malloc(bytes);
+            if (p)
+                memset(p, 0, bytes);
+            break;
+        }
+        default:
+            break;
+        }
+        return (uintptr_t)p;
+    }
+    case GW_MEM_OP_INIT:
+        switch (pool) {
+        case GW_MEM_ITC:
+            itc_init();
+            break;
+        case GW_MEM_AHB:
+        case GW_MEM_AHB_ONLY:
+            ahb_init();
+            break;
+        case GW_MEM_DTCM_ARENA:
+            dtcm_arena_init();
+            break;
+        default:
+            break;
+        }
+        return 0;
+    case GW_MEM_OP_FREE_SIZE:
+        if (pool == GW_MEM_RAM)
+            return (uintptr_t)ram_get_free_size();
+        return 0;
+    default:
+        return 0;
     }
 }
 
@@ -260,9 +293,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .audio_clear_inactive_buffer = audio_clear_inactive_buffer,
 
     /* G&W allocators */
-    .mem_alloc         = abi_mem_alloc,
-    .itc_init          = itc_init,
-    .ram_get_free_size = ram_get_free_size,
+    .mem_ctl = abi_mem_ctl,
 
     /* G&W RTC getters removed — cores use time()/localtime(). */
 
@@ -381,9 +412,8 @@ const gw_firmware_abi_t g_firmware_abi = {
     .rg_storage_copy_file_range_to_ram =
         (size_t (*)(char *, uint8_t *, uint32_t, uint32_t, gw_file_progress_cb_t))rg_storage_copy_file_range_to_ram,
 
-    /* v2 append: blueMSX (MSX) porting surface */
-    .ahb_init                    = ahb_init,
-    .ahb_only_malloc             = ahb_only_malloc,
+    /* v2 append: blueMSX (MSX) porting surface
+     * (ahb_init / ahb_only_malloc folded into mem_ctl) */
     .odroid_audio_volume_get     = odroid_audio_volume_get,
     .calculate_sha1_file         = calculate_sha1_file,
     .calculate_sha1_file_limit   = calculate_sha1_file_limit,
