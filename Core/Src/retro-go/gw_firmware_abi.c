@@ -80,6 +80,33 @@ static uint32_t gw_abi_jpeg_ctl(gw_jpeg_op_t op, uint32_t a, uint32_t b, uint32_
     }
 }
 
+/* Unified LCD framebuffer get/clear (replaces five former ABI slots). */
+static void *gw_abi_lcd_buffer(gw_lcd_buf_t which, uint32_t flags)
+{
+    const int do_clear = (flags & GW_LCD_CLEAR) != 0;
+
+    switch (which) {
+    case GW_LCD_BUF_ACTIVE:
+        return do_clear ? lcd_clear_active_buffer() : lcd_get_active_buffer();
+    case GW_LCD_BUF_INACTIVE:
+        return do_clear ? lcd_clear_inactive_buffer() : lcd_get_inactive_buffer();
+    case GW_LCD_BUF_BOTH:
+        if (do_clear)
+            lcd_clear_buffers();
+        return NULL;
+    default:
+        return NULL;
+    }
+}
+
+static void gw_abi_lcd_copy_fb(gw_lcd_copy_t dir)
+{
+    if (dir == GW_LCD_COPY_INACTIVE_TO_ACTIVE)
+        lcd_clone();
+    else
+        lcd_sync();  /* ACTIVE_TO_INACTIVE (and unknown → sync) */
+}
+
 /* These are defined in rg_emulators.c */
 extern uint8_t *pico8_code_flash_addr;
 extern uint32_t pico8_code_flash_size;
@@ -223,10 +250,8 @@ const gw_firmware_abi_t g_firmware_abi = {
 
     /* G&W LCD */
     .lcd_swap                  = lcd_swap,
-    .lcd_get_active_buffer     = lcd_get_active_buffer,
-    .lcd_get_inactive_buffer   = lcd_get_inactive_buffer,
-    .lcd_clear_active_buffer   = lcd_clear_active_buffer,
-    .lcd_clear_inactive_buffer = lcd_clear_inactive_buffer,
+    .lcd_buffer                = gw_abi_lcd_buffer,
+    .lcd_copy_fb               = gw_abi_lcd_copy_fb,
 
     /* G&W audio */
     .audio_start_playing         = audio_start_playing,
@@ -306,7 +331,6 @@ const gw_firmware_abi_t g_firmware_abi = {
 
     .lcd_wait_for_vblank  = lcd_wait_for_vblank,
     .lcd_set_refresh_rate = lcd_set_refresh_rate,
-    .lcd_clear_buffers    = lcd_clear_buffers,
 
     .audio_get_buffer_length = audio_get_buffer_length,
 
@@ -334,7 +358,6 @@ const gw_firmware_abi_t g_firmware_abi = {
     .odroid_system_get_path = (char *(*)(int, const char *))odroid_system_get_path,
 
     .lcd_get_pixel_position       = lcd_get_pixel_position,
-    .lcd_sleep_while_swap_pending = lcd_sleep_while_swap_pending,
 
     .frame_counter_ptr = &frame_counter,
 
@@ -349,8 +372,8 @@ const gw_firmware_abi_t g_firmware_abi = {
     .common_emu_sound_dma_marker_ptr = &common_emu_sound_dma_marker,
 
     /* TGB Dual (Game Boy / Game Boy Color) porting surface.
-     * GW_GetUnixTM/mktime dropped — use time()/localtime(). */
-    .lcd_clone                       = lcd_clone,
+     * GW_GetUnixTM/mktime dropped — use time()/localtime().
+     * lcd_clone folded into lcd_copy_fb. */
     .odroid_settings_Palette_get     = odroid_settings_Palette_get,
     .odroid_settings_Palette_set     = odroid_settings_Palette_set,
 
@@ -388,7 +411,6 @@ const gw_firmware_abi_t g_firmware_abi = {
     .get_SystemCoreClock         = gw_abi_get_SystemCoreClock,
     .odroid_overlay_cache_file_in_flash_relocate = odroid_overlay_cache_file_in_flash_relocate,
     .lcd_backlight_set           = lcd_backlight_set,
-    .lcd_sync                    = lcd_sync,
     .draw_error_screen           = draw_error_screen,
 
     /* v2 append: per-core option i18n */

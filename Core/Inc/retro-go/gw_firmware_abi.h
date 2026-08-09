@@ -99,6 +99,23 @@ typedef enum {
     GW_JPEG_DEINIT   = 3,  /* no args */
 } gw_jpeg_op_t;
 
+/* LCD framebuffer selector for lcd_buffer() below. Replaces five ABI
+ * slots (get/clear active/inactive + clear_buffers) with one entry.
+ * Bridge re-exposes the historical names as thin wrappers. */
+typedef enum {
+    GW_LCD_BUF_ACTIVE   = 0,
+    GW_LCD_BUF_INACTIVE = 1,
+    GW_LCD_BUF_BOTH     = 2,  /* clear_buffers — CLEAR flag required */
+} gw_lcd_buf_t;
+
+#define GW_LCD_CLEAR  1u  /* OR into lcd_buffer() flags to zero the buffer(s) */
+
+/* Direction for lcd_copy_fb() — replaces lcd_sync + lcd_clone. */
+typedef enum {
+    GW_LCD_COPY_ACTIVE_TO_INACTIVE = 0,  /* former lcd_sync() */
+    GW_LCD_COPY_INACTIVE_TO_ACTIVE = 1,  /* former lcd_clone() */
+} gw_lcd_copy_t;
+
 typedef struct {
     /* Header — every plugin checks these before using the rest. */
     uint32_t version;        /* == GW_FIRMWARE_ABI_VERSION for this build */
@@ -225,12 +242,18 @@ typedef struct {
 
     /* ================================================================
      * G&W hardware: LCD
+     *
+     * lcd_buffer / lcd_copy_fb unify the former per-buffer get/clear and
+     * sync/clone slots (same mem_alloc-style reduction; still ABI v2 while
+     * cores are in active development). Bridge re-exposes
+     * lcd_get_active_buffer / lcd_clear_* / lcd_clear_buffers / lcd_sync /
+     * lcd_clone as thin wrappers so core source is unchanged.
+     * lcd_sleep_while_swap_pending is composed in the bridge from
+     * lcd_is_swap_pending + WFI (no ABI slot).
      * ================================================================ */
     void  (*lcd_swap)(void);
-    void *(*lcd_get_active_buffer)(void);
-    void *(*lcd_get_inactive_buffer)(void);
-    void *(*lcd_clear_active_buffer)(void);
-    void *(*lcd_clear_inactive_buffer)(void);
+    void *(*lcd_buffer)(gw_lcd_buf_t which, uint32_t flags);
+    void  (*lcd_copy_fb)(gw_lcd_copy_t dir);
 
     /* ================================================================
      * G&W hardware: audio
@@ -376,7 +399,6 @@ typedef struct {
 
     void     (*lcd_wait_for_vblank)(void);
     void     (*lcd_set_refresh_rate)(uint32_t frequency);
-    void     (*lcd_clear_buffers)(void);
 
     uint16_t (*audio_get_buffer_length)(void);
 
@@ -416,7 +438,6 @@ typedef struct {
     char    *(*odroid_system_get_path)(int type, const char *romPath);
 
     uint32_t (*lcd_get_pixel_position)(void);
-    bool     (*lcd_sleep_while_swap_pending)(void);
 
     /* frame_counter (gw_lcd.h): incremented by the LCD vsync ISR. Engine
      * reads the live value through frame_counter_ptr instead of linking
@@ -456,9 +477,9 @@ typedef struct {
      * Color, C++) to the external-core model. Identified by porting
      * Core/Src/porting/gb_tgbdual/main_gb_tgbdual.cpp (+ gw_renderer.cpp)
      * against this ABI. (GW_GetUnixTM/mktime were dropped during
-     * external-core development — use time()+localtime() instead.)
+     * external-core development — use time()+localtime() instead.
+     * lcd_clone was folded into lcd_copy_fb — see the LCD block above.)
      * ================================================================ */
-    void     (*lcd_clone)(void);
     int32_t  (*odroid_settings_Palette_get)(void);
     void     (*odroid_settings_Palette_set)(int32_t value);
 
@@ -522,14 +543,14 @@ typedef struct {
      * v2 append: GBA (gpSP) — host CPU clock after SystemClock_Config
      * overclock (CMSIS SystemCoreClock is a firmware global; cores must
      * not take its address across the ABI boundary). Plus XIP cache with
-     * relocation pass, fatal UI helpers, and lcd_sync.
+     * relocation pass, fatal UI helpers, and backlight. (lcd_sync was
+     * folded into lcd_copy_fb — see the LCD block above.)
      * ================================================================ */
     uint32_t (*get_SystemCoreClock)(void);
     uint8_t *(*odroid_overlay_cache_file_in_flash_relocate)(
         const char *file_path, uint32_t *file_size_p, bool byte_swap,
         gw_flash_relocate_cb_t relocate_cb);
     void     (*lcd_backlight_set)(uint8_t brightness);
-    void     (*lcd_sync)(void);
     void     (*draw_error_screen)(const char *main_line, const char *line_1, const char *line_2);
 
     /* ================================================================

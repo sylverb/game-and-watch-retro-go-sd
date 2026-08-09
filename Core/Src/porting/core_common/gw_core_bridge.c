@@ -437,14 +437,54 @@ FRESULT core_f_readdir(DIR *dp, FILINFO *fno) { return gw_firmware_abi()->f_read
 /* ====================================================================
  * G&W hardware: LCD
  * ==================================================================== */
+/* ====================================================================
+ * G&W hardware: LCD
+ *
+ * ABI exposes lcd_buffer / lcd_copy_fb; historical names stay as thin
+ * wrappers so core source (and redefine-syms) is unchanged.
+ * lcd_sleep_while_swap_pending is composed here from lcd_is_swap_pending
+ * + WFI — no ABI slot.
+ * ==================================================================== */
 void  core_lcd_swap(void) { gw_firmware_abi()->lcd_swap(); }
-void *core_lcd_get_active_buffer(void) { return gw_firmware_abi()->lcd_get_active_buffer(); }
-void *core_lcd_get_inactive_buffer(void) { return gw_firmware_abi()->lcd_get_inactive_buffer(); }
-void *core_lcd_clear_active_buffer(void) { return gw_firmware_abi()->lcd_clear_active_buffer(); }
-void *core_lcd_clear_inactive_buffer(void) { return gw_firmware_abi()->lcd_clear_inactive_buffer(); }
-void  core_lcd_wait_for_vblank(void) { gw_firmware_abi()->lcd_wait_for_vblank(); }
-void  core_lcd_set_refresh_rate(uint32_t frequency) { gw_firmware_abi()->lcd_set_refresh_rate(frequency); }
-void  core_lcd_clear_buffers(void) { gw_firmware_abi()->lcd_clear_buffers(); }
+void *core_lcd_get_active_buffer(void)
+{
+    return gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_ACTIVE, 0);
+}
+void *core_lcd_get_inactive_buffer(void)
+{
+    return gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_INACTIVE, 0);
+}
+void *core_lcd_clear_active_buffer(void)
+{
+    return gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_ACTIVE, GW_LCD_CLEAR);
+}
+void *core_lcd_clear_inactive_buffer(void)
+{
+    return gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_INACTIVE, GW_LCD_CLEAR);
+}
+void core_lcd_clear_buffers(void)
+{
+    (void)gw_firmware_abi()->lcd_buffer(GW_LCD_BUF_BOTH, GW_LCD_CLEAR);
+}
+void core_lcd_wait_for_vblank(void) { gw_firmware_abi()->lcd_wait_for_vblank(); }
+void core_lcd_set_refresh_rate(uint32_t frequency) { gw_firmware_abi()->lcd_set_refresh_rate(frequency); }
+void core_lcd_sync(void)
+{
+    gw_firmware_abi()->lcd_copy_fb(GW_LCD_COPY_ACTIVE_TO_INACTIVE);
+}
+void core_lcd_clone(void)
+{
+    gw_firmware_abi()->lcd_copy_fb(GW_LCD_COPY_INACTIVE_TO_ACTIVE);
+}
+bool core_lcd_sleep_while_swap_pending(void)
+{
+    bool pending = false;
+    while (gw_firmware_abi()->lcd_is_swap_pending()) {
+        pending = true;
+        __asm volatile ("wfi");
+    }
+    return pending;
+}
 
 /* ====================================================================
  * G&W hardware: audio
@@ -613,7 +653,6 @@ char *core_odroid_system_get_path(int type, const char *romPath)
 }
 
 uint32_t core_lcd_get_pixel_position(void) { return gw_firmware_abi()->lcd_get_pixel_position(); }
-bool     core_lcd_sleep_while_swap_pending(void) { return gw_firmware_abi()->lcd_sleep_while_swap_pending(); }
 
 /* ====================================================================
  * v2 append: PC Engine / PC Engine CD porting surface
@@ -638,7 +677,6 @@ int core_sscanf(const char *str, const char *fmt, ...)
 /* ====================================================================
  * v2 append: TGB Dual (Game Boy / Game Boy Color, C++) porting surface
  * ==================================================================== */
-void   core_lcd_clone(void) { gw_firmware_abi()->lcd_clone(); }
 int32_t core_odroid_settings_Palette_get(void) { return gw_firmware_abi()->odroid_settings_Palette_get(); }
 void    core_odroid_settings_Palette_set(int32_t value) { gw_firmware_abi()->odroid_settings_Palette_set(value); }
 
@@ -916,11 +954,6 @@ uint8_t *core_odroid_overlay_cache_file_in_flash_relocate(
 void core_lcd_backlight_set(uint8_t brightness)
 {
     gw_firmware_abi()->lcd_backlight_set(brightness);
-}
-
-void core_lcd_sync(void)
-{
-    gw_firmware_abi()->lcd_sync();
 }
 
 void core_draw_error_screen(const char *main_line, const char *line_1, const char *line_2)

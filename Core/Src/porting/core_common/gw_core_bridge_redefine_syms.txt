@@ -81,6 +81,9 @@ f_opendir core_f_opendir
 f_closedir core_f_closedir
 f_readdir core_f_readdir
 # --- G&W hardware: LCD ---
+# get/clear/clear_buffers/sync/clone map to core_* wrappers over
+# lcd_buffer / lcd_copy_fb. lcd_sleep_while_swap_pending is composed in
+# the bridge from lcd_is_swap_pending + WFI (no ABI slot).
 lcd_swap core_lcd_swap
 lcd_get_active_buffer core_lcd_get_active_buffer
 lcd_get_inactive_buffer core_lcd_get_inactive_buffer
@@ -89,6 +92,9 @@ lcd_clear_inactive_buffer core_lcd_clear_inactive_buffer
 lcd_wait_for_vblank core_lcd_wait_for_vblank
 lcd_set_refresh_rate core_lcd_set_refresh_rate
 lcd_clear_buffers core_lcd_clear_buffers
+lcd_sync core_lcd_sync
+lcd_clone core_lcd_clone
+lcd_sleep_while_swap_pending core_lcd_sleep_while_swap_pending
 # --- G&W hardware: audio ---
 audio_start_playing core_audio_start_playing
 audio_get_active_buffer core_audio_get_active_buffer
@@ -154,7 +160,6 @@ SystemClock_Config core_SystemClock_Config
 get_ofw_is_mario core_get_ofw_is_mario
 odroid_system_get_path core_odroid_system_get_path
 lcd_get_pixel_position core_lcd_get_pixel_position
-lcd_sleep_while_swap_pending core_lcd_sleep_while_swap_pending
 # --- v2 append: PC Engine / PC Engine CD porting surface ---
 crc32_le core_crc32_le
 cpumon_sleep core_cpumon_sleep
@@ -165,8 +170,8 @@ odroid_settings_ActiveGameGenieCodes_is_enabled core_odroid_settings_ActiveGameG
 # NOTE: strtok is intentionally NOT here — gw_core_bridge.c defines a real
 # local implementation (static per-core state), same reasoning as
 # memcpy/memset/memmove above. NOTE: GW_GetUnixTM/mktime were dropped —
-# use time()+localtime() (see "time core_time" above).
-lcd_clone core_lcd_clone
+# use time()+localtime() (see "time core_time" above). lcd_clone is in
+# the LCD block above (wrapper over lcd_copy_fb).
 odroid_settings_Palette_get core_odroid_settings_Palette_get
 odroid_settings_Palette_set core_odroid_settings_Palette_set
 # --- Lynx (handy-go): fputs via fwrite/strlen; calloc via mem_alloc(DTCM) ---
@@ -218,5 +223,4 @@ common_emu_frame_loop_reset core_common_emu_frame_loop_reset
 get_SystemCoreClock core_get_SystemCoreClock
 odroid_overlay_cache_file_in_flash_relocate core_odroid_overlay_cache_file_in_flash_relocate
 lcd_backlight_set core_lcd_backlight_set
-lcd_sync core_lcd_sync
 draw_error_screen core_draw_error_screen
