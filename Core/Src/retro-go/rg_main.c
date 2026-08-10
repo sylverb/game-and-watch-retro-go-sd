@@ -567,6 +567,8 @@ static void GLOBAL_DATA handle_time_menu()
 
 tab_t* gui_get_prepared_tab(int tab_index) {
     tab_t* tab = gui_get_tab(tab_index);
+    if (tab == NULL)
+        return NULL;
     if (!tab->initialized) {
         gui_init_tab(tab);
     } else {
@@ -578,12 +580,15 @@ tab_t* gui_get_prepared_tab(int tab_index) {
 
 
 bool gui_is_tab_valid(tab_t* tab) {
-    return gui.show_empty || !tab->is_empty;
+    return tab != NULL && (gui.show_empty || !tab->is_empty);
 }
 
 bool gui_change_tab(int direction) {
     int old_selected_tab = gui.selected;
     int new_selected_tab;
+
+    if (gui.tabcount <= 0)
+        return false;
 
     int traversed_tabs_count = 0;
     int current_tab = gui.selected;
@@ -604,7 +609,6 @@ bool gui_change_tab(int direction) {
 
         tab_t* tab = gui_get_prepared_tab(current_tab);
         bool is_tab_valid = gui_is_tab_valid(tab);
-        //printf("Current tab: %d - %s, initialized: %d, valid: %d\n", current_tab, tab->name, tab->initialized, is_tab_valid);
 
         if (is_tab_valid) {
             new_selected_tab = current_tab;
@@ -653,6 +657,8 @@ void retro_loop()
             last_key = i;
 
     gui.selected = odroid_settings_MainMenuSelectedTab_get();
+    if (gui.selected < 0 || gui.selected >= gui.tabcount)
+        gui.selected = 0;
 
     tab = gui_get_prepared_tab(gui.selected);
     if (!gui_is_tab_valid(tab)) {

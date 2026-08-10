@@ -290,7 +290,7 @@ void gui_init_tab(tab_t *tab)
     sprintf(str_buffer, "Sel.%.11s", tab->name);
     // tab->listbox.cursor = odroid_settings_int32_get(str_buffer, 0);
     tab_t *selected_tab = gui_get_tab(odroid_settings_MainMenuSelectedTab_get());
-    if (tab->name == selected_tab->name)
+    if (selected_tab != NULL && tab->name == selected_tab->name)
     {
         tab->listbox.cursor = odroid_settings_MainMenuCursor_get();
     }
