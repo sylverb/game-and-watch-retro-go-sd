@@ -167,6 +167,14 @@ typedef enum {
     GW_DISP_GET_FILTER  = 2,  /* → filter mode as int */
 } gw_disp_op_t;
 
+/* Odroid input for input_ctl() — gamepad + battery (BQ24072 behind
+ * firmware). Replaces the former standalone odroid_input_read_gamepad /
+ * odroid_input_read_battery ABI slots. Bridge re-exposes those names. */
+typedef enum {
+    GW_INPUT_READ_GAMEPAD = 0,  /* a = odroid_gamepad_state_t* */
+    GW_INPUT_READ_BATTERY = 1,  /* a = odroid_battery_state_t* */
+} gw_input_op_t;
+
 /* Hardware SHA-1 for sha1_ctl(). calculate_sha1_file is composed in the
  * bridge as FILE_LIMIT with max_bytes=(ssize_t)-1 (whole file). */
 typedef enum {
@@ -389,10 +397,10 @@ typedef struct {
     /* ================================================================
      * retro-go: input / display
      *
-     * display_ctl() folds get/set scaling + get filter. Gamepad read
-     * stays separate (hot path, different shape).
+     * input_ctl() folds gamepad + battery reads. display_ctl() folds
+     * get/set scaling + get filter.
      * ================================================================ */
-    void      (*odroid_input_read_gamepad)(odroid_gamepad_state_t *out_state);
+    uintptr_t (*input_ctl)(gw_input_op_t op, void *a);
     uintptr_t (*display_ctl)(gw_disp_op_t op, uint32_t a);
 
     /* ================================================================

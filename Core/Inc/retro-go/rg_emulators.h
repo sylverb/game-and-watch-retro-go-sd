@@ -40,6 +40,11 @@ typedef struct {
 	#if COVERFLOW != 0
     const uint8_t *img_address;
     img_state_t img_state;
+    /* GWHB embedded JPEG: absolute offset/size in the .bin at path.
+     * Both 0 → fall back to /covers/<dirname>/<stem>.img.
+     * When set, /covers/<dirname>/<stem>.img still wins if present. */
+    uint32_t cover_bin_offset;
+    uint32_t cover_bin_size;
 	#endif
     rom_region_t region;
     const rom_system_t *system;

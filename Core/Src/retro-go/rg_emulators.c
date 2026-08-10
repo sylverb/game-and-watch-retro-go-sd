@@ -38,6 +38,8 @@
 #define CORE_HEADER_MAGIC_INTERNAL "CORI"
 #define CORE_HEADER_MAGIC_EXTERNAL "CORE"
 #define CORE_HEADER_MIN_SIZE 8u
+
+static bool gwhb_probe(const char *path, gwhb_meta_t *meta, uint16_t *header_length);
 // INTERNAL_CORE_BIN_HEADER_VERSION is defined in Makefile.common
 // and shall be incremented when the internal cores binary format
 // changes
@@ -666,7 +668,28 @@ static bool emulator_add_rom_file(retro_emulator_t *emu, const char *path,
     slot->ext = (char *)get_extension(slot->path);
 #if COVERFLOW != 0
     slot->img_state = IMG_STATE_UNKNOWN;
+    slot->cover_bin_offset = 0;
+    slot->cover_bin_size = 0;
 #endif
+    /* GWHB v1: prefer display_name from the header; note cover_bin_* for
+     * metadata only — coverflow still prefers /covers/homebrew/<stem>.img
+     * over the embedded JPEG (see get_coverfile in gui.c). */
+    if (emu->dirname[0] && strcmp(emu->dirname, "homebrew") == 0) {
+        gwhb_meta_t hb;
+        uint16_t hb_len = 0;
+        if (gwhb_probe(path, &hb, &hb_len) && hb_len != 0) {
+            if (hb.display_name[0]) {
+                strncpy(slot->name, hb.display_name, sizeof(slot->name) - 1);
+                slot->name[sizeof(slot->name) - 1] = '\0';
+            }
+#if COVERFLOW != 0
+            if (hb.cover_size != 0 && hb.cover_offset != 0) {
+                slot->cover_bin_offset = hb.cover_offset;
+                slot->cover_bin_size = hb.cover_size;
+            }
+#endif
+        }
+    }
 #if CHEAT_CODES == 1
     slot->cheat_count = 0;
     slot->cheat_codes = NULL;
@@ -1438,72 +1461,193 @@ extern LTDC_HandleTypeDef hltdc;
 /* --- Universal Homebrew Header (GWHB) loader ---------------------------
  *
  * Lets an out-of-tree homebrew binary run without any firmware-side
- * dispatch-table entry, linker overlay symbols, or appid.h enum: drop a
- * .bin under /roms/homebrew/ and it runs, as long as it starts with a
- * gwhb_header_t (see gwhb.h). The entry point is always at offset
- * sizeof(gwhb_header_t), past the header.
+ * dispatch-table entry or linker overlay symbols: drop a .bin under
+ * /roms/homebrew/ and it runs, as long as it starts with a GWHB container
+ * (see gwhb.h).
  *
- * Unlike the compile-time dispatch table (run_internal_emu above), a GWHB
- * binary is responsible for zeroing its own BSS and configuring its own
- * LCD mode (RGB565 vs LUT8) via the firmware ABI, since the loader has no
- * compile-time knowledge of its layout or needs, only its total size.
+ * v1 meta: firmware loads only the code payload into RAM_EMU, zeroes BSS,
+ * and jumps to payload offset 0. Legacy (header_length == 0): whole file
+ * was copied into RAM_EMU with entry at offset 64 (binary zeroes its own
+ * BSS).
  *
  * Trust model: the file is loaded, unauthenticated, from an SD card, so
  * every firmware-side check below is defensive: refuse rather than jump
  * into a corrupt or incompatible binary. */
 
-static void show_incompatible_homebrew_screen(void)
+static void show_homebrew_error_screen(const char *reason)
 {
+  /* Distinct from show_corrupted_installation_screen(): that one tells the
+   * user to reinstall the whole firmware, which is the wrong advice when
+   * only a /roms/homebrew/*.bin failed to load. */
   odroid_dialog_choice_t choices[] = {
-    {0, curr_lang->s_Corrupted_Install_1, "", -1, NULL},
+    {0, reason ? reason : "Homebrew load failed", "", -1, NULL},
     ODROID_DIALOG_CHOICE_SEPARATOR,
     {1, curr_lang->s_OK, "", 1, NULL},
     ODROID_DIALOG_CHOICE_LAST,
   };
 
-  (void)odroid_overlay_dialog(curr_lang->s_Corrupted_Title, choices, 2, NULL, 0);
+  (void)odroid_overlay_dialog("Homebrew", choices, 2, NULL, 0);
 }
 
-/* `copied` is the byte count already placed at __RAM_EMU_START__ by the
- * Homebrew branch's bounded copy (see emulator_start); this function does
- * not touch storage itself, only validates and dispatches. */
-__attribute__((noinline))
-static void run_gwhb_homebrew(size_t copied, uint8_t load_state, uint8_t start_paused, int8_t save_slot)
+/* Read GWHB envelope + meta from `path`. Returns true on a recognizable
+ * GWHB file (v1 or legacy). On v1 success, *meta is filled and
+ * *header_length is the on-disk header_length field. Legacy: *header_length
+ * is 0 and *meta is left untouched. */
+static bool gwhb_probe(const char *path, gwhb_meta_t *meta, uint16_t *header_length)
 {
-    if (copied < sizeof(gwhb_header_t)) {
-        show_incompatible_homebrew_screen();
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return false;
+
+    uint8_t envelope[GWHB_HEADER_MIN_SIZE];
+    if (fread(envelope, 1, sizeof(envelope), f) != sizeof(envelope)) {
+        fclose(f);
+        return false;
+    }
+
+    uint32_t magic;
+    memcpy(&magic, envelope, 4);
+    if (magic != GWHB_MAGIC) {
+        fclose(f);
+        return false;
+    }
+
+    uint16_t version, length;
+    memcpy(&version, envelope + 4, 2);
+    memcpy(&length, envelope + 6, 2);
+
+    /* Legacy fixed 64-byte header: required_abi was a u32 at offset 4, so
+     * reading as CORE-style envelope yields header_length == 0. */
+    if (length == 0) {
+        fclose(f);
+        if (header_length)
+            *header_length = 0;
+        return true;
+    }
+
+    if (version != GWHB_META_VERSION || length < sizeof(gwhb_meta_t)) {
+        fclose(f);
+        return false;
+    }
+
+    if (fread(meta, 1, sizeof(*meta), f) != sizeof(*meta)) {
+        fclose(f);
+        return false;
+    }
+    fclose(f);
+
+    meta->display_name[sizeof(meta->display_name) - 1] = '\0';
+    if (header_length)
+        *header_length = length;
+    return true;
+}
+
+static bool gwhb_abi_ok(uint32_t required_abi, uint32_t required_abi_min_size)
+{
+    /* required_abi alone is not enough: append-only ABI growth does not
+     * bump GW_FIRMWARE_ABI_VERSION, so two firmware builds can report the
+     * same version with different actual struct sizes. required_abi_min_size
+     * detects "this firmware predates a field I need". Older/smaller ABI
+     * binaries are fine, hence <=, not ==. */
+    return required_abi <= GW_FIRMWARE_ABI_VERSION
+        && required_abi_min_size <= g_firmware_abi.size;
+}
+
+__attribute__((noinline))
+static void run_gwhb_homebrew(const char *path, uint8_t load_state, uint8_t start_paused, int8_t save_slot)
+{
+    gwhb_meta_t meta;
+    uint16_t header_length = 0;
+
+    if (!gwhb_probe(path, &meta, &header_length)) {
+        printf("GWHB: probe failed for '%s'\n", path);
+        show_homebrew_error_screen("Not a GWHB .bin");
         return;
     }
 
-    const gwhb_header_t *hdr = (const gwhb_header_t *)&__RAM_EMU_START__;
+    const uint32_t ram_emu_len =
+        ((uint32_t)&__RAM_EMU_END__) - (uint32_t)&__RAM_EMU_START__;
+    uint8_t *base = (uint8_t *)&__RAM_EMU_START__;
 
-    if (hdr->magic != GWHB_MAGIC)
-        return; /* not a GWHB file; nothing to dispatch */
+    if (header_length == 0) {
+        /* Legacy: whole file already must fit in RAM_EMU; entry at +64. */
+        size_t copied = rg_storage_copy_file_to_ram_bounded(
+            (char *)path, base, 0, ram_emu_len, NULL);
+        if (copied < GWHB_LEGACY_HEADER_SIZE) {
+            show_homebrew_error_screen("Legacy header too small");
+            return;
+        }
 
-    /* Defense in depth, both against the same fields the app is expected
-     * to self-check (see gnw_abi_ok()-style checks in ABI consumers), so a
-     * binary built for a newer/bigger ABI than this firmware provides is
-     * refused before it ever gets a chance to call through a function
-     * pointer past the end of g_firmware_abi.
-     *
-     * required_abi alone is not enough: append-only ABI growth does not
-     * bump GW_FIRMWARE_ABI_VERSION (see the comment above that define), so
-     * two firmware builds can report the same version with different
-     * actual struct sizes. required_abi_min_size is the field that
-     * actually detects "this firmware predates a field I need". Anything
-     * built for an older/smaller ABI is fine, hence <=, not ==. */
-    if (hdr->required_abi > GW_FIRMWARE_ABI_VERSION ||
-        hdr->required_abi_min_size > g_firmware_abi.size) {
-        show_incompatible_homebrew_screen();
+        /* Re-read ABI fields from the legacy header layout at RAM. */
+        uint32_t required_abi, required_min;
+        memcpy(&required_abi, base + 4, 4);
+        memcpy(&required_min, base + 8, 4);
+        if (!gwhb_abi_ok(required_abi, required_min)) {
+            printf("GWHB legacy: ABI %lu/%lu, firmware %u/%lu\n",
+                   (unsigned long)required_abi, (unsigned long)required_min,
+                   (unsigned)GW_FIRMWARE_ABI_VERSION,
+                   (unsigned long)g_firmware_abi.size);
+            show_homebrew_error_screen("ABI mismatch — reflash FW");
+            return;
+        }
+
+        SCB_CleanDCache_by_Addr((uint32_t *)base, copied);
+        SCB_InvalidateICache();
+        ((void (*)(uint8_t, uint8_t, int8_t))(((uintptr_t)base + GWHB_LEGACY_HEADER_SIZE) | 1))
+            (load_state, start_paused, save_slot);
         return;
     }
 
-    SCB_CleanDCache_by_Addr((uint32_t *)&__RAM_EMU_START__, copied);
+    if (!gwhb_abi_ok(meta.required_abi_version, meta.required_abi_min_size)) {
+        printf("GWHB: ABI req %lu/%lu, firmware %u/%lu\n",
+               (unsigned long)meta.required_abi_version,
+               (unsigned long)meta.required_abi_min_size,
+               (unsigned)GW_FIRMWARE_ABI_VERSION,
+               (unsigned long)g_firmware_abi.size);
+        show_homebrew_error_screen("ABI mismatch — reflash FW");
+        return;
+    }
+
+    if (meta.code_size == 0
+        || (uint64_t)meta.code_size + meta.bss_size > ram_emu_len) {
+        printf("GWHB: code=%lu bss=%lu ram_emu=%lu\n",
+               (unsigned long)meta.code_size, (unsigned long)meta.bss_size,
+               (unsigned long)ram_emu_len);
+        show_homebrew_error_screen("Homebrew too big for RAM");
+        return;
+    }
+
+    uint32_t payload_off = GWHB_HEADER_MIN_SIZE + (uint32_t)header_length;
+    size_t loaded = rg_storage_copy_file_range_to_ram(
+        (char *)path, base, payload_off, meta.code_size, NULL);
+    if (loaded != meta.code_size) {
+        printf("GWHB: loaded %u, expected %lu (off=%lu path=%s)\n",
+               (unsigned)loaded, (unsigned long)meta.code_size,
+               (unsigned long)payload_off, path);
+        show_homebrew_error_screen("SD read failed — re-copy .bin");
+        return;
+    }
+
+    memset(base + meta.code_size, 0, meta.bss_size);
+    SCB_CleanDCache_by_Addr((uint32_t *)base, meta.code_size);
     SCB_InvalidateICache();
 
-    /* | 1 keeps the CPU in Thumb mode. The binary zeroes its own BSS on
-     * entry. */
-    ((void (*)(uint8_t, uint8_t, int8_t))(((uintptr_t)&__RAM_EMU_START__ + sizeof(gwhb_header_t)) | 1))
+    /* Seed ram_malloc past code+bss, same as run_dynamic_core(). */
+    ram_start = (uint32_t)(base + meta.code_size + meta.bss_size);
+
+    g_running_core_version[0] = meta.version_major;
+    g_running_core_version[1] = meta.version_minor;
+    g_running_core_version[2] = meta.version_patch;
+    if (meta.display_name[0]) {
+        strncpy(g_running_core_name, meta.display_name, sizeof(g_running_core_name) - 1);
+        g_running_core_name[sizeof(g_running_core_name) - 1] = '\0';
+    } else {
+        g_running_core_name[0] = '\0';
+    }
+    strncpy(g_running_core_path, path, sizeof(g_running_core_path) - 1);
+    g_running_core_path[sizeof(g_running_core_path) - 1] = '\0';
+
+    ((void (*)(uint8_t, uint8_t, int8_t))((uintptr_t)base | 1))
         (load_state, start_paused, save_slot);
 }
 
@@ -1935,8 +2079,13 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     char dyn_core_path_buf[sizeof(((retro_emulator_t *)0)->core_path)];
     strncpy(system_name, newfile->system->system_name, sizeof(system_name) - 1);
     system_name[sizeof(system_name) - 1] = '\0';
-    strncpy(dyn_core_path_buf, newfile->system->core_path, sizeof(dyn_core_path_buf) - 1);
-    dyn_core_path_buf[sizeof(dyn_core_path_buf) - 1] = '\0';
+    dyn_core_path_buf[0] = '\0';
+    /* Homebrew (and any system without an external CORE) keeps core_path
+     * NULL on rom_system_t — never strncpy from a NULL pointer. */
+    if (newfile->system->core_path && newfile->system->core_path[0]) {
+        strncpy(dyn_core_path_buf, newfile->system->core_path, sizeof(dyn_core_path_buf) - 1);
+        dyn_core_path_buf[sizeof(dyn_core_path_buf) - 1] = '\0';
+    }
     const char *dyn_core_path = dyn_core_path_buf[0] ? dyn_core_path_buf : NULL;
 
     ACTIVE_FILE = newfile;
@@ -1986,19 +2135,9 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 
     if (dyn_core_path) {
       run_dynamic_core(dyn_core_path, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "Homebrew") == 0)  {
-      /* Bounded: refuses (returns 0) rather than overrunning RAM_EMU if the
-       * file is bigger than the region. This used to be an unchecked
-       * odroid_overlay_cache_file_in_ram() call; every branch below
-       * shares that fix now. */
-      const uint32_t ram_emu_len = ((uint32_t)&__RAM_EMU_END__) - (uint32_t)&__RAM_EMU_START__;
-      size_t homebrew_bytes = rg_storage_copy_file_to_ram_bounded(
-          ACTIVE_FILE->path, (uint8_t *)&__RAM_EMU_START__, 0, ram_emu_len, NULL);
-      if (homebrew_bytes) {
-          run_gwhb_homebrew(homebrew_bytes, load_state, start_paused, save_slot);
-      } else {
-        show_incompatible_homebrew_screen();
-      }
+    } else if (strcmp(system_name, "Homebrew") == 0
+               || strstr(ACTIVE_FILE->path, "/homebrew/") != NULL) {
+      run_gwhb_homebrew(ACTIVE_FILE->path, load_state, start_paused, save_slot);
     } else if(strcmp(system_name, "PICO-8") == 0) {
       /* PICO-8 engine loads at a FIXED address inside the LCD bonus area
        * (__overlay_pico8_vma = __RAM_UC_START__ + LUT8 framebuffer size).

@@ -693,7 +693,16 @@ uint32_t core_dma2d_ctl(gw_dma2d_op_t op, uint32_t a, uint32_t b, uint32_t c)
 /* ====================================================================
  * retro-go: input / display
  * ==================================================================== */
-void core_odroid_input_read_gamepad(odroid_gamepad_state_t *out_state) { gw_firmware_abi()->odroid_input_read_gamepad(out_state); }
+void core_odroid_input_read_gamepad(odroid_gamepad_state_t *out_state)
+{
+    (void)gw_firmware_abi()->input_ctl(GW_INPUT_READ_GAMEPAD, out_state);
+}
+odroid_battery_state_t core_odroid_input_read_battery(void)
+{
+    odroid_battery_state_t bat;
+    (void)gw_firmware_abi()->input_ctl(GW_INPUT_READ_BATTERY, &bat);
+    return bat;
+}
 odroid_display_scaling_t core_odroid_display_get_scaling_mode(void)
 {
     return (odroid_display_scaling_t)gw_firmware_abi()->display_ctl(GW_DISP_GET_SCALING, 0);

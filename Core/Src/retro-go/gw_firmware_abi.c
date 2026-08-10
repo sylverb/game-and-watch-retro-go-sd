@@ -236,6 +236,23 @@ static FRESULT gw_abi_fatfs_dir_ctl(gw_fatfs_dir_op_t op, void *a, void *b)
     }
 }
 
+/* Odroid input — gamepad + battery. */
+static uintptr_t gw_abi_input_ctl(gw_input_op_t op, void *a)
+{
+    switch (op) {
+    case GW_INPUT_READ_GAMEPAD:
+        if (a)
+            odroid_input_read_gamepad((odroid_gamepad_state_t *)a);
+        return 0;
+    case GW_INPUT_READ_BATTERY:
+        if (a)
+            *(odroid_battery_state_t *)a = odroid_input_read_battery();
+        return 0;
+    default:
+        return (uintptr_t)-1;
+    }
+}
+
 /* Odroid display scaling / filter. */
 static uintptr_t gw_abi_display_ctl(gw_disp_op_t op, uint32_t a)
 {
@@ -462,7 +479,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .odroid_system_switch_app = odroid_system_switch_app,
 
     /* retro-go: input / display */
-    .odroid_input_read_gamepad = odroid_input_read_gamepad,
+    .input_ctl                 = gw_abi_input_ctl,
     .display_ctl               = gw_abi_display_ctl,
 
     /* retro-go: overlay / SD / settings */

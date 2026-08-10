@@ -224,3 +224,5 @@ get_SystemCoreClock core_get_SystemCoreClock
 odroid_overlay_cache_file_in_flash_relocate core_odroid_overlay_cache_file_in_flash_relocate
 lcd_backlight_set core_lcd_backlight_set
 draw_error_screen core_draw_error_screen
+# --- Battery (BQ24072 via odroid_input) ---
+odroid_input_read_battery core_odroid_input_read_battery

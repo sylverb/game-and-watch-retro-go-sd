@@ -110,7 +110,7 @@ typedef struct {
 
 typedef struct {
     /* Firmware ABI this core was built against. Checked the same way as
-     * gwhb_header_t: required_abi_version <= GW_FIRMWARE_ABI_VERSION and
+     * gwhb_meta_t: required_abi_version <= GW_FIRMWARE_ABI_VERSION and
      * required_abi_min_size <= sizeof(g_firmware_abi) at runtime. */
     uint32_t required_abi_version;
     uint32_t required_abi_min_size;
