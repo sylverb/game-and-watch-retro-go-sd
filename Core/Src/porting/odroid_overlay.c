@@ -1867,12 +1867,19 @@ uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint
 #else
     void progress_cb(uint32_t total_size, uint32_t total_processed, uint8_t progress)
     {
-        if (lcd_is_swap_pending())
-            return;
+        (void)total_size;
+        (void)total_processed;
+
+        /* Wait out the previous VBLANK reload — skipping the update (the old
+         * `if (lcd_is_swap_pending()) return`) left one buffer with the
+         * progress UI and the other with the pre-load frame, so consecutive
+         * swaps flickered between them. */
+        lcd_sleep_while_swap_pending();
 
         odroid_overlay_draw_progress_bar(curr_lang->s_Caching_Game, progress);
-
-        // Show
+        /* Keep both framebuffers identical so the next swap cannot reveal the
+         * pre-cache screen (or a stale progress percentage). */
+        lcd_sync();
         lcd_swap();
     }
 
@@ -1905,10 +1912,9 @@ size_t odroid_overlay_cache_file_in_ram_with_offset(const char *file_path, uint8
 
         debounce_time = uptime_get();
 
-        // Draw
+        lcd_sleep_while_swap_pending();
         odroid_overlay_draw_banner_text(ODROID_SCREEN_WIDTH / 2, ODROID_SCREEN_HEIGHT / 2, curr_lang->s_Loading_Banner);
-
-        // Show
+        lcd_sync();
         lcd_swap();
     }
 
