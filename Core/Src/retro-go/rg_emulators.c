@@ -397,7 +397,7 @@ const rom_system_t *rg_emulators_system_for_dir(const char *dirname, size_t len)
  * binary exposing multiple systems, e.g. PC Engine + PC Engine CD — see
  * add_emulator_dynamic()). */
 static void add_emulator_ex(const char *system, const char *dirname, const char* ext,
-                            int16_t logo_idx, int16_t header_idx, game_data_type_t game_data_type,
+                            int16_t logo_idx, int16_t header_idx,
                             uint32_t parse_type, const char *core_path)
 {
     assert(emulators != NULL && emulators_count < emulators_capacity);
@@ -431,7 +431,6 @@ static void add_emulator_ex(const char *system, const char *dirname, const char*
     s->roms = p->roms.files;
     s->roms_count = p->roms.count;
     s->system_name = p->system_name;
-    s->game_data_type = game_data_type;
     s->core_path = p->core_path[0] ? p->core_path : NULL;
     s->parse_type = parse_type;
 
@@ -439,9 +438,9 @@ static void add_emulator_ex(const char *system, const char *dirname, const char*
 }
 
 static void add_emulator(const char *system, const char *dirname, const char* ext,
-                         uint16_t logo_idx, uint16_t header_idx, game_data_type_t game_data_type)
+                         uint16_t logo_idx, uint16_t header_idx)
 {
-    add_emulator_ex(system, dirname, ext, (int16_t)logo_idx, (int16_t)header_idx, game_data_type,
+    add_emulator_ex(system, dirname, ext, (int16_t)logo_idx, (int16_t)header_idx,
                     GNW_PARSE_ROM, NULL);
 }
 
@@ -1617,7 +1616,7 @@ static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_p
             header_idx = rg_register_dynamic_logo(gnw_core_load_logo(core_path, sys->header_logo_offset, sys->header_logo_size));
 
         add_emulator_ex(sys->system_name, sys->dirname, sys->extensions, pad_idx, header_idx,
-                        NO_GAME_DATA, sys->parse_type, core_path);
+                        sys->parse_type, core_path);
 
         printf("CORE: registered '%s' (%s) from %s, parse_type=%lu\n",
               sys->system_name, sys->dirname, core_path, (unsigned long)sys->parse_type);
@@ -1925,22 +1924,6 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     g_running_core_path[0] = '\0';
     g_running_core_version[0] = g_running_core_version[1] = g_running_core_version[2] = 0;
 
-    // Copy game data from SD card to flash if needed
-    // dsk files are read from sd card, do not copy them in flash
-    // With FrogFS, this maps the file directly from external flash
-    if ((newfile->system->game_data_type != NO_GAME_DATA) &&
-        (strcasecmp(newfile->ext, "dsk") != 0) && (strcasecmp(newfile->ext, "cdk") != 0)) {
-        newfile->address = odroid_overlay_cache_file_in_flash(newfile->path, &(newfile->size), newfile->system->game_data_type == GAME_DATA_BYTESWAP_16);
-        ROM_DATA = newfile->address;
-        ROM_EXT = newfile->ext;
-        ROM_DATA_LENGTH = newfile->size;
-
-        if (newfile->address == NULL) {
-            // Rom was not loaded in flash, do not start emulator
-            return;
-        }
-    }
-
     /* systems[] lives in the DTCM bump and is wiped by dtc_init(). In-game
      * code must not touch ACTIVE_FILE->system (use handlers / path instead). */
     newfile->system = NULL;
@@ -2028,7 +2011,7 @@ void emulators_init()
      * dynamically at boot from /cores/*.bin (see emulators_scan_cores(),
      * "Cores externes avec ABI" plan). Until a system is migrated it has
      * no tab at all. */
-    add_emulator("Homebrew", "homebrew", "bin", RG_LOGO_EMPTY, RG_LOGO_HEADER_HOMEBREW, NO_GAME_DATA);
+    add_emulator("Homebrew", "homebrew", "bin", RG_LOGO_EMPTY, RG_LOGO_HEADER_HOMEBREW);
 
 #if SD_CARD == 1
     /* Migrated systems (Watara Supervision, ...) register themselves here
