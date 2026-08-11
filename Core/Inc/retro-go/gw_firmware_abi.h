@@ -75,13 +75,13 @@ typedef void (*gw_flash_relocate_cb_t)(uint8_t *buffer, uint32_t length, uint32_
 
 /* Memory pool selector for mem_ctl() below. Replaces what used to be one
  * ABI function pointer per pool (itc_malloc/itc_calloc, ram_malloc,
- * ahb_malloc/ahb_calloc, dtcm_malloc) plus separate itc_init / ram_init /
+ * ahb_malloc/ahb_calloc, dtc_malloc) plus separate itc_init / ram_init /
  * ram_get_free_size slots — see mem_ctl's comment. */
 typedef enum {
     GW_MEM_ITC  = 0,  /* 64KB ITCM bump pool */
     GW_MEM_RAM  = 1,  /* RAM_EMU bump pool (this core's ram_start budget) */
     GW_MEM_AHB  = 2,  /* AHB newlib heap (malloc/free via ahb_*) */
-    GW_MEM_DTCM = 3,  /* DTCM bump pool (dtcm_*) */
+    GW_MEM_DTC  = 3,  /* DTCM bump pool (dtc_*) */
 } gw_mem_pool_t;
 
 typedef enum {
@@ -444,11 +444,8 @@ typedef struct {
     void                       **ROM_DATA_ptr;        /* &ROM_DATA */
     unsigned                    *ROM_DATA_LENGTH_ptr;  /* &ROM_DATA_LENGTH */
     void                       **ACTIVE_FILE_ptr;     /* &ACTIVE_FILE */
-    uint8_t                    **pico8_code_flash_addr_ptr;
-    uint32_t                    *pico8_code_flash_size_ptr;
     uint32_t                    *ram_start_ptr;        /* &ram_start */
     void                       **impure_ptr_ptr;      /* &_impure_ptr */
-    void                        *dtcm_p8ram_start;    /* &__dtcm_p8ram_start__ (NULL when heap-allocated) */
 
     /* =====[ APPEND-ONLY FROM HERE — bump version on any change above ]===== */
 

@@ -17,7 +17,7 @@ extern uint16_t __NULLPTR_LENGTH__;
 
 /* DTCM bump: free region from DTCM ORIGIN to the stack redzone
  * (__dtc_padding_start__ .. __dtc_padding_end__ in the linker script). */
-static uint32_t current_dtcm_pointer;
+static uint32_t current_dtc_pointer;
 extern uint32_t __dtc_padding_start__;
 extern uint32_t __dtc_padding_end__;
 
@@ -101,31 +101,31 @@ void *itc_calloc(size_t count, size_t size)
 }
 
 /* DTCM bump pool (fast). Grows from DTCM ORIGIN toward the stack.
- * No per-block free — call dtcm_init() to forget everything. */
+ * No per-block free — call dtc_init() to forget everything. */
 
-void dtcm_init(void)
+void dtc_init(void)
 {
-  current_dtcm_pointer = (uint32_t)(&__dtc_padding_start__);
+  current_dtc_pointer = (uint32_t)(&__dtc_padding_start__);
 }
 
-void *dtcm_malloc(size_t size)
+void *dtc_malloc(size_t size)
 {
-  if (current_dtcm_pointer == 0)
-    current_dtcm_pointer = (uint32_t)(&__dtc_padding_start__);
+  if (current_dtc_pointer == 0)
+    current_dtc_pointer = (uint32_t)(&__dtc_padding_start__);
 
-  uint32_t next = (current_dtcm_pointer + size + 3) & ~0x03;
+  uint32_t next = (current_dtc_pointer + size + 3) & ~0x03;
   if (next > (uint32_t)&__dtc_padding_end__)
     return NULL;
 
-  void *pointer = (void *)current_dtcm_pointer;
-  current_dtcm_pointer = next;
+  void *pointer = (void *)current_dtc_pointer;
+  current_dtc_pointer = next;
   return pointer;
 }
 
-void *dtcm_calloc(size_t count, size_t size)
+void *dtc_calloc(size_t count, size_t size)
 {
   size_t bytes = count * size;
-  void *pointer = dtcm_malloc(bytes);
+  void *pointer = dtc_malloc(bytes);
   if (pointer)
     memset(pointer, 0, bytes);
   return pointer;

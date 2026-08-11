@@ -295,11 +295,6 @@ static unsigned int gw_abi_lz4_ctl(gw_lz4_op_t op, const void *a, void *b)
     }
 }
 
-/* These are defined in rg_emulators.c */
-extern uint8_t *pico8_code_flash_addr;
-extern uint32_t pico8_code_flash_size;
-/* DTCM p8 RAM linker symbol removed — now heap-allocated via dtcm_malloc */
-
 /* newlib's __errno is not in a public header on all targets. */
 extern int *__errno(void);
 /* newlib assert handler. */
@@ -325,7 +320,7 @@ static uintptr_t abi_mem_ctl(gw_mem_op_t op, gw_mem_pool_t pool, size_t count, s
         case GW_MEM_AHB:
             p = ahb_calloc(count, size);
             break;
-        case GW_MEM_DTCM:       p = dtcm_calloc(count, size); break;
+        case GW_MEM_DTC:       p = dtc_calloc(count, size); break;
         default:
             break;
         }
@@ -339,8 +334,8 @@ static uintptr_t abi_mem_ctl(gw_mem_op_t op, gw_mem_pool_t pool, size_t count, s
         case GW_MEM_RAM:
             ram_init();
             break;
-        case GW_MEM_DTCM:
-            dtcm_init();
+        case GW_MEM_DTC:
+            dtc_init();
             break;
         default:
             break;
@@ -511,11 +506,8 @@ const gw_firmware_abi_t g_firmware_abi = {
     .ROM_DATA_ptr              = (void **)&ROM_DATA,
     .ROM_DATA_LENGTH_ptr       = &ROM_DATA_LENGTH,
     .ACTIVE_FILE_ptr           = (void **)&ACTIVE_FILE,
-    .pico8_code_flash_addr_ptr = &pico8_code_flash_addr,
-    .pico8_code_flash_size_ptr = &pico8_code_flash_size,
     .ram_start_ptr             = &ram_start,
     .impure_ptr_ptr            = (void **)&_impure_ptr,
-    .dtcm_p8ram_start          = NULL,  /* no longer a fixed section — use dtcm_malloc */
 
     .odroid_system_emu_load_state = odroid_system_emu_load_state,
 

@@ -102,7 +102,7 @@ void *operator new[](size_t s) { return heap_alloc_mem(s); }
 /* No real free(): none of the bump pools behind heap_alloc_mem() support
  * releasing memory (see gw_malloc.c) — same "delete is a no-op" contract
  * the old heap.cpp had. A core's RAM_EMU/ITC/DTCM budget is reclaimed
- * wholesale the next time any core loads (itc_init()/ram_init()/dtcm_init()
+ * wholesale the next time any core loads (itc_init()/ram_init()/dtc_init()
  * / ram_start rewind — see emulator_start()). AHB malloc allocations are
  * not pool-reset. Leaking within a single ROM session is the intended
  * tradeoff, not a bug. */

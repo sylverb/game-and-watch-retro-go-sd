@@ -330,7 +330,7 @@ tab_t *gui_set_current_tab(int index)
 
 void gui_save_current_tab()
 {
-    /* tab->arg points into DTCM emulators[], discarded by dtcm_init() when a
+    /* tab->arg points into DTCM emulators[], discarded by dtc_init() when a
      * core starts. Re-saving from inside an emulator (sleep path) would
      * persist crushed browse_subpath. Values were already committed at launch. */
     if (odroid_system_get_app()->id != APPID_LAUNCHER)

@@ -706,28 +706,6 @@ AS_INCLUDES +=
 C_INCLUDES +=  \
 -ICore/Inc \
 -ICore/Inc/porting \
--ICore/Inc/porting/gb \
--ICore/Inc/porting/gb_tgbdual \
--ICore/Inc/porting/nes \
--ICore/Inc/porting/nes_fceu \
--ICore/Inc/porting/smsplusgx \
--ICore/Inc/porting/pce \
--ICore/Inc/porting/msx \
--ICore/Inc/porting/wsv \
--ICore/Inc/porting/gw \
--ICore/Inc/porting/gwenesis \
--ICore/Inc/porting/a2600 \
--ICore/Inc/porting/lynx \
--ICore/Inc/porting/a7800 \
--ICore/Inc/porting/amstrad \
--ICore/Inc/porting/zelda3 \
--ICore/Inc/porting/smw \
--ICore/Inc/porting/gba \
--ICore/Inc/porting/videopac \
--ICore/Inc/porting/celeste \
--ICore/Inc/porting/pico8 \
--ICore/Inc/porting/tama \
--ICore/Inc/porting/pkmini \
 -ICore/Inc/retro-go \
 -IDrivers/STM32H7xx_HAL_Driver/Inc \
 -IDrivers/STM32H7xx_HAL_Driver/Inc/Legacy \
@@ -1280,29 +1258,8 @@ external/smw/smw_assets.dat: roms/smw/smw.sfc | $(BUILD_DIR)
 $(BUILD_DIR):
 	$(V)mkdir $@
 	$(V)mkdir $@/core
-	$(V)mkdir $@/cores
 	$(V)mkdir $@/fatfs
 	$(V)mkdir $@/tamp
-	$(V)mkdir $@/nes
-	$(V)mkdir $@/nes_fceu
-	$(V)mkdir $@/tgbdual
-	$(V)mkdir $@/smsplusgx
-	$(V)mkdir $@/pce
-	$(V)mkdir $@/msx
-	$(V)mkdir $@/gw
-	$(V)mkdir $@/wsv
-	$(V)mkdir $@/md
-	$(V)mkdir $@/a2600
-	$(V)mkdir $@/lynx
-	$(V)mkdir $@/a7800
-	$(V)mkdir $@/amstrad
-	$(V)mkdir $@/zelda3
-	$(V)mkdir $@/smw
-	$(V)mkdir $@/videopac
-	$(V)mkdir $@/celeste
-	$(V)mkdir $@/pico8
-	$(V)mkdir $@/tama
-	$(V)mkdir $@/pkmini
 
 #######################################
 # Flashing
@@ -1394,7 +1351,6 @@ endif
 
 # Upload cores to sd card
 SD_FOLDER := sd_content
-CORES_DIR := $(SD_FOLDER)/cores
 FONTS_DIR := $(SD_FOLDER)/fonts
 UNICODE_FONT_SOURCE ?= assets/fonts/fusion-pixel-12px-monospaced-zh_hant.ttf
 # tools/gen_unicode_bin.py --script names → /fonts/unicode_<name>.bin (trimmed by active UI langs)
@@ -1467,204 +1423,15 @@ MAPPERS_PACK := $(MAPPERS_DIR)/mappers.pak
 HOMEBREWS_FOLDER := $(SD_FOLDER)/roms/homebrew
 RELEASE_FOLDER := release
 
-define EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER
-	@tmp_file="$2.tmp"; \
-	version_lo=$$(( $(INTERNAL_CORE_BIN_HEADER_VERSION) & 0xFF )); \
-	version_hi=$$(( ($(INTERNAL_CORE_BIN_HEADER_VERSION) >> 8) & 0xFF )); \
-	git_tag=$$(sed -n 's/^#define GIT_TAG "\(.*\)"/\1/p' Core/Inc/gittag.h); \
-	tag_len=$${#git_tag}; \
-	if [ $$tag_len -gt 255 ]; then echo "CORE: internal git tag too long ($$tag_len > 255)"; rm -f "$$tmp_file"; exit 1; fi; \
-	header_len=$$((1 + tag_len)); \
-	header_len_lo=$$(( header_len & 0xFF )); \
-	header_len_hi=$$(( (header_len >> 8) & 0xFF )); \
-	$(CP) -O binary --only-section=$1 $(BUILD_DIR)/$(TARGET).elf "$$tmp_file" && \
-	{ printf 'CORI'; \
-	  printf "\\x$$(printf '%02x' $$version_lo)\\x$$(printf '%02x' $$version_hi)\\x$$(printf '%02x' $$header_len_lo)\\x$$(printf '%02x' $$header_len_hi)"; \
-	  printf "\\x$$(printf '%02x' $$tag_len)"; \
-	  printf '%s' "$$git_tag"; \
-	  cat "$$tmp_file"; } > "$2" && \
-	rm -f "$$tmp_file"
-endef
-
-# Legacy ELF overlay extraction removed — NES mappers are built by cores/nes.
-
-#######################################
-# Standalone "core" binaries (cores/<name>/, see cores/_template/): built by
-# their own self-contained sub-make (own toolchain flags, own linker script,
-# no dependency on this project's object files) then copied next to the
-# legacy $(CORES_DIR) blobs so create_sd_data/flash_sd/release treat them
-# identically. cores_<name> is phony (unconditionally re-invokes the
-# sub-make, same convention as firmware_update below) — the sub-make's own
-# incremental build makes repeat invocations cheap.
-#######################################
-.PHONY: cores_wsv
-cores_wsv:
-	$(V)$(MAKE) -C cores/wsv
-
-$(CORES_DIR)/wsv.bin: cores_wsv | create_sd_folders
-	@cp cores/wsv.bin $@
-
-.PHONY: cores_md
-cores_md:
-	$(V)$(MAKE) -C cores/md
-
-$(CORES_DIR)/md.bin: cores_md | create_sd_folders
-	@cp cores/md.bin $@
-
-.PHONY: cores_pce
-cores_pce:
-	$(V)$(MAKE) -C cores/pce
-
-$(CORES_DIR)/pce.bin: cores_pce | create_sd_folders
-	@cp cores/pce.bin $@
-
-.PHONY: cores_gb_tgbdual
-cores_gb_tgbdual:
-	$(V)$(MAKE) -C cores/gb_tgbdual
-
-# tgb.bin (not gb_tgbdual.bin): Game Boy + Game Boy Color share this one core
-# binary, matching the dirname->core-file map scripts/sd_cores_pack.py already
-# carries for "gb"/"gbc" (see cores/gb_tgbdual/Makefile's PACKED_BIN comment).
-$(CORES_DIR)/tgb.bin: cores_gb_tgbdual | create_sd_folders
-	@cp cores/tgb.bin $@
-
-.PHONY: cores_lynx
-cores_lynx:
-	$(V)$(MAKE) -C cores/lynx
-
-$(CORES_DIR)/lynx.bin: cores_lynx | create_sd_folders
-	@cp cores/lynx.bin $@
-
-.PHONY: cores_a2600
-cores_a2600:
-	$(V)$(MAKE) -C cores/a2600
-
-$(CORES_DIR)/a2600.bin: cores_a2600 | create_sd_folders
-	@cp cores/a2600.bin $@
-
-# Sidecar ROM-properties DB (not a CORE payload) — produced by the same
-# cores/a2600 sub-make as a2600.bin (see convert_defprops.py).
-$(CORES_DIR)/a2600_defprops.bin: cores_a2600 | create_sd_folders
-	@cp cores/a2600_defprops.bin $@
-
-.PHONY: cores_sms
-cores_sms:
-	$(V)$(MAKE) -C cores/sms
-
-# sms.bin: SMS + Game Gear + SG-1000 + Colecovision share this one core
-# (see cores/sms/Makefile and scripts/sd_cores_pack.py).
-$(CORES_DIR)/sms.bin: cores_sms | create_sd_folders
-	@cp cores/sms.bin $@
-
-.PHONY: cores_nes
-cores_nes:
-	$(V)$(MAKE) -C cores/nes
-
-# nes_fceu.bin + nes_fceumm_mappers/ (see cores/nes/Makefile, scripts/sd_cores_pack.py).
-$(CORES_DIR)/nes_fceu.bin: cores_nes | create_sd_folders
-	@cp cores/nes_fceu.bin $@
-
-$(CORES_DIR)/nes_fceumm_mappers/mappers.pak: cores_nes | create_sd_folders
-	@mkdir -p $(CORES_DIR)/nes_fceumm_mappers
-	@cp cores/nes_fceumm_mappers/mappers.pak $@
-
-$(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin: cores_nes | create_sd_folders
-	@mkdir -p $(CORES_DIR)/nes_fceumm_mappers
-	@cp cores/nes_fceumm_mappers/ines_correct.bin $@
-
-.PHONY: cores_msx
-cores_msx:
-	$(V)$(MAKE) -C cores/msx
-
-$(CORES_DIR)/msx.bin: cores_msx | create_sd_folders
-	@cp cores/msx.bin $@
-
-.PHONY: cores_gw
-cores_gw:
-	$(V)$(MAKE) -C cores/gw
-
-$(CORES_DIR)/gw.bin: cores_gw | create_sd_folders
-	@cp cores/gw.bin $@
-
-.PHONY: cores_amstrad
-cores_amstrad:
-	$(V)$(MAKE) -C cores/amstrad
-
-$(CORES_DIR)/amstrad.bin: cores_amstrad | create_sd_folders
-	@cp cores/amstrad.bin $@
-
-.PHONY: cores_a7800
-cores_a7800:
-	$(V)$(MAKE) -C cores/a7800
-
-$(CORES_DIR)/a7800.bin: cores_a7800 | create_sd_folders
-	@cp cores/a7800.bin $@
-
-.PHONY: cores_pkmini
-cores_pkmini:
-	$(V)$(MAKE) -C cores/pkmini
-
-$(CORES_DIR)/pkmini.bin: cores_pkmini | create_sd_folders
-	@cp cores/pkmini.bin $@
-
-.PHONY: cores_tama
-cores_tama:
-	$(V)$(MAKE) -C cores/tama
-
-$(CORES_DIR)/tama.bin: cores_tama | create_sd_folders
-	@cp cores/tama.bin $@
-
-.PHONY: cores_gba
-cores_gba:
-	$(V)$(MAKE) -C cores/gba
-
-$(CORES_DIR)/gba.bin: cores_gba | create_sd_folders
-	@cp cores/gba.bin $@
-
-# XIP sidecar (cold text + rodata @ 0xDEC00000) — produced by the same
-# cores/gba sub-make as gba.bin (see cores/gba/Makefile).
-$(CORES_DIR)/gba.xip: cores_gba | create_sd_folders
-	@cp cores/gba.xip $@
-
 # | $(BUILD_DIR): order-only so parallel (-j) mkdir side-effects cannot
 # create build/ before the $(BUILD_DIR) rule's own recipe (see historical
 # note about MAPPERS_BUILD_DIR under build/).
 create_sd_folders: | $(BUILD_DIR)
 	$(V)mkdir -p $(SD_FOLDER)
-	$(V)mkdir -p $(CORES_DIR)
+	$(V)mkdir -p $(SD_FOLDER)/bios
 	$(V)mkdir -p $(FONTS_DIR)
 	$(V)mkdir -p $(LANG_DIR)
-	$(V)mkdir -p $(CORES_DIR)
-	$(V)mkdir -p $(MAPPERS_DIR)
-	$(V)mkdir -p $(SD_FOLDER)/bios
-	$(V)mkdir -p $(SD_FOLDER)/bios/msx
-	$(V)mkdir -p $(SD_FOLDER)/bios/nes
-	$(V)mkdir -p $(SD_FOLDER)/bios/coleco
-	$(V)mkdir -p $(SD_FOLDER)/bios/mini
-	$(V)mkdir -p $(SD_FOLDER)/bios/gba
-	$(V)mkdir -p $(HOMEBREWS_FOLDER)
 	$(V)mkdir -p $(RELEASE_FOLDER)
-
-prepare_msx_bios_files: create_sd_folders
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2EXT.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2P.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2PEXT.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2PMUS.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/Nextor.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSXKANJI.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/PANASONICDISK.rom" $(SD_FOLDER)/bios/msx/
-    # PANASONICDISK_.rom is a patched version of PANASONICDISK.rom to disable the 2nd FDD
-    # this is allowing to free some ram, which is needed for some games. It could be done by pressing
-    # ctrl key at boot using original bios, but using this patched version, the user will have nothing
-    # to do. Unfortunately this version can't be used in all cases because some games (from Micro Cabin)
-    # like Fray, XAK III, ... are expecting the 2nd FDD to be present.
-	@cp $(SD_FOLDER)/bios/msx/PANASONICDISK.rom $(SD_FOLDER)/bios/msx/PANASONICDISK_.rom
-	@printf '\x00' | dd of=$(SD_FOLDER)/bios/msx/PANASONICDISK_.rom bs=1 seek=6124 count=1 conv=notrunc status=none
-	@$(PYTHON3) external/blueMSX-go/create_compact_database_file.py \
-		external/blueMSX-go/system/bluemsx/Databases/msxromdb.xml \
-		$(SD_FOLDER)/bios/msx/msxromdb.bin
 
 $(FONTS_DIR)/unicode_%.bin: $(UNICODE_FONT_SOURCE) tools/gen_unicode_bin.py | create_sd_folders
 	@echo "Generating $@ from $(UNICODE_FONT_SOURCE)"
@@ -1706,36 +1473,16 @@ SD_CONTENT_STAMP := $(BUILD_DIR)/.sd_content.stamp
 # extractions and a handful of Python helpers even when the ELF hadn't
 # changed. The stamp file gates all of that work on the actual inputs:
 # the ELF, the per-mapper bins, and the Python scripts that generate
-# fixed tables. create_sd_folders and prepare_msx_bios_files stay
-# order-only — they're phony, so listing them as normal prereqs would
-# defeat the stamp.
+# fixed tables. create_sd_folders stay order-only — they're phony, so
+# listing them as normal prereqs would defeat the stamp.
 create_sd_data: $(SD_CONTENT_STAMP)
 .PHONY: create_sd_data
 
 $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(BUILD_DIR)/$(TARGET)_intflash.bin \
-                     $(CORES_DIR)/wsv.bin \
-                     $(CORES_DIR)/md.bin \
-                     $(CORES_DIR)/pce.bin \
-                     $(CORES_DIR)/tgb.bin \
-                     $(CORES_DIR)/lynx.bin \
-                     $(CORES_DIR)/a2600.bin \
-                     $(CORES_DIR)/a2600_defprops.bin \
-                     $(CORES_DIR)/sms.bin \
-                     $(CORES_DIR)/nes_fceu.bin \
-                     $(CORES_DIR)/nes_fceumm_mappers/mappers.pak \
-                     $(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin \
-                     $(CORES_DIR)/msx.bin \
-                     $(CORES_DIR)/gw.bin \
-                     $(CORES_DIR)/amstrad.bin \
-                     $(CORES_DIR)/a7800.bin \
-                     $(CORES_DIR)/pkmini.bin \
-                     $(CORES_DIR)/tama.bin \
-                     $(CORES_DIR)/gba.bin \
-                     $(CORES_DIR)/gba.xip \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
-                     | create_sd_folders prepare_msx_bios_files
+                     | create_sd_folders
 	@$(CP) -O binary --only-section=.overlay_graphics $(BUILD_DIR)/$(TARGET).elf $(SD_FOLDER)/bios/logo.bin
 	@rm -f $(FONTS_DIR)/cp1251_*.bin $(FONTS_DIR)/cp1252_*.bin $(FONTS_DIR)/unicode_*.bin
 ifeq ($(RU_RU),1)
@@ -1809,25 +1556,6 @@ else
 flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
 	@$(GNWMANAGER) flash $(INTFLASH_ADDRESS) $(BUILD_DIR)/$(TARGET)_intflash.bin \
 		-- sdpush --file $(SD_FOLDER)/bios/logo.bin --dest-path "/bios/" \
-		-- sdpush --file $(CORES_DIR)/wsv.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/md.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/pce.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/tgb.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/lynx.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/a2600.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/a2600_defprops.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/sms.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/nes_fceu.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/nes_fceumm_mappers/mappers.pak --dest-path "/cores/nes_fceumm_mappers/" \
-		-- sdpush --file $(CORES_DIR)/nes_fceumm_mappers/ines_correct.bin --dest-path "/cores/nes_fceumm_mappers/" \
-		-- sdpush --file $(CORES_DIR)/msx.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/gw.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/amstrad.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/a7800.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/pkmini.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/tama.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/gba.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/gba.xip --dest-path "/cores/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2283,24 +2011,6 @@ clean:
 	$(V)-rm -fR $(BUILD_DIR)
 	$(V)-rm -fR $(SD_FOLDER)
 	$(V)-rm -fR $(RELEASE_FOLDER)
-	$(V)$(MAKE) -C external/zelda3 clean
-	$(V)$(MAKE) -C external/smw clean
-	$(V)@$(MAKE) -C external/firmware_update clean
-	$(V)$(MAKE) -C cores/wsv clean
-	$(V)$(MAKE) -C cores/md clean
-	$(V)$(MAKE) -C cores/pce clean
-	$(V)$(MAKE) -C cores/gb_tgbdual clean
-	$(V)$(MAKE) -C cores/lynx clean
-	$(V)$(MAKE) -C cores/a2600 clean
-	$(V)$(MAKE) -C cores/sms clean
-	$(V)$(MAKE) -C cores/nes clean
-	$(V)$(MAKE) -C cores/msx clean
-	$(V)$(MAKE) -C cores/gw clean
-	$(V)$(MAKE) -C cores/amstrad clean
-	$(V)$(MAKE) -C cores/a7800 clean
-	$(V)$(MAKE) -C cores/pkmini clean
-	$(V)$(MAKE) -C cores/tama clean
-	$(V)$(MAKE) -C cores/gba clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

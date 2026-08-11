@@ -15,8 +15,8 @@ extern uint32_t ram_start;
  * ------------
  * AHB  (ahb_malloc/ahb_calloc → malloc/calloc): newlib heap in AHB SRAM.
  *      Freeable with free(). No pool-wide reset — live allocations are kept.
- * DTCM (dtcm_init/dtcm_malloc/dtcm_calloc): bump from DTCM ORIGIN to the
- *      stack redzone. No free; forgotten by dtcm_init().
+ * DTCM (dtc_init/dtc_malloc/dtc_calloc): bump from DTCM ORIGIN to the
+ *      stack redzone. No free; forgotten by dtc_init().
  * ITC  (itc_init/itc_malloc/itc_calloc): bump; forgotten by itc_init().
  * RAM_EMU (ram_init/ram_malloc/ram_calloc): bump from ram_start; forgotten
  *      by ram_init() (current_ram_pointer rewind).
@@ -34,9 +34,9 @@ size_t ram_get_free_size(void);
 void *ram_malloc(size_t size);
 void *ram_calloc(size_t count, size_t size);
 
-void dtcm_init(void);
-void *dtcm_malloc(size_t size);
-void *dtcm_calloc(size_t count, size_t size);
+void dtc_init(void);
+void *dtc_malloc(size_t size);
+void *dtc_calloc(size_t count, size_t size);
 
 #ifdef __cplusplus
 }

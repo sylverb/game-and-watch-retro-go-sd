@@ -46,7 +46,7 @@ extern "C" {
  *   RAM_EMU — always segment[0], entry trampoline at offset 0
  *   ITCM    — optional extra segment(s) for CPU-hot code (ld/gnw_itcm_core.ld)
  *
- * AHB/DTCM are firmware dynamic pools (malloc / dtcm_*), not load targets —
+ * AHB/DTCM are firmware dynamic pools (malloc / dtc_*), not load targets —
  * they are not part of this enum. */
 typedef enum {
     GNW_CORE_REGION_RAM_EMU = 0,

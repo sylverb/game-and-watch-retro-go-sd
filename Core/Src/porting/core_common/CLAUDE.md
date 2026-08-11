@@ -50,8 +50,8 @@ flowchart LR
 
 Packed segments may target **RAM_EMU** (always segment 0) and optionally
 **ITCM** (hot code). AHB/DTCM are not `gnw_core_region_t` values — they are
-firmware dynamic pools (`malloc` / `dtcm_*`); cores allocate from them at
-runtime via the ABI (`ahb_malloc`, `dtcm_malloc`, `mem_ctl`).
+firmware dynamic pools (`malloc` / `dtc_*`); cores allocate from them at
+runtime via the ABI (`ahb_malloc`, `dtc_malloc`, `mem_ctl`).
 
 ## Porting a new core: checklist
 

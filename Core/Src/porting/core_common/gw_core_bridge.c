@@ -622,13 +622,13 @@ size_t core_ram_get_free_size(void)
 {
     return (size_t)gw_firmware_abi()->mem_ctl(GW_MEM_OP_FREE_SIZE, GW_MEM_RAM, 0, 0);
 }
-void *core_dtcm_malloc(size_t size)
+void *core_dtc_malloc(size_t size)
 {
-    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, 1, size);
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTC, 1, size);
 }
-void *core_dtcm_calloc(size_t count, size_t size)
+void *core_dtc_calloc(size_t count, size_t size)
 {
-    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, count, size);
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTC, count, size);
 }
 
 /* ====================================================================
@@ -884,8 +884,8 @@ char *strtok(char *str, const char *delim)
  * `#define lss_printf(fp, str) (fputs(str, fp) >= 0)` (system.h), and
  * lynxdec.cpp's public-key decrypt temps use calloc()/free(). free() is
  * already trampolined; these two fill the remaining holes. calloc routes
- * through mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, ...) (DTCM bump — same
- * pool as dtcm_malloc; no per-block free).
+ * through mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTC, ...) (DTCM bump — same
+ * pool as dtc_malloc; no per-block free).
  * ==================================================================== */
 int core_fputs(const char *s, FILE *stream)
 {
@@ -896,7 +896,7 @@ int core_fputs(const char *s, FILE *stream)
 
 void *core_calloc(size_t nmemb, size_t size)
 {
-    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, nmemb, size);
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTC, nmemb, size);
 }
 
 /* ====================================================================

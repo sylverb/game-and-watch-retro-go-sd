@@ -108,8 +108,8 @@ itc_init core_itc_init
 ram_malloc core_ram_malloc
 ram_calloc core_ram_calloc
 ram_get_free_size core_ram_get_free_size
-dtcm_malloc core_dtcm_malloc
-dtcm_calloc core_dtcm_calloc
+dtc_malloc core_dtc_malloc
+dtc_calloc core_dtc_calloc
 # --- G&W hardware: RTC ---
 # NOTE: per-field RTC getters and GW_GetUnixTM/mktime were dropped from
 # the firmware table. Cores read "now" via time()+localtime() only.

@@ -57,7 +57,7 @@ _estack = _stack_top;    /* end of RAM */
 
 /* Stack is fixed at the top of DTCM (fast). Firmware .persistent, .data,
  * .bss and the stdlib heap live in AHB SRAM below the .audio DMA reserve
- * (AHB SRAM clock enabled via DATA_IN_D2_SRAM in SystemInit). dtcm_malloc
+ * (AHB SRAM clock enabled via DATA_IN_D2_SRAM in SystemInit). dtc_malloc
  * bumps the free space between DTCM ORIGIN and the stack. */
 /* Stack + redzone occupy exactly 20 KiB at the top of DTCM. Redzone is the
  * low 32 bytes of that window (overflow edge; stack grows downward). */

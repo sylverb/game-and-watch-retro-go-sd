@@ -21,9 +21,7 @@
 /* Per-system porting headers (main_gb_tgbdual.h, main_wsv.h, main_gba.h, ...)
  * were removed here while migrating those emulators to standalone
  * cores/<system>/ builds — rg_emulators.c no longer calls their app_main_*
- * entry points directly (see emulators_scan_cores() / run_dynamic_core()).
- * main_pico8.h stays: PICO-8 is out of scope for this migration. */
-#include "main_pico8.h"
+ * entry points directly (see emulators_scan_cores() / run_dynamic_core()). */
 #include "rg_rtc.h"
 #include "gittag.h"
 #include "heap.hpp"
@@ -40,15 +38,6 @@
 #define CORE_HEADER_MIN_SIZE 8u
 
 static bool gwhb_probe(const char *path, gwhb_meta_t *meta, uint16_t *header_length);
-// INTERNAL_CORE_BIN_HEADER_VERSION is defined in Makefile.common
-// and shall be incremented when the internal cores binary format
-// changes
-#define INTERNAL_CORE_HEADER_VERSION ((uint16_t)(INTERNAL_CORE_BIN_HEADER_VERSION))
-
-// Minimum version accepted for external cores (e.g. pico8.bin). Bump when
-// the engine binary's runtime ABI changes in a way that requires users to
-// update the engine — older binaries are rejected with a clear message.
-#define EXTERNAL_CORE_HEADER_MIN_VERSION ((uint16_t)1u)
 
 static const char *get_extension(const char *filename);
 
@@ -70,165 +59,13 @@ static void show_corrupted_installation_screen(void)
   (void)odroid_overlay_dialog(curr_lang->s_Corrupted_Title, choices, 3, NULL, 0);
 }
 
-/* Consolidated single-fail-label form: ~14 separate cleanup branches
- * collapsed to one. Behavior unchanged — any failure prints a generic
- * load-failed message, frees header_data, closes file, shows the
- * corruption screen (suppressed for external-core failures), returns 0. */
-static size_t load_core_bin_with_header(const char *file_path, uint8_t *dest_address)
-{
-  uint8_t fixed_header[CORE_HEADER_MIN_SIZE];
-  uint8_t *header_data = NULL;
-  bool is_external_core = false;
-  size_t result = 0;
-
-  FILE *file = fopen(file_path, "rb");
-  if (!file) goto fail;
-  if (fread(fixed_header, 1, sizeof(fixed_header), file) != sizeof(fixed_header)) goto fail;
-
-  bool is_internal_core = (memcmp(fixed_header, CORE_HEADER_MAGIC_INTERNAL, 4) == 0);
-  is_external_core      = (memcmp(fixed_header, CORE_HEADER_MAGIC_EXTERNAL, 4) == 0);
-  if (!is_internal_core && !is_external_core) goto fail;
-
-  uint16_t header_version = read_u16_le(&fixed_header[4]);
-  uint16_t header_length  = read_u16_le(&fixed_header[6]);
-
-  if (header_length > 0) {
-    header_data = (uint8_t *)malloc(header_length);
-    if (!header_data) goto fail;
-    if (fread(header_data, 1, header_length, file) != header_length) goto fail;
-  }
-
-  if (is_internal_core) {
-    if (header_version != INTERNAL_CORE_HEADER_VERSION) goto fail;
-    if (header_length < 1) goto fail;
-    uint8_t tag_len = header_data[0];
-    size_t expected_tag_len = strlen(GIT_TAG);
-    if ((uint16_t)(1u + tag_len) > header_length ||
-        tag_len != expected_tag_len ||
-        memcmp(&header_data[1], GIT_TAG, tag_len) != 0) goto fail;
-  } else if (header_version < EXTERNAL_CORE_HEADER_MIN_VERSION) {
-    goto fail;
-  }
-
-  uint32_t payload_offset = CORE_HEADER_MIN_SIZE + (uint32_t)header_length;
-  long file_size;
-  if (fseek(file, 0, SEEK_END) != 0) goto fail;
-  file_size = ftell(file);
-  if (file_size < 0 || (uint32_t)file_size < payload_offset) goto fail;
-
-  free(header_data);
-  fclose(file);
-  return odroid_overlay_cache_file_in_ram_with_offset(file_path, dest_address, payload_offset);
-
-fail:
-  printf("CORE: load failed '%s'\n", file_path);
-  if (header_data) free(header_data);
-  if (file) fclose(file);
-  if (!is_external_core) show_corrupted_installation_screen();
-  return result;
-}
-
-
-/* Exposed for ITCM sentinel patching (main_pico8.c) */
-uint8_t *pico8_code_flash_addr = NULL;
-uint32_t pico8_code_flash_size = 0;
-
-/**
- * PatchPico8SentinelRefs - Patches 0xBEEF0000-range sentinel addresses
- * in a memory region to point to the actual QSPI XIP flash address.
- */
-#define PICO8_CODE_BASE 0xBEEF0000
-#define PICO8_CODE_CACHE_SIZE (128 * 1024u)
-
-static int PatchPico8Region(uint32_t *start, uint32_t *end, int32_t offset, uint32_t code_size)
-{
-  int patched = 0;
-  for (uint32_t *ptr = start; ptr < end; ptr++) {
-    uint32_t value = *ptr;
-    /* Check for sentinel range (including Thumb bit 0) */
-    if ((value & ~1) >= PICO8_CODE_BASE && (value & ~1) < PICO8_CODE_BASE + code_size) {
-      *ptr = value + offset;
-      patched++;
-    }
-  }
-  return patched;
-}
-
-/**
- * Pico8CacheCodeToFlash - Cache pico8.ro to XIP flash with sentinel patching.
- *
- * With SD card, /cores/pico8.ro is copied into the normal flash cache and
- * patched in place. With FrogFS, the source file is read-only inside the
- * FrogFS image, so the patched copy is written to a dedicated cache window at
- * the end of the firmware extflash payload region.
- */
-static uint8_t *Pico8CacheCodeToFlash(uint32_t *code_size_out)
-{
-  printf("P8: caching pico8.ro to flash...\n");
-
-  /* Step 1: Cache or map the source file. */
-  uint8_t *code_addr = odroid_overlay_cache_file_in_flash("/cores/pico8.ro", code_size_out, false);
-  if (!code_addr) {
-    printf("P8: pico8.ro cache FAILED (not found on SD?)\n");
-    return NULL;
-  }
-  if (*code_size_out == 0) {
-    printf("P8: pico8.ro cache returned size 0\n");
-    return NULL;
-  }
-#if SD_CARD == 1
-  int32_t offset = (int32_t)((uint32_t)code_addr - PICO8_CODE_BASE);
-  printf("P8: pico8.ro cached at %p, size=%lu, offset=%ld\n",
-         code_addr, (unsigned long)*code_size_out, (long)offset);
-
-  uint8_t *target_addr = code_addr;
-
-  /* Step 2: Copy source content to RAM_EMU (temp buffer, overwritten by pico8.bin later). */
-  printf("P8: copying %lu bytes from flash to RAM for patching...\n",
-         (unsigned long)*code_size_out);
-  uint8_t *ram_buf = (uint8_t *)__RAM_EMU_START__;
-  memcpy(ram_buf, code_addr, *code_size_out);
-
-  /* Step 3: Patch all sentinel addresses in the RAM copy */
-  int patched = PatchPico8Region((uint32_t *)ram_buf,
-                                 (uint32_t *)(ram_buf + *code_size_out),
-                                 offset, *code_size_out);
-  printf("P8: patched %d sentinel refs in code blob\n", patched);
-
-  if (patched > 0) {
-    /* Step 4: Program the patched content to XIP flash. */
-    uint32_t flash_offset = (uint32_t)target_addr - (uint32_t)&__EXTFLASH_BASE__;
-    uint32_t erase_size = (*code_size_out + 4095) & ~4095u;  /* Round up to 4KB */
-
-    printf("P8: reprogramming flash at offset 0x%08lX, erase=%lu, prog=%lu\n",
-           (unsigned long)flash_offset, (unsigned long)erase_size,
-           (unsigned long)*code_size_out);
-
-    OSPI_DisableMemoryMappedMode();
-    OSPI_EraseSync(flash_offset, erase_size);
-    OSPI_Program(flash_offset, ram_buf, *code_size_out);
-    OSPI_EnableMemoryMappedMode();
-
-    /* Step 5: Verify first word was patched correctly */
-    uint32_t first_word = *(uint32_t *)target_addr;
-    printf("P8: flash reprogram done. first word: 0x%08lX\n",
-           (unsigned long)first_word);
-  } else {
-    printf("P8: no sentinel refs found (already patched from previous boot)\n");
-  }
-  return target_addr;
-  #else
-  return code_addr;
-  #endif
-}
-
 const unsigned char *ROM_DATA = NULL;
 unsigned ROM_DATA_LENGTH;
 const char *ROM_EXT = NULL;
 retro_emulator_file_t *ACTIVE_FILE = NULL;
 
 /* Set by run_dynamic_core() from gnw_core_meta_t + core_path; cleared for
- * Homebrew / PICO-8 / any non-dynamic launch. */
+ * Homebrew and any non-dynamic launch. */
 static char g_running_core_name[24];
 static char g_running_core_path[64];
 static uint8_t g_running_core_version[3];
@@ -239,7 +76,7 @@ static retro_emulator_file_t *shared_files = NULL;
 #define COVERFLOW 0
 #endif /* COVERFLOW */
 /* Builtin launcher systems that are not discovered from /cores/*.bin
- * (Homebrew + PICO-8). Capacity for emulators[]/systems[] is sized at boot
+ * (Homebrew + Favorites). Capacity for emulators[]/systems[] is sized at boot
  * as BUILTIN_SYSTEM_EMULATORS + systems described by probeable CORE bins. */
 #define BUILTIN_SYSTEM_EMULATORS 2
 static retro_emulator_t *emulators;
@@ -556,7 +393,7 @@ const rom_system_t *rg_emulators_system_for_dir(const char *dirname, size_t len)
 
 /* core_path is non-NULL only for a dynamically-discovered external core
  * (see emulators_scan_cores()); pass NULL for the compile-time tabs
- * (Homebrew, PICO-8). Several tabs may share the same core_path (one core
+ * (Homebrew + Favorites). Several tabs may share the same core_path (one core
  * binary exposing multiple systems, e.g. PC Engine + PC Engine CD — see
  * add_emulator_dynamic()). */
 static void add_emulator_ex(const char *system, const char *dirname, const char* ext,
@@ -1455,8 +1292,7 @@ extern LTDC_HandleTypeDef hltdc;
  * standalone cores/<system>/ builds loaded dynamically from /cores/*.bin
  * (see "Cores externes avec ABI" plan). Its replacement, a header-driven
  * loader, is introduced alongside emulators_scan_cores(). Homebrew (GWHB)
- * and PICO-8 are untouched by this migration and keep their explicit
- * blocks below. */
+ * is untouched by this migration and keep explicit blocks below. */
 
 /* --- Universal Homebrew Header (GWHB) loader ---------------------------
  *
@@ -1654,7 +1490,7 @@ static void run_gwhb_homebrew(const char *path, uint8_t load_state, uint8_t star
 /* --- Dynamic external cores (/cores/*.bin, see gnw_core_meta.h) -------
  *
  * A classic emulator core (e.g. Watara Supervision) is built as a
- * standalone ELF against the same firmware ABI as PICO-8/GWHB, linked at
+ * standalone ELF against the same firmware ABI, linked at
  * __RAM_EMU_START__, packaged with a "CORE" header whose header_data is a
  * gnw_core_meta_t (+ optional inline logo blobs). Unlike GWHB, the core
  * does not need to know how to zero its own BSS or pick an LCD mode: the
@@ -1677,8 +1513,7 @@ static void run_gwhb_homebrew(const char *path, uint8_t load_state, uint8_t star
  * a "CORE"-magic, GNW_CORE_META_VERSION container, that asks for more ABI
  * than this firmware provides, or whose segments/systems counts or regions
  * are out of range — silently (this runs over every file under /cores/ at
- * boot, including pico8.bin/pico8_stub.bin which intentionally don't carry
- * this metadata). */
+ * boot */
 static bool gnw_core_probe(const char *path, gnw_core_meta_t *out_meta, uint16_t *out_header_length)
 {
     uint8_t fixed_header[CORE_HEADER_MIN_SIZE];
@@ -1691,9 +1526,7 @@ static bool gnw_core_probe(const char *path, gnw_core_meta_t *out_meta, uint16_t
 
     if (fread(fixed_header, 1, sizeof(fixed_header), file) != sizeof(fixed_header))
         goto done;
-    /* Silent for a non-"CORE" magic (also runs over pico8.bin/pico8_stub.bin
-     * etc. which intentionally don't carry this format — logging here would
-     * be pure noise on every boot). */
+    /* Silent for a non-"CORE" magic */
     if (memcmp(fixed_header, CORE_HEADER_MAGIC_EXTERNAL, 4) != 0)
         goto done;
 
@@ -1793,8 +1626,7 @@ static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_p
 
 /* Scans /cores/*.bin (FatFs) and registers one tab per system in each
  * probe-able core. Files that aren't a "CORE"/GNW_CORE_META_VERSION
- * container (pico8.bin, pico8_stub.bin, pico8.ro, ...) are silently
- * skipped. */
+ * container are silently skipped. */
 static int count_core_systems(void)
 {
     DIR dir;
@@ -1884,10 +1716,7 @@ static uint8_t *dynamic_core_region_base(uint32_t region, uint32_t *out_max_len)
  * right file offset into it, zeroes `bss_size` bytes right after. For ITCM
  * segments, immediately bump-reserves that same code+bss span via
  * itc_malloc (after itc_init() by the caller) so the core's own later
- * itc_* allocations never collide with its fixed segment — same technique
- * as PICO-8's ITCM back-page allocation (see docs/PICO8_EXTERNAL_MODULE.md).
- * Segment 0 is always RAM_EMU and owns the entry trampoline at offset 0 —
- * same offset-0-Thumb-jump convention as GWHB and PICO-8; the entry symbol
+ * itc_* allocations never collide with its fixed segment; the entry symbol
  * is never resolved at firmware link time, the core provides its own
  * trampoline (see cores/_template) because it is a completely separate ELF.
  * Also seeds `ram_start` to right past segment 0's code+bss before jumping
@@ -2058,11 +1887,11 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     newfile->ext = get_extension(newfile->path);
 
     /* Snapshotted into local stack buffers, NOT kept as pointers into
-     * emulators[]/systems[]: those arrays are dtcm_calloc()'d and live in
-     * the DTCM bump. dtcm_init() below forgets that bump and the core may
+     * emulators[]/systems[]: those arrays are dtc_calloc()'d and live in
+     * the DTCM bump. dtc_init() below forgets that bump and the core may
      * immediately allocate over the same addresses, so dangling pointers
      * into system_name/core_path would be clobbered. Copy the strings out
-     * before dtcm_init()/ram_start=0.
+     * before dtc_init()/ram_start=0.
      *
      * newfile->system is a rom_system_t*, whose system_name/core_path
      * fields are `char *`/`const char *` (pointers aliasing the real
@@ -2091,7 +1920,7 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 #endif
 
     /* Cleared here; run_dynamic_core() re-fills after a successful probe.
-     * Homebrew / PICO-8 leave it unset so the pause menu hides Info. */
+     * Homebrew leave it unset so the pause menu hides Info. */
     g_running_core_name[0] = '\0';
     g_running_core_path[0] = '\0';
     g_running_core_version[0] = g_running_core_version[1] = g_running_core_version[2] = 0;
@@ -2112,14 +1941,14 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
         }
     }
 
-    /* systems[] lives in the DTCM bump and is wiped by dtcm_init(). In-game
+    /* systems[] lives in the DTCM bump and is wiped by dtc_init(). In-game
      * code must not touch ACTIVE_FILE->system (use handlers / path instead). */
     newfile->system = NULL;
 
     // It will free all ram allocated memory for use by emulators
     ram_init();
     itc_init();
-    dtcm_init();
+    dtc_init();
     ram_start = 0;
     emulators = NULL;
     systems = NULL;
@@ -2134,80 +1963,6 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     } else if (strcmp(system_name, "Homebrew") == 0
                || strstr(ACTIVE_FILE->path, "/homebrew/") != NULL) {
       run_gwhb_homebrew(ACTIVE_FILE->path, load_state, start_paused, save_slot);
-    } else if(strcmp(system_name, "PICO-8") == 0) {
-      /* PICO-8 engine loads at a FIXED address inside the LCD bonus area
-       * (__overlay_pico8_vma = __RAM_UC_START__ + LUT8 framebuffer size).
-       * GPL does NOT zero the engine's BSS — the engine trampoline at
-       * overlay offset 0 zeroes its own BSS at startup (using its own
-       * link-time _OVERLAY_PICO8_BSS_START / _END symbols). TLSF main
-       * pool spans engine_BSS_END..__RAM_EMU_END__ — sized by the SD
-       * linker, communicated to the engine via its own BSS_END symbol.
-       *
-       * Two-stage load to avoid an LTDC race with the framebuffer:
-       *   1. Read pico8.bin from SD into a temp buffer at __RAM_EMU_START__
-       *      (safely outside the LCD pool). SD reads can be slow (~tens of
-       *      ms) and are sensitive to debug-induced halts (gnwmanager
-       *      monitor); doing them here means LTDC never sees in-flight
-       *      writes to the framebuffer region.
-       *   2. Switch the LCD to LUT8 mode. lcd_setup_framebuffers zeros the
-       *      300 KB framebuffer footprint and schedules an LTDC reload at
-       *      the next vertical blanking; afterwards the bonus area at
-       *      __overlay_pico8_vma becomes Normal cacheable (MPU reconfig).
-       *   3. memcpy from temp into __overlay_pico8_vma. This is a fast
-       *      cached write (~µs) and happens AFTER the LCD switch, so the
-       *      LTDC is already in LUT8 mode (or about to be) and never
-       *      reads our in-flight writes. */
-      extern uint8_t __overlay_pico8_vma[];
-      uint8_t *pico8_load_addr = (uint8_t *)__overlay_pico8_vma;
-      uint8_t *pico8_temp_addr = (uint8_t *)&__RAM_EMU_START__;
-
-      ram_start = (uint32_t)&__RAM_EMU_START__;
-      uint32_t pico8_code_size = 0;
-      uint8_t *pico8_code_addr = Pico8CacheCodeToFlash(&pico8_code_size);
-      ram_init();  /* reset current_ram_pointer before overlay load */
-      ram_start = 0;
-
-      size_t pico8_bin_size = 0;
-      if (pico8_code_addr &&
-          (pico8_bin_size = load_core_bin_with_header("/cores/pico8.bin", pico8_temp_addr))) {
-        /* Sentinel scan covers ONLY loaded code+data, NOT BSS.
-         * BSS is zeroed by the engine's own trampoline so no sentinel
-         * matches would be possible there anyway, and scanning loaded
-         * DATA risks false positives: any fix32 constant in the
-         * -16657..-16565 range (0xBEEFxxxx) would be incorrectly
-         * "patched" and corrupted. Patch in the temp buffer before the
-         * memcpy so the final location lands ready-to-run. */
-        int patched = PatchPico8Region((uint32_t *)pico8_temp_addr,
-                         (uint32_t *)(pico8_temp_addr + pico8_bin_size),
-                         (int32_t)((uint32_t)pico8_code_addr - PICO8_CODE_BASE),
-                         pico8_code_size);
-        printf("P8: patched %d refs in temp buffer %p (loaded %u bytes)\n",
-               patched, pico8_temp_addr, (unsigned)pico8_bin_size);
-        /* Expose for ITCM sentinel patching in main_pico8.c (after SD load) */
-        pico8_code_flash_addr = pico8_code_addr;
-        pico8_code_flash_size = pico8_code_size;
-
-        /* Now safe to switch LCD: SD I/O is done, the next memcpy is fast
-         * and goes only to memory the LTDC will not read in LUT8 mode. */
-        lcd_setup_framebuffers(LCD_MODE_LUT8);
-
-        memcpy(pico8_load_addr, pico8_temp_addr, pico8_bin_size);
-
-        /* Flush just the loaded code+data so the engine sees our writes;
-         * BSS will be zeroed via cached stores by the trampoline. */
-        SCB_CleanDCache_by_Addr((uint32_t *)pico8_load_addr, pico8_bin_size);
-        SCB_InvalidateICache();
-        /* Dispatch via entry trampoline at overlay offset 0 — it zeroes
-         * its own BSS then jumps to app_main_pico8. */
-        ((void (*)(uint8_t, uint8_t, int8_t))((uintptr_t)pico8_load_addr | 1))(load_state, start_paused, save_slot);
-      }
-      /* No engine on the SD card: load_core_bin_with_header() already
-       * showed an error screen (missing-file case) or the ABI/size check
-       * failed silently (see its own checks) — there used to be a
-       * firmware-compiled GPL install-prompt fallback here
-       * (/cores/pico8_stub.bin, main_pico8_stub.c); it has been removed
-       * from the build, so a missing pico8.bin now simply does not
-       * launch anything. */
     }
 
 #if CHEAT_CODES == 1
@@ -2225,7 +1980,7 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 
     ram_init();
     itc_init();
-    dtcm_init();
+    dtc_init();
     ram_start = 0;
 #if SD_CARD == 1
     // some pointers were freed, set them to null
@@ -2245,7 +2000,7 @@ void emulators_init()
     if (emulators_capacity < BUILTIN_SYSTEM_EMULATORS)
         emulators_capacity = BUILTIN_SYSTEM_EMULATORS;
 
-    /* After dtcm_init() (cold boot or return from a core) the previous
+    /* After dtc_init() (cold boot or return from a core) the previous
      * emulators[]/gui.tabs allocations are gone — drop dangling pointers
      * before allocating fresh tables. */
     emulators = NULL;
@@ -2256,8 +2011,8 @@ void emulators_init()
     gui.tabcount = 0;
     gui.selected = 0;
 
-    emulators = (retro_emulator_t *)dtcm_calloc((size_t)emulators_capacity, sizeof(retro_emulator_t));
-    systems = (rom_system_t *)dtcm_calloc((size_t)emulators_capacity, sizeof(rom_system_t));
+    emulators = (retro_emulator_t *)dtc_calloc((size_t)emulators_capacity, sizeof(retro_emulator_t));
+    systems = (rom_system_t *)dtc_calloc((size_t)emulators_capacity, sizeof(rom_system_t));
 
     /* Favorites tab + one launcher tab per emulator slot. */
     gui_ensure_tab_capacity(1 + emulators_capacity);
@@ -2274,10 +2029,6 @@ void emulators_init()
      * "Cores externes avec ABI" plan). Until a system is migrated it has
      * no tab at all. */
     add_emulator("Homebrew", "homebrew", "bin", RG_LOGO_EMPTY, RG_LOGO_HEADER_HOMEBREW, NO_GAME_DATA);
-    /* PICO-8: carts (.p8 / .p8.png) live under /roms/pico8/. The engine
-     * itself (pico8.bin) is a separately-distributed overlay loaded at
-     * runtime; see the stub in Core/Src/porting/pico8/main_pico8.c. */
-    add_emulator("PICO-8", "pico8", "p8 png", RG_LOGO_EMPTY, RG_LOGO_HEADER_PICO8, GAME_DATA);
 
 #if SD_CARD == 1
     /* Migrated systems (Watara Supervision, ...) register themselves here
