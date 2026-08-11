@@ -1569,29 +1569,6 @@ done:
     return ok;
 }
 
-/* Loads a `retro_logo_image` blob (raw width/height/packed-1bpp bytes,
- * see bitmaps.h) at absolute file offset `offset`/`size` into a freshly
- * ahb_calloc'd buffer — persists for the lifetime of the menu, same as
- * the compile-time logos baked into /bios/logo.bin. */
-static const retro_logo_image *gnw_core_load_logo(const char *path, uint32_t offset, uint32_t size)
-{
-    if (size < sizeof(retro_logo_image) || size > 8192)
-        return NULL;
-
-    FILE *file = fopen(path, "rb");
-    if (!file)
-        return NULL;
-
-    retro_logo_image *img = NULL;
-    if (fseek(file, (long)offset, SEEK_SET) == 0) {
-        img = ahb_calloc(1, size);
-        if (img && fread(img, 1, size, file) != size)
-            img = NULL; /* AHB malloc; keep for menu lifetime (no heap rewind) */
-    }
-    fclose(file);
-    return img;
-}
-
 /* Registers one launcher tab per system described in `meta` (up to
  * GNW_CORE_MAX_SYSTEMS), all sharing the same core_path — this is how one
  * core binary (e.g. pce.bin) can expose several tabs (PC Engine + PC Engine
@@ -1611,9 +1588,9 @@ static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_p
 
         int16_t pad_idx = RG_LOGO_EMPTY, header_idx = RG_LOGO_EMPTY;
         if (sys->pad_logo_size)
-            pad_idx = rg_register_dynamic_logo(gnw_core_load_logo(core_path, sys->pad_logo_offset, sys->pad_logo_size));
+            pad_idx = rg_register_dynamic_logo_blob(core_path, sys->pad_logo_offset, sys->pad_logo_size);
         if (sys->header_logo_size)
-            header_idx = rg_register_dynamic_logo(gnw_core_load_logo(core_path, sys->header_logo_offset, sys->header_logo_size));
+            header_idx = rg_register_dynamic_logo_blob(core_path, sys->header_logo_offset, sys->header_logo_size);
 
         add_emulator_ex(sys->system_name, sys->dirname, sys->extensions, pad_idx, header_idx,
                         sys->parse_type, core_path);
