@@ -1311,7 +1311,7 @@ __attribute__((optimize("-O0"))) static void MPU_Config(void)
     MPU_InitStruct.Enable = MPU_REGION_ENABLE;
     MPU_InitStruct.Number = MPU_REGION_NUMBER2;
     MPU_InitStruct.BaseAddress = (uint32_t) &_stack_redzone;
-    /* 128B --> 0x06, 256B --> 0x07, 512B --> 0x08, ... */
+    /* 32B --> 0x04, 128B --> 0x06, 256B --> 0x07, ... */
     MPU_InitStruct.Size = ffs((size_t)&_Stack_Redzone_Size) - 2;
     MPU_InitStruct.SubRegionDisable = 0x0;
     MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;

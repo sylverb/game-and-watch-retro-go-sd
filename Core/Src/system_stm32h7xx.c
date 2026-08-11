@@ -158,6 +158,22 @@ void SystemInit (void)
  __IO uint32_t tmpreg;
 #endif /* DATA_IN_D2_SRAM */
 
+  /* Bank1 bootloader (and in-app hot jumps) may leave MPU + I/D-cache live
+   * when branching to this Reset_Handler. crt0 then copies .data / zeroes
+   * .bss into AHB SRAM — that must not race a still-enabled D-cache, and
+   * LCD/DMA bring-up later assumes caches start off (main enables them
+   * after lcd_init). gnwmanager start bank2 does a full reset so caches
+   * are already off; start bank1 does not. */
+#if defined (__MPU_PRESENT) && (__MPU_PRESENT == 1U)
+  ARM_MPU_Disable();
+#endif
+#if defined (__ICACHE_PRESENT) && (__ICACHE_PRESENT == 1U)
+  SCB_DisableICache();
+#endif
+#if defined (__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1U)
+  SCB_DisableDCache();
+#endif
+
   /* FPU settings ------------------------------------------------------------*/
   #if (__FPU_PRESENT == 1) && (__FPU_USED == 1)
     SCB->CPACR |= ((3UL << (10*2))|(3UL << (11*2)));  /* set CP10 and CP11 Full Access */

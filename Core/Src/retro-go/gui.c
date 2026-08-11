@@ -233,8 +233,8 @@ void gui_ensure_tab_capacity(int capacity)
     if (capacity < 1)
         capacity = 1;
     if (gui.tabs != NULL) {
-        /* AHB bump allocator cannot grow in place — capacity is fixed at
-         * the first call (from emulators_init after counting /cores). */
+        /* Capacity is fixed at the first call (from emulators_init after
+         * counting /cores) — no realloc of the tab pointer table. */
         assert(capacity <= gui.tab_capacity);
         return;
     }
@@ -330,7 +330,7 @@ tab_t *gui_set_current_tab(int index)
 
 void gui_save_current_tab()
 {
-    /* tab->arg points into AHB emulators[], discarded by ahb_init() when a
+    /* tab->arg points into DTCM emulators[], discarded by dtcm_init() when a
      * core starts. Re-saving from inside an emulator (sleep path) would
      * persist crushed browse_subpath. Values were already committed at launch. */
     if (odroid_system_get_app()->id != APPID_LAUNCHER)

@@ -55,11 +55,14 @@ ENTRY(Reset_Handler)
 /* Highest address of the user mode stack */
 _estack = _stack_top;    /* end of RAM */
 
-/* Stack is fixed at the top of DTCM; the stdlib heap (_heap_start.._heap_end)
- * automatically fills whatever remains after .data/.bss (no hardcoded size).
- * PICO-8 and other overlays allocate from this heap at runtime. */
-_Stack_Redzone_Size = 256;  /* size of stack overflow protection */
-_Min_Stack_Size = 24 * 1024; /* required amount of stack */
+/* Stack is fixed at the top of DTCM (fast). Firmware .persistent, .data,
+ * .bss and the stdlib heap live in AHB SRAM below the .audio DMA reserve
+ * (AHB SRAM clock enabled via DATA_IN_D2_SRAM in SystemInit). dtcm_malloc
+ * bumps the free space between DTCM ORIGIN and the stack. */
+/* Stack + redzone occupy exactly 24 KiB at the top of DTCM. Redzone is the
+ * low 32 bytes of that window (overflow edge; stack grows downward). */
+_Stack_Redzone_Size = 32;
+_Min_Stack_Size = 24 * 1024 - _Stack_Redzone_Size;
 
 
 /* Useful for scripts */
@@ -67,20 +70,20 @@ _Min_Stack_Size = 24 * 1024; /* required amount of stack */
 __NULLPTR_LENGTH__  = 0x0;
 __ITCMRAM_LENGTH__  = 64K;
 __DTCMRAM_LENGTH__  = 128K;
-__REMOTE_INPUT_RESERVE__ = DEFINED(REMOTE_INPUT) ? REMOTE_INPUT * 12 : 0;
 /* __RAM_UC_LENGTH__ / __RAM_EMU_LENGTH__ / __RAM_START__ / __RAM_EMU_START__ /
  * __RAM_EMU_END__ come from ld/gnw_ram_emu.ld, shared with every standalone
  * core's linker script so the VMA a core is built for can never drift from
  * where the firmware actually loads it (see run_dynamic_core()). */
 INCLUDE ld/gnw_ram_emu.ld
-/* __ITCM_CORE_START__/__ITCM_CORE_LENGTH__ and __AHB_CORE_START__/
- * __AHB_CORE_LENGTH__ come from these, shared with any standalone core's
- * linker script that places a segment in ITCM/AHB (see cores/pce/pce_core.ld)
- * — same reasoning as ld/gnw_ram_emu.ld. Checked against this firmware's own
- * ITCMRAM/AHBRAM layout via ASSERTs below. */
+/* __ITCM_CORE_START__/__ITCM_CORE_LENGTH__ come from ld/gnw_itcm_core.ld
+ * (shared with cores that place hot code in ITCM). __AHB_CORE_* from
+ * ld/gnw_ahb_core.ld is legacy (AHB is heap-only now) and only used by the
+ * ASSERTs below against this firmware's AHBRAM layout. */
 INCLUDE ld/gnw_itcm_core.ld
 INCLUDE ld/gnw_ahb_core.ld
 __AHBRAM_LENGTH__   = 128K;
+__AHBRAM_PERSISTENT_RESERVE__ = 8K; /* MPU non-cacheable: boot_magic/logbuf + remote-input */
+__AHBRAM_REMOTE_INPUT_RESERVE__ = 12; /* last bytes of persistent pad; scripts/remote_input.py */
 __AHBRAM_AUDIO_RESERVE__ = 8K; /* MPU non-cacheable slot for .audio DMA buffer at end of AHB SRAM */
 __FLASH_LENGTH__    = 256K; /* Bank 1 */
 __FLASH2_LENGTH__   = 256K; /* Bank 2 */
@@ -294,25 +297,6 @@ SECTIONS
     KEEP(*(.sdcard_logo))
   } > CORES
 
-  /* only use ahb_malloc/ahb_calloc to use ahb memory ! */
-  /* only audio buffer is statically allocated */
-  ._ahbram (NOLOAD) :
-  {
-    __ahbram_start__ = .;
-    . = ALIGN(4);
-    __ahbram_heap_start__ = .;
-    . = ORIGIN(AHBRAM) + LENGTH(AHBRAM) - __AHBRAM_AUDIO_RESERVE__;
-    __ahbram_audio_start__ = .;
-    *(.audio)
-    . = ALIGN(4);
-    __ahbram_end__ = .;
-  } > AHBRAM
-
-  ASSERT(__AHB_CORE_START__ == __ahbram_start__,
-         "Error: ld/gnw_ahb_core.ld's __AHB_CORE_START__ no longer matches __ahbram_start__ — a core's fixed AHB segment would overlap firmware-resident AHB data")
-  ASSERT(__AHB_CORE_LENGTH__ <= (__ahbram_audio_start__ - __ahbram_start__),
-         "Error: ld/gnw_ahb_core.ld's __AHB_CORE_LENGTH__ overlaps the .audio DMA reserve at the top of AHB SRAM")
-
   /* The startup code goes first into FLASH */
   .isr_vector :
   {
@@ -393,31 +377,42 @@ SECTIONS
     PROVIDE_HIDDEN (__fini_array_end = .);
   } >FLASH
 
-  /* Force some variables at fixed locations for easy OCD interactions without needing ELF file */
+  /* AHB SRAM: .persistent + .data/.bss + newlib heap + .audio.
+   *   [.persistent 8K][.data][.bss][---- malloc heap ----][.audio 8K]
+   * LMA for .data must follow FLASH sections above (not before .isr_vector).
+   * Requires DATA_IN_D2_SRAM so SystemInit enables AHB SRAM before crt0
+   * copies .data / zeroes .bss.
+   * .persistent is padded to 8K so an MPU region can mark it non-cacheable
+   * (OCD/monitor reads logbuf coherently; DTCM used to be inherently uncached).
+   * Last 12 bytes hold the remote-input shadow word (was DTCM 0x2001FFF4). */
   ._persistent (NOLOAD) :
   {
+    __ahbram_start__ = .;
     . = ALIGN(4);
-    __dtcram_start__ = .;
     *(.persistent_boot_magic)
     *(.persistent_log_idx)
     *(.persistent_logbuf)
     . = ALIGN(4);
-  } >DTCMRAM
+    ASSERT(. <= ORIGIN(AHBRAM) + __AHBRAM_PERSISTENT_RESERVE__ - __AHBRAM_REMOTE_INPUT_RESERVE__,
+           "AHB .persistent overflows pad before remote-input reserve");
+    . = ORIGIN(AHBRAM) + __AHBRAM_PERSISTENT_RESERVE__ - __AHBRAM_REMOTE_INPUT_RESERVE__;
+    __remote_input__ = .;
+    . = ORIGIN(AHBRAM) + __AHBRAM_PERSISTENT_RESERVE__;
+  } > AHBRAM
 
   /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 
-  /* Initialized data sections goes into RAM, load LMA copy after code */
   .data :
   {
     . = ALIGN(4);
-    _sdata = .;        /* create a global symbol at data start */
-    *(.data)           /* .data sections */
-    *(.data*)          /* .data* sections */
+    _sdata = .;
+    *(.data)
+    *(.data*)
 
     . = ALIGN(4);
-    _edata = .;        /* define a global symbol at data end */
-  } >DTCMRAM AT> FLASH
+    _edata = .;
+  } > AHBRAM AT> FLASH
 
   ._flash_end :
   {
@@ -425,40 +420,54 @@ SECTIONS
     __flash_end__ = .;
   } >FLASH
 
-  /* Uninitialized data section */
-  . = ALIGN(4);
-  .bss :
+  .bss (NOLOAD) :
   {
-    _sbss = .;         /* define a global symbol at bss start */
+    . = ALIGN(4);
+    _sbss = .;
     __bss_start__ = _sbss;
     *(.bss)
     *(.bss*)
     *(COMMON)
 
     . = ALIGN(4);
-    _ebss = .;         /* define a global symbol at bss end */
+    _ebss = .;
     __bss_end__ = _ebss;
-  } >DTCMRAM
+  } > AHBRAM
 
-  /* Heap fills all DTCM left after .data/.bss up to the fixed stack at the
-   * top (redzone + _Min_Stack_Size + optional remote-input reserve). */
   ._user_heap (NOLOAD) :
   {
     . = ALIGN(16);
+    __ahbram_heap_start__ = .;
     _heap_start = .;
-    /* Alias for scripts/size.sh — "padding" is now the whole flexible heap. */
+
+    _heap_end = ORIGIN(AHBRAM) + LENGTH(AHBRAM) - __AHBRAM_AUDIO_RESERVE__;
+    ASSERT(_heap_start < _heap_end,
+           "AHB overflow: .persistent/.data/.bss leave no room for malloc heap before .audio");
+    . = _heap_end;
+  } > AHBRAM
+
+  ._ahbram_audio (NOLOAD) :
+  {
+    __ahbram_audio_start__ = .;
+    *(.audio)
+    . = ALIGN(4);
+    __ahbram_end__ = .;
+  } > AHBRAM
+
+  ASSERT(__AHB_CORE_START__ == __ahbram_start__,
+         "Error: ld/gnw_ahb_core.ld's __AHB_CORE_START__ no longer matches __ahbram_start__")
+  ASSERT(__AHB_CORE_LENGTH__ <= (__ahbram_audio_start__ - __ahbram_start__),
+         "Error: ld/gnw_ahb_core.ld's __AHB_CORE_LENGTH__ overlaps the .audio DMA reserve at the top of AHB SRAM")
+
+  /* DTCM: bump pool from ORIGIN up to the stack redzone. */
+  ._dtcm_free (NOLOAD) :
+  {
+    . = ALIGN(16);
+    __dtcram_start__ = .;
     __dtc_padding_start__ = .;
-
-    /* Align down so . = _heap_limit never steps into the stack. */
-    _heap_limit = (ORIGIN(DTCMRAM) + LENGTH(DTCMRAM)
-                - __REMOTE_INPUT_RESERVE__
-                - _Min_Stack_Size
-                - _Stack_Redzone_Size) & ~15;
-    ASSERT(_heap_start <= _heap_limit,
-           "DTCM overflow: .data/.bss leave no room for stack");
-
-    . = _heap_limit;
-    _heap_end = .;
+    . = ORIGIN(DTCMRAM) + __DTCMRAM_LENGTH__
+        - _Min_Stack_Size
+        - _Stack_Redzone_Size;
     __dtc_padding_end__ = .;
   } >DTCMRAM
 
@@ -469,7 +478,6 @@ SECTIONS
     _stack_bottom = .;
     . = . + _Min_Stack_Size;
     _stack_top = .;
-    . = . + __REMOTE_INPUT_RESERVE__;
     __dtcram_end__ = .;
   } >DTCMRAM
 

@@ -19,7 +19,8 @@
 uint32_t buttons_get();
 
 #ifdef REMOTE_INPUT
-#define SRAM_REMOTE_INPUT_ADDR 0x2001FFF4UL
+/* End of AHB .persistent pad (non-cacheable); keep in sync with scripts/remote_input.py */
+#define SRAM_REMOTE_INPUT_ADDR 0x30001FF4UL
 #endif
 
 #endif

@@ -9,118 +9,124 @@ static uint32_t current_ram_pointer;
 uint32_t ram_start;
 extern uint32_t __RAM_EMU_END__;
 
-static uint32_t current_ahb_pointer;
-extern uint32_t __ahbram_heap_start__;
-extern uint32_t __ahbram_audio_start__;
-
 static uint32_t current_itc_pointer;
 extern uint32_t __itcram_start__;
 extern uint32_t __itcram_end__;
 extern uint16_t __ITCMRAM_LENGTH__;
 extern uint16_t __NULLPTR_LENGTH__;
 
-/* Ram allocation here is simple and does not support free or reallocation  */
-/* What is possible is to reinitialize all allocated buffers by calling the */
-/* AHB/ITC init function.                                                   */
+/* DTCM bump: free region from DTCM ORIGIN to the stack redzone
+ * (__dtc_padding_start__ .. __dtc_padding_end__ in the linker script). */
+static uint32_t current_dtcm_pointer;
+extern uint32_t __dtc_padding_start__;
+extern uint32_t __dtc_padding_end__;
 
-/* AHB SRAM: ~120 KB at the bottom is D-cacheable (MPU PRIVDEF). The last 8 KB
-   hold the .audio DMA buffer and stay non-cacheable. */
-void ahb_init() {
-  current_ram_pointer = (uint32_t)0;
-  current_ahb_pointer = (uint32_t)(&__ahbram_heap_start__);
+/* Ram allocation here is simple and does not support free or reallocation.
+ * Reclaim by calling the matching *_init() (or resetting ram_start). */
+
+/* AHB: newlib heap (_heap_start.._heap_end in AHBRAM). ahb_* are aliases
+ * for malloc/calloc — no pool-wide reset (launcher state must survive). */
+void *ahb_malloc(size_t size)
+{
+  return malloc(size);
 }
 
-size_t ram_get_free_size() {
-  assert(ram_start != 0); // We are not supposed to ram alloc without initializing ram start pointer
+void *ahb_calloc(size_t count, size_t size)
+{
+  return calloc(count, size);
+}
+
+/* RAM_EMU bump from ram_start. Forgot by ram_init(). */
+void ram_init(void)
+{
+  current_ram_pointer = 0;
+}
+
+size_t ram_get_free_size(void)
+{
+  assert(ram_start != 0);
   if (current_ram_pointer == 0)
-    current_ram_pointer = (ram_start + 3) & ~0x03; // Make sure pointers are always 32 bits aligned;
+    current_ram_pointer = (ram_start + 3) & ~0x03;
   return ((uint32_t)&__RAM_EMU_END__) - current_ram_pointer;
 }
 
-void *ram_malloc(size_t size) {
-  assert(ram_start != 0); // We are not supposed to ram alloc without initializing ram start pointer
+void *ram_malloc(size_t size)
+{
+  assert(ram_start != 0);
   if (current_ram_pointer == 0)
-    current_ram_pointer = (ram_start + 3) & ~0x03; // Make sure pointers are always 32 bits aligned;
-//  printf("ram_malloc 0x%lx size %d\n",current_ram_pointer,size);
+    current_ram_pointer = (ram_start + 3) & ~0x03;
   void *pointer = (void *)current_ram_pointer;
   if (pointer == 0)
     return NULL;
   if ((current_ram_pointer + size) <= ((uint32_t)&__RAM_EMU_END__)) {
-    current_ram_pointer = (current_ram_pointer + size + 3) & ~0x03; // Make sure pointers are always 32 bits aligned
+    current_ram_pointer = (current_ram_pointer + size + 3) & ~0x03;
     return pointer;
-  } else {
-    return NULL;
   }
+  return NULL;
 }
 
-void *ram_calloc(size_t count,size_t size) {
-  void *pointer = ram_malloc(count*size);
+void *ram_calloc(size_t count, size_t size)
+{
+  void *pointer = ram_malloc(count * size);
   if (pointer)
-    memset(pointer,0,count*size);
+    memset(pointer, 0, count * size);
   return pointer;
 }
 
-/* AHB bump only — historically tried RAM_EMU first when ram_start was set,
- * which put menu/cover data and some core buffers into RAM_EMU by accident.
- * Callers that need RAM_EMU must use ram_malloc explicitly. */
-void *ahb_malloc(size_t size) {
-  void *pointer = (void *)current_ahb_pointer;
-  current_ahb_pointer = (current_ahb_pointer + size + 3) & ~0x03;
-  assert(current_ahb_pointer <= (uint32_t)&__ahbram_audio_start__);
-  return pointer;
-}
+/* ITC RAM is 64kB, fast; bump with no free. */
 
-void *ahb_calloc(size_t count, size_t size) {
-  size_t bytes = count * size;
-  void *pointer = ahb_malloc(bytes);
-  memset(pointer, 0, bytes);
-  return pointer;
-}
-
-/* ITC RAM is 64kB, it's fast RAM and can be used for any purpose */
-
-void itc_init() {
+void itc_init(void)
+{
   current_itc_pointer = (uint32_t)(&__itcram_end__);
 }
 
-void *itc_malloc(size_t size) {
-  // ITC ram start at 0x00000000 so we can't use NULL value to tell if allocation is not possible.
+void *itc_malloc(size_t size)
+{
   void *pointer = (void *)0xffffffff;
-//  void *pointer = (void *)current_itc_pointer;
-//  printf("itc_malloc 0x%lx size %d\n",current_itc_pointer,size);
-  if (((current_itc_pointer + size + 3) & ~0x03) <= ((((uint32_t)&__itcram_start__) + ((uint32_t)(&__ITCMRAM_LENGTH__)) - ((uint32_t)(&__NULLPTR_LENGTH__))))) {
+  if (((current_itc_pointer + size + 3) & ~0x03) <=
+      ((((uint32_t)&__itcram_start__) + ((uint32_t)(&__ITCMRAM_LENGTH__)) -
+        ((uint32_t)(&__NULLPTR_LENGTH__))))) {
     pointer = (void *)current_itc_pointer;
-    current_itc_pointer = (current_itc_pointer + size + 3) & ~0x03; // Make sure pointers are always 32 bits aligned;
+    current_itc_pointer = (current_itc_pointer + size + 3) & ~0x03;
   }
-//  assert((current_itc_pointer) <= ((((uint32_t)&__itcram_start__) + ((uint32_t)(&__ITCMRAM_LENGTH__)) - ((uint32_t)(&__NULLPTR_LENGTH__)))));
   return pointer;
 }
 
-void *itc_calloc(size_t count,size_t size) {
-  void *pointer = itc_malloc(count*size);
+void *itc_calloc(size_t count, size_t size)
+{
+  void *pointer = itc_malloc(count * size);
   if (pointer != (void *)0xffffffff)
-    memset(pointer,0,count*size);
+    memset(pointer, 0, count * size);
   return pointer;
 }
 
-/* DTCM stdlib heap — the linker places _heap_start/_heap_end in DTCMRAM. */
-void *
-dtcm_malloc(size_t size)
+/* DTCM bump pool (fast). Grows from DTCM ORIGIN toward the stack.
+ * No per-block free — call dtcm_init() to forget everything. */
+
+void dtcm_init(void)
 {
-  printf("dtcm_malloc 0x%x\n", size);
-	return malloc(size);
+  current_dtcm_pointer = (uint32_t)(&__dtc_padding_start__);
 }
 
-void *
-dtcm_calloc(size_t count, size_t size)
+void *dtcm_malloc(size_t size)
 {
-  printf("dtcm_calloc 0x%x\n", size*count);
-	return calloc(count, size);
+  if (current_dtcm_pointer == 0)
+    current_dtcm_pointer = (uint32_t)(&__dtc_padding_start__);
+
+  uint32_t next = (current_dtcm_pointer + size + 3) & ~0x03;
+  if (next > (uint32_t)&__dtc_padding_end__)
+    return NULL;
+
+  void *pointer = (void *)current_dtcm_pointer;
+  current_dtcm_pointer = next;
+  return pointer;
 }
 
-void
-dtcm_free(void *ptr)
+void *dtcm_calloc(size_t count, size_t size)
 {
-  printf("dtcm_free %p\n", ptr);
-	free(ptr);
+  size_t bytes = count * size;
+  void *pointer = dtcm_malloc(bytes);
+  if (pointer)
+    memset(pointer, 0, bytes);
+  return pointer;
 }

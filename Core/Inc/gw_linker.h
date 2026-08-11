@@ -18,6 +18,10 @@ extern uint8_t _stack_redzone;
 extern uint8_t _heap_start;
 extern uint8_t _heap_end;
 
+/* DTCM free region for dtcm_malloc bump (below stack). */
+extern uint8_t __dtc_padding_start__;
+extern uint8_t __dtc_padding_end__;
+
 
 extern uint32_t _siramdata;
 extern uint32_t __ram_exec_start__;

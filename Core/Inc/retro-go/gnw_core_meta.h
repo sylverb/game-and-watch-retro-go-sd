@@ -41,22 +41,16 @@ extern "C" {
 #define GNW_CORE_MAX_SYSTEMS  4u
 
 /* Target memory region for a gnw_core_segment_t's fixed load address (see
- * run_dynamic_core() in rg_emulators.c). RAM_EMU is the only region a
- * segment could target in v2 (and is still always segment[0], carrying the
- * entry trampoline at offset 0). ITCM/AHB let a core place CPU-hot code in
- * fast/extra RAM, at a fixed address shared with the firmware via
- * ld/gnw_itcm_core.ld / ld/gnw_ahb_core.ld.
+ * run_dynamic_core() in rg_emulators.c).
  *
- * DTCM is reserved for a future DATA-only preload (Cortex-M7's DTCM has no
- * instruction-fetch port — it physically cannot hold executable code) and
- * is not wired to a concrete fixed address by the firmware yet; a core
- * declaring a DTCM segment today will simply fail gnw_core_probe()'s
- * region check. */
+ *   RAM_EMU — always segment[0], entry trampoline at offset 0
+ *   ITCM    — optional extra segment(s) for CPU-hot code (ld/gnw_itcm_core.ld)
+ *
+ * AHB/DTCM are firmware dynamic pools (malloc / dtcm_*), not load targets —
+ * they are not part of this enum. */
 typedef enum {
     GNW_CORE_REGION_RAM_EMU = 0,
     GNW_CORE_REGION_ITCM    = 1,
-    GNW_CORE_REGION_AHB     = 2,
-    GNW_CORE_REGION_DTCM    = 3,
 } gnw_core_region_t;
 
 /* How the launcher should populate a system's ROM browser list. GNW_PARSE_ROM
@@ -72,12 +66,10 @@ typedef enum {
 
 /* One independently-loaded code+bss blob. code_size bytes are read from the
  * file into this region's fixed base address (see run_dynamic_core()),
- * followed by bss_size zeroed bytes. For non-RAM_EMU regions, the firmware
- * also "reserves" code_size+bss_size bytes in that region's runtime bump
- * allocator (itc_malloc/ahb_malloc) right after loading, so the core's own
- * later allocations never collide with this fixed segment — see
- * docs/PICO8_EXTERNAL_MODULE.md's "ITCM Back-Page Allocation" for the
- * technique this mirrors. */
+ * followed by bss_size zeroed bytes. For ITCM segments, the firmware also
+ * reserves code_size+bss_size via itc_malloc right after loading so the
+ * core's later itc_* allocations never collide with the fixed segment —
+ * see docs/PICO8_EXTERNAL_MODULE.md's "ITCM Back-Page Allocation". */
 typedef struct {
     uint32_t region;    /* gnw_core_region_t */
     uint32_t code_size;

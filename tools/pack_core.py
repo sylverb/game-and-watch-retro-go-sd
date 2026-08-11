@@ -72,10 +72,11 @@ header_logo=../../Core/Src/retro-go/rg_logos.c:header_pcecd \\
         --segment itcm:__ITCM_CORE_START__:__CORE_ITCM_CODE_END__:__CORE_ITCM_BSS_END__:build/pce_core_itcm.bin \\
         --out ../pce.bin
 
-Extra ITCM/AHB segments are auto-detected from ELF symbols
-(__CORE_ITCM_* / __CORE_AHB_*, section .core_itcm / .core_ahb) when
-present; pass --no-auto-segments to disable. Explicit --segment still
-wins for a given region.
+Extra ITCM segments are auto-detected from ELF symbols
+(__CORE_ITCM_*, section .core_itcm) when present; pass
+--no-auto-segments to disable. Explicit --segment still wins for a
+given region. AHB/DTCM are not valid load targets (firmware heap /
+dtcm bump) — pack_core rejects them.
 
 --system/--segment are repeatable (up to GNW_CORE_MAX_SYSTEMS=4 /
 GNW_CORE_MAX_SEGMENTS=4, segment 0 already implied by --elf/--bin so
@@ -101,7 +102,7 @@ GNW_CORE_META_VERSION = 3
 GNW_CORE_MAX_SEGMENTS = 4
 GNW_CORE_MAX_SYSTEMS = 4
 
-REGION_NAME_TO_ID = {"ram_emu": 0, "itcm": 1, "ahb": 2, "dtcm": 3}
+REGION_NAME_TO_ID = {"ram_emu": 0, "itcm": 1}
 PARSE_NAME_TO_ID = {"rom": 0, "cdrom": 1}
 
 # Must mirror gnw_core_segment_t exactly (Core/Inc/retro-go/gnw_core_meta.h):
@@ -388,13 +389,17 @@ def parse_segment_arg(spec):
     region_name, start_symbol, code_end_symbol, bss_end_symbol, bin_file = parts
     region = REGION_NAME_TO_ID.get(region_name)
     if region is None:
-        sys.exit(f"error: --segment region {region_name!r} must be one of {sorted(REGION_NAME_TO_ID)}")
+        sys.exit(
+            f"error: --segment region {region_name!r} must be one of "
+            f"{sorted(REGION_NAME_TO_ID)} (AHB/DTCM are firmware pools, not load targets)"
+        )
     return region, start_symbol, code_end_symbol, bss_end_symbol, Path(bin_file)
 
 
 # Optional extra segments discovered from ELF symbols when a custom
 # linker script defines them (see cores/pce/pce_core.ld, cores/gba/…).
 # If the triple is absent, packing is a no-op for that region.
+# AHB is intentionally omitted — AHB SRAM is the firmware malloc heap.
 AUTO_EXTRA_SEGMENTS = (
     {
         "region": "itcm",
@@ -402,13 +407,6 @@ AUTO_EXTRA_SEGMENTS = (
         "code_end": "__CORE_ITCM_CODE_END__",
         "bss_end": "__CORE_ITCM_BSS_END__",
         "section": ".core_itcm",
-    },
-    {
-        "region": "ahb",
-        "start": "__AHB_CORE_START__",
-        "code_end": "__CORE_AHB_CODE_END__",
-        "bss_end": "__CORE_AHB_BSS_END__",
-        "section": ".core_ahb",
     },
 )
 
@@ -533,7 +531,7 @@ def main():
     ap.add_argument("--objcopy", default=None,
                      help="objcopy tool (default: derived from --nm, e.g. arm-none-eabi-objcopy)")
     ap.add_argument("--no-auto-segments", action="store_true",
-                     help="do not auto-detect ITCM/AHB segments from ELF symbols "
+                     help="do not auto-detect ITCM segments from ELF symbols "
                           "(only use explicit --segment)")
     ap.add_argument("--out", required=True, type=Path)
     args = ap.parse_args()
@@ -604,7 +602,7 @@ def main():
     segments = [(REGION_NAME_TO_ID["ram_emu"], seg0_code_size, seg0_bss_size)]
     payloads = [seg0_payload]
 
-    # --- Extra segments: explicit --segment first, then auto-detect ITCM/AHB ---
+    # --- Extra segments: explicit --segment first, then auto-detect ITCM ---
     used_regions = {REGION_NAME_TO_ID["ram_emu"]}
     for region, start_symbol, code_end_symbol, bss_end_symbol, bin_file in explicit_segments:
         seg_start = sym(start_symbol)

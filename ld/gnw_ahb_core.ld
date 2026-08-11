@@ -1,22 +1,15 @@
 /*
- * Shared AHB SRAM "core segment" region definition.
+ * Shared AHB SRAM region markers (legacy core-segment symbols).
  *
- * INCLUDEd by both the main firmware linker script (STM32H7B0VBTx_SDCARD.ld)
- * and any standalone core's linker script that opts into placing an extra
- * code+data segment in AHB SRAM (e.g. for capacity, not necessarily speed —
- * unlike ITCM, AHB SRAM has no special I-fetch fast path) — same reasoning
- * as ld/gnw_ram_emu.ld / ld/gnw_itcm_core.ld.
+ * AHB is no longer a valid gnw_core_segment_t load target: the firmware
+ * uses it for .persistent (boot_magic/logbuf), firmware .data/.bss, the
+ * newlib malloc heap, and the .audio DMA reserve. Cores allocate from the
+ * heap at runtime via ahb_malloc/malloc (ABI mem_ctl GW_MEM_AHB), never by
+ * linking a fixed .core_ahb segment.
  *
- * AHB SRAM is 128K total; the top 8K stays reserved for the .audio DMA
- * buffer (non-cacheable MPU slot, see __ahbram_audio_start__ in
- * STM32H7B0VBTx_SDCARD.ld) and must never be covered by a fixed core
- * segment. The remaining ~120K is otherwise entirely free of firmware data
- * (ahb_malloc's bump pool normally starts at __ahbram_start__ = this same
- * address) — STM32H7B0VBTx_SDCARD.ld ASSERTs __AHB_CORE_START__ matches
- * __ahbram_start__.
- *
- * If you change any value here, rebuild BOTH the firmware and every core
- * that uses a GNW_CORE_REGION_AHB segment.
+ * These symbols remain so STM32H7B0VBTx_SDCARD.ld can ASSERT that the
+ * documented window still starts at AHBRAM ORIGIN and ends before .audio.
+ * Do not INCLUDE this from a core linker script to place executable code.
  */
 
 __AHB_CORE_START__  = 0x30000000;

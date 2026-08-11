@@ -626,6 +626,10 @@ void *core_dtcm_malloc(size_t size)
 {
     return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, 1, size);
 }
+void *core_dtcm_calloc(size_t count, size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, count, size);
+}
 
 /* ====================================================================
  * G&W hardware: RTC. Per-field getters and GW_GetUnixTM/mktime were
@@ -880,8 +884,8 @@ char *strtok(char *str, const char *delim)
  * `#define lss_printf(fp, str) (fputs(str, fp) >= 0)` (system.h), and
  * lynxdec.cpp's public-key decrypt temps use calloc()/free(). free() is
  * already trampolined; these two fill the remaining holes. calloc routes
- * through mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, ...) so the buffers are
- * free()-able on the DTCM newlib heap (same pool dtcm_malloc uses).
+ * through mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTCM, ...) (DTCM bump — same
+ * pool as dtcm_malloc; no per-block free).
  * ==================================================================== */
 int core_fputs(const char *s, FILE *stream)
 {
@@ -964,13 +968,11 @@ size_t core_rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest
 }
 
 /* ====================================================================
- * blueMSX (MSX): AHB pool reset, SHA1.
- * (volume / clear_buffers / get_buffer_size / stop_playing live with
- * the other audio_ctl wrappers above.)
+ * blueMSX (MSX): SHA1 + RAM_EMU bump reset.
  * ==================================================================== */
-void core_ahb_init(void)
+void core_ram_init(void)
 {
-    (void)gw_firmware_abi()->mem_ctl(GW_MEM_OP_INIT, GW_MEM_AHB, 0, 0);
+    (void)gw_firmware_abi()->mem_ctl(GW_MEM_OP_INIT, GW_MEM_RAM, 0, 0);
 }
 int8_t core_calculate_sha1_file(const char *file_path, uint8_t *output)
 {

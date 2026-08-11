@@ -99,12 +99,13 @@ extern "C" void cpp_heap_init(size_t bss_end)
 void *operator new(size_t s) { return heap_alloc_mem(s); }
 void *operator new[](size_t s) { return heap_alloc_mem(s); }
 
-/* No real free(): none of the pools behind heap_alloc_mem() support
+/* No real free(): none of the bump pools behind heap_alloc_mem() support
  * releasing memory (see gw_malloc.c) — same "delete is a no-op" contract
- * the old heap.cpp had. A core's whole RAM_EMU/AHB/ITC budget is reclaimed
- * wholesale the next time any core loads (ahb_init()/itc_init()/ram_start
- * reset — see emulator_start() in Core/Src/retro-go/rg_emulators.c), so
- * leaking within a single ROM session is the intended tradeoff, not a bug. */
+ * the old heap.cpp had. A core's RAM_EMU/ITC/DTCM budget is reclaimed
+ * wholesale the next time any core loads (itc_init()/ram_init()/dtcm_init()
+ * / ram_start rewind — see emulator_start()). AHB malloc allocations are
+ * not pool-reset. Leaking within a single ROM session is the intended
+ * tradeoff, not a bug. */
 void operator delete(void *p) { (void)p; }
 void operator delete[](void *p) { (void)p; }
 void operator delete(void *p, size_t s) { (void)p; (void)s; }

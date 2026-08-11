@@ -1717,7 +1717,8 @@ static bool gnw_core_probe(const char *path, gnw_core_meta_t *out_meta, uint16_t
     if (out_meta->segments[0].region != GNW_CORE_REGION_RAM_EMU)
         goto done;
     for (uint32_t i = 0; i < out_meta->segments_count; i++) {
-        if (out_meta->segments[i].region == GNW_CORE_REGION_DTCM)
+        uint32_t region = out_meta->segments[i].region;
+        if (region != GNW_CORE_REGION_RAM_EMU && region != GNW_CORE_REGION_ITCM)
             goto done;
     }
 
@@ -1753,7 +1754,7 @@ static const retro_logo_image *gnw_core_load_logo(const char *path, uint32_t off
     if (fseek(file, (long)offset, SEEK_SET) == 0) {
         img = ahb_calloc(1, size);
         if (img && fread(img, 1, size, file) != size)
-            img = NULL; /* leaked in the AHB bump pool, reclaimed at next ahb_init() */
+            img = NULL; /* AHB malloc; keep for menu lifetime (no heap rewind) */
     }
     fclose(file);
     return img;
@@ -1849,9 +1850,8 @@ static void emulators_scan_cores(void)
 #endif /* SD_CARD == 1 */
 
 /* Resolves segment region `region` to its fixed base address + max usable
- * length (see gnw_core_region_t / ld/gnw_itcm_core.ld / ld/gnw_ahb_core.ld).
- * Returns NULL (and *out_max_len = 0) for an unsupported region (DTCM is
- * already rejected earlier, by gnw_core_probe()).
+ * length (see gnw_core_region_t / ld/gnw_itcm_core.ld). Returns NULL (and
+ * *out_max_len = 0) for an unsupported region.
  *
  * CAUTION: the returned base pointer is NOT a valid "unsupported region"
  * sentinel by itself — GNW_CORE_REGION_ITCM's real base is 0x00000000
@@ -1870,10 +1870,6 @@ static uint8_t *dynamic_core_region_base(uint32_t region, uint32_t *out_max_len)
         if (out_max_len)
             *out_max_len = (uint32_t)&__ITCM_CORE_LENGTH__;
         return (uint8_t *)&__ITCM_CORE_START__;
-    case GNW_CORE_REGION_AHB:
-        if (out_max_len)
-            *out_max_len = (uint32_t)&__AHB_CORE_LENGTH__;
-        return (uint8_t *)&__AHB_CORE_START__;
     default:
         if (out_max_len)
             *out_max_len = 0;
@@ -1885,12 +1881,11 @@ static uint8_t *dynamic_core_region_base(uint32_t region, uint32_t *out_max_len)
  * read, done instead of caching code/bss sizes in retro_emulator_t — see
  * rg_emulators.h) to get the live segment list. For each segment: resolves
  * its fixed region base address, bounded-reads `code_size` bytes from the
- * right file offset into it, zeroes `bss_size` bytes right after. For
- * ITCM/AHB segments, immediately bump-reserves that same code+bss span in
- * the region's runtime allocator (itc_malloc/ahb_malloc, called right after
- * itc_init()/ahb_init() by the caller) so the core's own later runtime
- * allocations never collide with its fixed segment — same technique as
- * PICO-8's ITCM back-page allocation (see docs/PICO8_EXTERNAL_MODULE.md).
+ * right file offset into it, zeroes `bss_size` bytes right after. For ITCM
+ * segments, immediately bump-reserves that same code+bss span via
+ * itc_malloc (after itc_init() by the caller) so the core's own later
+ * itc_* allocations never collide with its fixed segment — same technique
+ * as PICO-8's ITCM back-page allocation (see docs/PICO8_EXTERNAL_MODULE.md).
  * Segment 0 is always RAM_EMU and owns the entry trampoline at offset 0 —
  * same offset-0-Thumb-jump convention as GWHB and PICO-8; the entry symbol
  * is never resolved at firmware link time, the core provides its own
@@ -1932,9 +1927,9 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
          * would reject every valid ITCM segment (which is every core built
          * with CORE_EXTRA_SEGMENTS=itcm:..., e.g. cores/pce) as "too big"
          * and show the corrupted-installation screen. region_len is always
-         * a nonzero constant (0xB5000/0x10000/0x1e000) for the three real
-         * regions and is explicitly zeroed only in the `default:` case, so
-         * it's an unambiguous invalid-region sentinel. */
+         * a nonzero constant for RAM_EMU/ITCM and is explicitly zeroed only
+         * in the `default:` case, so it's an unambiguous invalid-region
+         * sentinel. */
         if (region_len == 0 || (uint64_t)seg->code_size + seg->bss_size > region_len) {
             show_corrupted_installation_screen();
             return;
@@ -1969,9 +1964,9 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
              * before CORE_ENTRY, e.g. cores/gb_tgbdual's operator new). */
             ram_start = (uint32_t)(base + seg->code_size + seg->bss_size);
         } else {
-            void *reserved = (seg->region == GNW_CORE_REGION_ITCM)
-                ? itc_malloc(seg->code_size + seg->bss_size)
-                : ahb_malloc(seg->code_size + seg->bss_size);
+            /* Extra loadable segments are ITCM-only. Reserve the span in the
+             * ITCM bump so later itc_* allocs start past the loaded code+bss. */
+            void *reserved = itc_malloc(seg->code_size + seg->bss_size);
             if (reserved != base) {
                 show_corrupted_installation_screen();
                 return;
@@ -2063,11 +2058,11 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     newfile->ext = get_extension(newfile->path);
 
     /* Snapshotted into local stack buffers, NOT kept as pointers into
-     * emulators[]/systems[]: those arrays are ahb_calloc()'d and live in
-     * AHB SRAM. ahb_init() below resets the AHB bump and the core may
+     * emulators[]/systems[]: those arrays are dtcm_calloc()'d and live in
+     * the DTCM bump. dtcm_init() below forgets that bump and the core may
      * immediately allocate over the same addresses, so dangling pointers
      * into system_name/core_path would be clobbered. Copy the strings out
-     * before ahb_init()/ram_start=0.
+     * before dtcm_init()/ram_start=0.
      *
      * newfile->system is a rom_system_t*, whose system_name/core_path
      * fields are `char *`/`const char *` (pointers aliasing the real
@@ -2117,13 +2112,14 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
         }
     }
 
-    /* systems[] lives in AHB and is wiped by ahb_init(). In-game code must
-     * not touch ACTIVE_FILE->system (use handlers / path instead). */
+    /* systems[] lives in the DTCM bump and is wiped by dtcm_init(). In-game
+     * code must not touch ACTIVE_FILE->system (use handlers / path instead). */
     newfile->system = NULL;
 
     // It will free all ram allocated memory for use by emulators
-    ahb_init();
+    ram_init();
     itc_init();
+    dtcm_init();
     ram_start = 0;
     emulators = NULL;
     systems = NULL;
@@ -2168,7 +2164,7 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
       ram_start = (uint32_t)&__RAM_EMU_START__;
       uint32_t pico8_code_size = 0;
       uint8_t *pico8_code_addr = Pico8CacheCodeToFlash(&pico8_code_size);
-      ahb_init();  /* reset current_ram_pointer before overlay load */
+      ram_init();  /* reset current_ram_pointer before overlay load */
       ram_start = 0;
 
       size_t pico8_bin_size = 0;
@@ -2227,8 +2223,9 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     free(newfile);
 #endif
 
-    ahb_init();
+    ram_init();
     itc_init();
+    dtcm_init();
     ram_start = 0;
 #if SD_CARD == 1
     // some pointers were freed, set them to null
@@ -2248,7 +2245,7 @@ void emulators_init()
     if (emulators_capacity < BUILTIN_SYSTEM_EMULATORS)
         emulators_capacity = BUILTIN_SYSTEM_EMULATORS;
 
-    /* After ahb_init() (cold boot or return from a core) the previous
+    /* After dtcm_init() (cold boot or return from a core) the previous
      * emulators[]/gui.tabs allocations are gone — drop dangling pointers
      * before allocating fresh tables. */
     emulators = NULL;
@@ -2259,8 +2256,8 @@ void emulators_init()
     gui.tabcount = 0;
     gui.selected = 0;
 
-    emulators = (retro_emulator_t *)ahb_calloc((size_t)emulators_capacity, sizeof(retro_emulator_t));
-    systems = (rom_system_t *)ahb_calloc((size_t)emulators_capacity, sizeof(rom_system_t));
+    emulators = (retro_emulator_t *)dtcm_calloc((size_t)emulators_capacity, sizeof(retro_emulator_t));
+    systems = (rom_system_t *)dtcm_calloc((size_t)emulators_capacity, sizeof(rom_system_t));
 
     /* Favorites tab + one launcher tab per emulator slot. */
     gui_ensure_tab_capacity(1 + emulators_capacity);

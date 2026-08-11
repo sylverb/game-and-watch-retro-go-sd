@@ -37,7 +37,7 @@ void rg_reset_logo_buffers() {
     /* Dynamic logos live in the AHB pool alongside emulators[]/systems[]
      * and are rebuilt by emulators_scan_cores() on the next boot into the
      * menu; drop stale pointers now so a corrupted install screen can't
-     * accidentally resolve one after ahb_init() reuses that memory. */
+     * accidentally resolve one after dtcm_init() reuses that memory. */
     dynamic_logo_count = 0;
 }
 

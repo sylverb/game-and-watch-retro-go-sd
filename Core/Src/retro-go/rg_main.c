@@ -1034,8 +1034,9 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
     }
 
     // Init ram start for pseudo dynamic mem allocation
-    ahb_init();
+    ram_init();
     itc_init();
+    dtcm_init();
     ram_start = (uint32_t)&__RAM_EMU_START__;
 
     // Initialize GUI colors based on OFW type

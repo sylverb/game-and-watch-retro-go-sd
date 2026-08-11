@@ -224,8 +224,8 @@ static FontEntry *get_font_data(uint32_t codepoint) {
     FILE *file;
 
     if (font_cache == NULL) {
-        font_cache = (FontEntry *)dtcm_malloc(CACHE_SIZE * sizeof(FontEntry));
-        font_data_cache = (uint8_t *)dtcm_malloc(FONT_CACHE_SIZE * sizeof(uint8_t));
+        font_cache = (FontEntry *)ahb_malloc(CACHE_SIZE * sizeof(FontEntry));
+        font_data_cache = (uint8_t *)ahb_malloc(FONT_CACHE_SIZE * sizeof(uint8_t));
         init_font_cache();
     }
 
@@ -553,7 +553,7 @@ static int     lang_failed_idx  = -1;
 static void i18n_free_active_strings(void)
 {
     if (lang_strings_buf) {
-        dtcm_free(lang_strings_buf);
+        free(lang_strings_buf);
         lang_strings_buf = NULL;
     }
 }
@@ -617,7 +617,7 @@ static bool i18n_load_from_sd(int idx)
     }
     fseek(f, header_end, SEEK_SET);
 
-    char *buf = (char *)dtcm_malloc((size_t)strings_size);
+    char *buf = (char *)malloc((size_t)strings_size);
     if (!buf) {
         fprintf(stderr, "i18n_load: '%s' OOM allocating %ld bytes — using en_us\n",
                 m->bin_path, strings_size);
@@ -627,7 +627,7 @@ static bool i18n_load_from_sd(int idx)
     if (fread(buf, 1, (size_t)strings_size, f) != (size_t)strings_size) {
         fprintf(stderr, "i18n_load: '%s' short read of strings — using en_us\n",
                 m->bin_path);
-        dtcm_free(buf);
+        free(buf);
         fclose(f);
         return false;
     }

@@ -778,7 +778,6 @@ else
 endif
 
 LDFLAGS += -Wl,--defsym=__FLASH_LENGTH__=$(FLASH_LENGTH)
-LDFLAGS += -Wl,--defsym=REMOTE_INPUT=$(REMOTE_INPUT)
 
 #######################################
 # LDFLAGS

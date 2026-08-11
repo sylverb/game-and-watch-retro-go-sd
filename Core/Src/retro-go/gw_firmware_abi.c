@@ -336,8 +336,11 @@ static uintptr_t abi_mem_ctl(gw_mem_op_t op, gw_mem_pool_t pool, size_t count, s
         case GW_MEM_ITC:
             itc_init();
             break;
-        case GW_MEM_AHB:
-            ahb_init();
+        case GW_MEM_RAM:
+            ram_init();
+            break;
+        case GW_MEM_DTCM:
+            dtcm_init();
             break;
         default:
             break;

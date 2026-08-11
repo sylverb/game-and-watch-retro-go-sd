@@ -46,6 +46,13 @@ flowchart LR
   tab -->|run_dynamic_core()| run["core executes, calls firmware via ABI"]
 ```
 
+## Load regions
+
+Packed segments may target **RAM_EMU** (always segment 0) and optionally
+**ITCM** (hot code). AHB/DTCM are not `gnw_core_region_t` values — they are
+firmware dynamic pools (`malloc` / `dtcm_*`); cores allocate from them at
+runtime via the ABI (`ahb_malloc`, `dtcm_malloc`, `mem_ctl`).
+
 ## Porting a new core: checklist
 
 1. `cp -r cores/_template cores/<name>` is **not** how it works — the
