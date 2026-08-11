@@ -40,8 +40,8 @@ Usage — image logos (template / new cores):
         --elf build/example_core.elf --bin build/example_core.bin \
         --system-name "Example Core" --dirname example \
         --extensions "bin" \
-        --pad-logo assets/pad.png \
-        --header-logo assets/header.png \
+        --pad-logo assets/pad.bmp \
+        --header-logo assets/header.bmp \
         --out example.bin
 
 Usage — single-system, single-segment core (see cores/wsv/Makefile):
@@ -50,8 +50,8 @@ Usage — single-system, single-segment core (see cores/wsv/Makefile):
         --elf build/wsv_core.elf --bin build/wsv_core.bin \\
         --system-name "Watara Supervision" --dirname wsv \\
         --extensions "wsv sv bin lzma" \\
-        --pad-logo-c ../../Core/Src/retro-go/rg_logos.c:pad_wsv \\
-        --header-logo-c ../../Core/Src/retro-go/rg_logos.c:header_wsv \\
+        --pad-logo assets/pad.bmp \\
+        --header-logo assets/header.bmp \\
         --version 1.0.0 \\
         --out ../wsv.bin
 
@@ -63,12 +63,10 @@ Usage — multi-system, multi-segment core (see cores/pce/Makefile):
 
     tools/pack_core.py \\
         --elf build/pce_core.elf --bin build/pce_core.bin \\
-        --system name="PC Engine",dirname=pce,ext="pce lzma",parse=rom,\\
-pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_pce,\\
-header_logo=../../Core/Src/retro-go/rg_logos.c:header_pce \\
+        --system name="PC Engine",dirname=pce,ext=pce,parse=rom,\\
+pad_logo=assets/pad.bmp,header_logo=assets/header.bmp,cheat_ext=pceplus \\
         --system name="PC Engine CD",dirname=pcecd,ext=cue,parse=cdrom,\\
-pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_pce,\\
-header_logo=../../Core/Src/retro-go/rg_logos.c:header_pcecd \\
+pad_logo=assets/pad.bmp,header_logo=assets/header_cd.bmp,cheat_ext=pceplus \\
         --segment itcm:__ITCM_CORE_START__:__CORE_ITCM_CODE_END__:__CORE_ITCM_BSS_END__:build/pce_core_itcm.bin \\
         --out ../pce.bin
 
@@ -112,8 +110,8 @@ SEGMENT_STRUCT_SIZE = struct.calcsize(SEGMENT_STRUCT_FORMAT)
 assert SEGMENT_STRUCT_SIZE == 12, SEGMENT_STRUCT_SIZE
 
 # Must mirror gnw_core_system_t exactly: char[32] system_name, char[16]
-# dirname, char[32] extensions, 5x uint32_t, uint8_t[16] reserved.
-SYSTEM_STRUCT_FORMAT = "<32s16s32sIIIII16s"
+# dirname, char[32] extensions, 5x uint32_t, cheat_ext[8], reserved[8].
+SYSTEM_STRUCT_FORMAT = "<32s16s32sIIIII8s8s"
 SYSTEM_STRUCT_SIZE = struct.calcsize(SYSTEM_STRUCT_FORMAT)
 assert SYSTEM_STRUCT_SIZE == 116, SYSTEM_STRUCT_SIZE
 
@@ -148,7 +146,8 @@ def parse_version(spec):
 
 
 class SystemSpec:
-    def __init__(self, name, dirname, extensions, parse_type, pad_logo=None, header_logo=None):
+    def __init__(self, name, dirname, extensions, parse_type, pad_logo=None, header_logo=None,
+                 cheat_ext=""):
         self.name = name
         self.dirname = dirname
         self.extensions = extensions
@@ -156,6 +155,8 @@ class SystemSpec:
         # Image path (*.png/...), C extract PATH:VAR, or None.
         self.pad_logo = pad_logo
         self.header_logo = header_logo
+        # Cheat file extension under /cheats/ (no leading '.'), or "".
+        self.cheat_ext = (cheat_ext or "").lstrip(".")
 
     def validate(self):
         if len(self.name.encode()) >= 32:
@@ -164,6 +165,8 @@ class SystemSpec:
             sys.exit(f"error: dirname too long (max 15 bytes): {self.dirname!r}")
         if len(self.extensions.encode()) >= 32:
             sys.exit(f"error: extensions too long (max 31 bytes): {self.extensions!r}")
+        if len(self.cheat_ext.encode()) >= 8:
+            sys.exit(f"error: cheat_ext too long (max 7 bytes): {self.cheat_ext!r}")
 
 
 def logo_from_image(path, *, invert=False, target_width=None, target_height=None):
@@ -354,9 +357,10 @@ def extract_logo_from_c(spec):
 
 def parse_system_arg(spec):
     """Parses one --system 'name=...,dirname=...,ext=...,parse=rom|cdrom,
-    pad_logo=IMG_OR_C,header_logo=IMG_OR_C' argument. pad_logo/header_logo
-    are optional; each value is an image path or PATH:VAR into a .c file
-    (see resolve_logo). pad_logo_c/header_logo_c are accepted aliases."""
+    pad_logo=IMG_OR_C,header_logo=IMG_OR_C[,cheat_ext=ggcodes|pceplus|mcf|…]'
+    argument. pad_logo/header_logo are optional; each value is an image path
+    or PATH:VAR into a .c file (see resolve_logo). pad_logo_c/header_logo_c
+    are accepted aliases. cheat_ext empty/absent = no cheat support."""
     fields = {}
     for token in spec.split(","):
         if "=" not in token:
@@ -365,7 +369,7 @@ def parse_system_arg(spec):
         fields[key.strip()] = value.strip()
 
     unknown = set(fields) - {"name", "dirname", "ext", "parse", "pad_logo", "header_logo",
-                             "pad_logo_c", "header_logo_c"}
+                             "pad_logo_c", "header_logo_c", "cheat_ext"}
     if unknown:
         sys.exit(f"error: --system has unknown key(s) {sorted(unknown)} (spec: {spec!r})")
     for required in ("name", "dirname", "ext", "parse"):
@@ -378,7 +382,8 @@ def parse_system_arg(spec):
 
     pad = fields.get("pad_logo") or fields.get("pad_logo_c")
     header = fields.get("header_logo") or fields.get("header_logo_c")
-    return SystemSpec(fields["name"], fields["dirname"], fields["ext"], parse_type, pad, header)
+    return SystemSpec(fields["name"], fields["dirname"], fields["ext"], parse_type, pad, header,
+                      fields.get("cheat_ext", ""))
 
 
 def parse_segment_arg(spec):
@@ -482,7 +487,8 @@ def pack_system(spec, pad_logo_offset, pad_logo_size, header_logo_offset, header
         spec.parse_type,
         pad_logo_offset, pad_logo_size,
         header_logo_offset, header_logo_size,
-        b"\x00" * 16,
+        spec.cheat_ext.encode(),
+        b"\x00" * 8,
     )
 
 
@@ -515,7 +521,10 @@ def main():
     # v3 multi-system / multi-segment flags.
     ap.add_argument("--system", action="append", default=[],
                      help="repeatable: name=...,dirname=...,ext=...,parse=rom|cdrom"
-                          "[,pad_logo=IMG_OR_C][,header_logo=IMG_OR_C]")
+                          "[,pad_logo=IMG_OR_C][,header_logo=IMG_OR_C][,cheat_ext=ggcodes|pceplus|mcf]")
+    ap.add_argument("--cheat-ext", default="",
+                     help='cheat file extension under /cheats/ (no leading "."), '
+                          'e.g. "ggcodes" (single-system sugar for --system cheat_ext=)')
     ap.add_argument("--segment", action="append", default=[],
                      help="repeatable: region:start_symbol:code_end_symbol:bss_end_symbol:bin_file (segments 1..3; segment 0 is --elf/--bin)")
 
@@ -547,9 +556,10 @@ def main():
         sys.exit(f"error: --core-name too long (max {CORE_NAME_MAX} bytes): {core_name!r}")
 
     legacy_used = any([args.system_name, args.dirname, args.extensions,
-                       args.pad_logo, args.header_logo, args.pad_logo_c, args.header_logo_c])
+                       args.pad_logo, args.header_logo, args.pad_logo_c, args.header_logo_c,
+                       args.cheat_ext])
     if legacy_used and args.system:
-        sys.exit("error: --system-name/--dirname/--extensions/--pad-logo*/--header-logo* "
+        sys.exit("error: --system-name/--dirname/--extensions/--pad-logo*/--header-logo*/--cheat-ext "
                   "are mutually exclusive with --system")
 
     if args.system:
@@ -563,7 +573,8 @@ def main():
             sys.exit("error: use only one of --header-logo / --header-logo-c")
         systems = [SystemSpec(args.system_name, args.dirname, args.extensions, PARSE_NAME_TO_ID["rom"],
                                args.pad_logo or args.pad_logo_c,
-                               args.header_logo or args.header_logo_c)]
+                               args.header_logo or args.header_logo_c,
+                               args.cheat_ext)]
 
     if len(systems) > GNW_CORE_MAX_SYSTEMS:
         sys.exit(f"error: {len(systems)} systems given, max is {GNW_CORE_MAX_SYSTEMS}")

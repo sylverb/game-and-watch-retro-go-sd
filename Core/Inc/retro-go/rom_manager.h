@@ -22,6 +22,10 @@ struct rom_system_t {
      * emulator_start(). core_path is NULL/"" for compile-time tabs. */
     const char *core_path;
     uint32_t parse_type;
+#if CHEAT_CODES == 1
+    /* Aliased to retro_emulator_t.cheat_ext (may be empty). */
+    const char *cheat_ext;
+#endif
 };
 
 typedef struct {

@@ -89,6 +89,11 @@ typedef struct {
      * GNW_PARSE_CDROM (.cue-based folder scan, emulator_scan_cdrom_folder)
      * — see gnw_parse_type_t. Always GNW_PARSE_ROM for compile-time tabs. */
     uint32_t parse_type;
+
+#if CHEAT_CODES == 1
+    /* From gnw_core_system_t.cheat_ext; empty = no cheat files for this tab. */
+    char cheat_ext[8];
+#endif
 } retro_emulator_t;
 
 

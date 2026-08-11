@@ -25,8 +25,8 @@ That coupling is gone: a core is now
    either direction,
 3. packaged by `tools/pack_core.py` into a `CORE`-header `.bin` carrying its
    own metadata (`gnw_core_meta_t` — system name, ROM dirname/extensions,
-   ABI requirement, code/BSS size, semantic version `X.Y.Z`, inline
-   pad/header logo images),
+   optional cheat file extension, ABI requirement, code/BSS size, semantic
+   version `X.Y.Z`, inline pad/header logo images),
 4. discovered at boot by `emulators_scan_cores()` scanning `/cores/*.bin`
    (`Core/Src/retro-go/rg_emulators.c`) — no compile-time list of systems on
    the firmware side at all.
@@ -97,6 +97,17 @@ runtime via the ABI (`ahb_malloc`, `dtc_malloc`, `mem_ctl`).
    `cores/<name>.bin`) mirroring the `wsv` entries, list it as a
    `$(SD_CONTENT_STAMP)` prerequisite, add one `sdpush` line in `flash_sd`,
    and a `$(MAKE) -C cores/<name> clean` line in the top-level `clean`.
+
+Footer logos: put dark-on-light PNG/BMP under `cores/<name>/assets/` and
+pass `--pad-logo` / `--header-logo` (or `pad_logo=` / `header_logo=` inside
+`--system`). `pack_core.py` converts them the same way as
+`tools/png_to_logo.py` (Pillow required). Prefer this over `--pad-logo-c`
+extracts from `rg_logos.c` (core logos no longer live there).
+
+Cheat files: set `cheat_ext=` on `--system` (or `--cheat-ext` for the
+legacy single-system sugar) to the on-disk suffix under `/cheats/` —
+`ggcodes`, `pceplus`, or `mcf`. Leave empty if the core has no cheat
+support; the launcher then skips probing entirely.
 
 ## Extending the ABI (Phase 1-equivalent)
 

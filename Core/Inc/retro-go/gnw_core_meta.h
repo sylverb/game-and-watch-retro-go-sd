@@ -97,7 +97,12 @@ typedef struct {
     uint32_t header_logo_offset;
     uint32_t header_logo_size;
 
-    uint8_t reserved[16];
+    /* Cheat file extension under /cheats/<dirname>/ (no leading '.'),
+     * e.g. "ggcodes", "pceplus", "mcf". Empty string = this system does
+     * not support cheat files (launcher skips probing). Taken from the
+     * front of the former reserved[16] — still ABI-compatible. */
+    char cheat_ext[8];
+    uint8_t reserved[8];
 } gnw_core_system_t;
 
 typedef struct {

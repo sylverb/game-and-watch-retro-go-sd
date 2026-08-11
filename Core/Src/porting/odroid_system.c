@@ -169,39 +169,6 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             snprintf(out, out_size, "%s%s.state", ODROID_BASE_PATH_SAVES, fileName);
             break;
 
-        case ODROID_PATH_CHEAT_PCE:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.pceplus", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
-
-        case ODROID_PATH_CHEAT_GAME_GENIE:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.ggcodes", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
-
-        case ODROID_PATH_CHEAT_MCF:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.mcf", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
-
         case ODROID_PATH_SYSTEM_CONFIG:
         {
             char systemPath[RG_PATH_MAX];
@@ -236,6 +203,38 @@ char* odroid_system_get_path(emu_path_type_t type, const char *_romPath)
 void odroid_system_get_path_to_buf(emu_path_type_t type, const char *_romPath, char *buf, int buf_size)
 {
     odroid_system_get_path_buf(type, _romPath, buf, buf_size);
+}
+
+void odroid_system_get_cheat_path_to_buf(const char *_romPath, const char *cheat_ext,
+                                         char *buf, int buf_size)
+{
+    const char *fileName = _romPath ?: currentApp.romPath;
+
+    if (strstr(fileName, ODROID_BASE_PATH_ROMS))
+    {
+        fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
+        fileName += strlen(ODROID_BASE_PATH_ROMS);
+    }
+
+    if (!fileName || strlen(fileName) < 4 || !cheat_ext || !cheat_ext[0])
+    {
+        if (buf_size > 0)
+            buf[0] = '\0';
+        return;
+    }
+
+    char shortFileName[200];
+    strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
+    shortFileName[sizeof(shortFileName) - 1] = '\0';
+    char *dot = strrchr(shortFileName, '.');
+    if (dot)
+        *dot = '\0';
+
+    /* Accept either "ggcodes" or ".ggcodes" from callers. */
+    if (cheat_ext[0] == '.')
+        cheat_ext++;
+
+    snprintf(buf, buf_size, "%s%s.%s", ODROID_BASE_PATH_CHEATS, shortFileName, cheat_ext);
 }
 
 bool odroid_system_emu_screenshot(const char *filename)

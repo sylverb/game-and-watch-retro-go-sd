@@ -398,7 +398,8 @@ const rom_system_t *rg_emulators_system_for_dir(const char *dirname, size_t len)
  * add_emulator_dynamic()). */
 static void add_emulator_ex(const char *system, const char *dirname, const char* ext,
                             int16_t logo_idx, int16_t header_idx,
-                            uint32_t parse_type, const char *core_path)
+                            uint32_t parse_type, const char *core_path,
+                            const char *cheat_ext)
 {
     assert(emulators != NULL && emulators_count < emulators_capacity);
     retro_emulator_t *p = &emulators[emulators_count];
@@ -423,6 +424,18 @@ static void add_emulator_ex(const char *system, const char *dirname, const char*
     if (core_path)
         strncpy(p->core_path, core_path, sizeof(p->core_path) - 1);
 
+#if CHEAT_CODES == 1
+    p->cheat_ext[0] = '\0';
+    if (cheat_ext && cheat_ext[0]) {
+        if (cheat_ext[0] == '.')
+            cheat_ext++;
+        strncpy(p->cheat_ext, cheat_ext, sizeof(p->cheat_ext) - 1);
+        p->cheat_ext[sizeof(p->cheat_ext) - 1] = '\0';
+    }
+#else
+    (void)cheat_ext;
+#endif
+
     /* Alias the copies just made above (p->system_name, not the caller's
      * `system`) so these pointers stay valid even when the caller's own
      * string is transient (e.g. a stack-local gnw_core_meta_t while
@@ -433,6 +446,9 @@ static void add_emulator_ex(const char *system, const char *dirname, const char*
     s->system_name = p->system_name;
     s->core_path = p->core_path[0] ? p->core_path : NULL;
     s->parse_type = parse_type;
+#if CHEAT_CODES == 1
+    s->cheat_ext = p->cheat_ext;
+#endif
 
     gui_add_tab(dirname, logo_idx, header_idx, p, event_handler);
 }
@@ -441,7 +457,7 @@ static void add_emulator(const char *system, const char *dirname, const char* ex
                          uint16_t logo_idx, uint16_t header_idx)
 {
     add_emulator_ex(system, dirname, ext, (int16_t)logo_idx, (int16_t)header_idx,
-                    GNW_PARSE_ROM, NULL);
+                    GNW_PARSE_ROM, NULL, NULL);
 }
 
 static void remove_extension(const char *path, char *new_path) {
@@ -1022,17 +1038,29 @@ void emulator_update_cheats_info(retro_emulator_file_t *file) {
         return;
     }
 
-    // Check for pceplus cheat file (PC Engine)
-    char *cheat_path = odroid_system_get_path(ODROID_PATH_CHEAT_PCE, file->path);
-    if (odroid_sdcard_get_filesize(cheat_path) > 0) {
-        printf("Retro-Go: Found cheat file %s\n", cheat_path);
-        file->cheat_codes = calloc(MAX_CHEAT_CODES, sizeof(char *));
-        file->cheat_descs = calloc(MAX_CHEAT_CODES, sizeof(char *));
-        FILE *cheat_file = fopen(cheat_path, "r");
-        if (!cheat_file) {
-            printf("Retro-Go: Failed to open cheat file %s\n", cheat_path);
-            return;
-        }
+    const char *cheat_ext = (file->system && file->system->cheat_ext)
+                          ? file->system->cheat_ext : NULL;
+    if (!cheat_ext || !cheat_ext[0]) {
+        return;
+    }
+
+    char cheat_path[256];
+    odroid_system_get_cheat_path_to_buf(file->path, cheat_ext, cheat_path, sizeof(cheat_path));
+    if (cheat_path[0] == '\0' || odroid_sdcard_get_filesize(cheat_path) <= 0) {
+        return;
+    }
+
+    printf("Retro-Go: Found cheat file %s\n", cheat_path);
+    file->cheat_codes = calloc(MAX_CHEAT_CODES, sizeof(char *));
+    file->cheat_descs = calloc(MAX_CHEAT_CODES, sizeof(char *));
+    FILE *cheat_file = fopen(cheat_path, "r");
+    if (!cheat_file) {
+        printf("Retro-Go: Failed to open cheat file %s\n", cheat_path);
+        return;
+    }
+
+    /* Extension selects the parser (same names as the on-disk suffix). */
+    if (strcasecmp(cheat_ext, "pceplus") == 0) {
         char line[256];
         while (fgets(line, sizeof(line), cheat_file)) {
             char *trimmed_line = strtok(line, "\n");
@@ -1053,7 +1081,6 @@ void emulator_update_cheats_info(retro_emulator_file_t *file) {
                 continue;
             }
 
-            int cmd_count = 0;
             file->cheat_codes[file->cheat_count] = malloc((size_t)(1 + 4 * (part_count-1)));
             char *codes_ptr = (char *)file->cheat_codes[file->cheat_count];
             *(codes_ptr++)=part_count - 1;
@@ -1065,7 +1092,6 @@ void emulator_update_cheats_info(retro_emulator_file_t *file) {
                 *(codes_ptr++)=(x>>16)&0xFF;
                 *(codes_ptr++)=(x>>8)&0xFF;
                 *(codes_ptr++)=x&0xFF;
-                cmd_count++;
             }
 
             char *desc = parts[part_count - 1];
@@ -1082,23 +1108,7 @@ void emulator_update_cheats_info(retro_emulator_file_t *file) {
                 break;
             }
         }
-        fclose(cheat_file);
-    }
-    free(cheat_path);
-    if (file->cheat_count)
-        return;
-
-    // Check for ggcodes cheat file (GB/GBC/NES)
-    cheat_path = odroid_system_get_path(ODROID_PATH_CHEAT_GAME_GENIE, file->path);
-    if (odroid_sdcard_get_filesize(cheat_path) > 0) {
-        printf("Retro-Go: Found cheat file %s\n", cheat_path);
-        file->cheat_codes = calloc(MAX_CHEAT_CODES, sizeof(char *));
-        file->cheat_descs = calloc(MAX_CHEAT_CODES, sizeof(char *));
-        FILE *cheat_file = fopen(cheat_path, "r");
-        if (!cheat_file) {
-            printf("Retro-Go: Failed to open cheat file %s\n", cheat_path);
-            return;
-        }
+    } else if (strcasecmp(cheat_ext, "ggcodes") == 0) {
         char line[256];
         while (fgets(line, sizeof(line), cheat_file)) {
             char *trimmed_line = strtok(line, "\n");
@@ -1114,16 +1124,15 @@ void emulator_update_cheats_info(retro_emulator_file_t *file) {
                 parts[part_count++] = token;
                 token = strtok(NULL, ",");
             }
-            printf("Retro-Go: Part count: %d\n", part_count);
-            for (int i = 0; i < part_count; i++) {
-                printf("Retro-Go: Part %d: %s\n", i, parts[i]);
+            if (part_count < 1) {
+                continue;
             }
 
             file->cheat_codes[file->cheat_count] = strdup(parts[0]);
 
             char *desc = parts[part_count - 1];
             if (desc) {
-                while (*desc == ' ') desc++; // Remove leading spaces
+                while (*desc == ' ') desc++;
                 desc = strndup(desc, 40);
             }
 
@@ -1135,25 +1144,7 @@ void emulator_update_cheats_info(retro_emulator_file_t *file) {
                 break;
             }
         }
-        fclose(cheat_file);
-    }
-    free(cheat_path);
-    if (file->cheat_count)
-        return;
-
-    // Check for mfc cheat file (MSX)
-    cheat_path = odroid_system_get_path(ODROID_PATH_CHEAT_MCF, file->path);
-    if (odroid_sdcard_get_filesize(cheat_path) > 0) {
-        printf("Retro-Go: Found cheat file %s\n", cheat_path);
-        file->cheat_codes = calloc(MAX_CHEAT_CODES, sizeof(char *));
-        file->cheat_descs = calloc(MAX_CHEAT_CODES, sizeof(char *));
-
-        FILE *cheat_file = fopen(cheat_path, "r");
-        if (!cheat_file) {
-            printf("Retro-Go: Failed to open cheat file %s\n", cheat_path);
-            return;
-        }
-
+    } else if (strcasecmp(cheat_ext, "mcf") == 0) {
         char line[256];
         while (fgets(line, sizeof(line), cheat_file)) {
             if (line[0] == '!') continue;
@@ -1161,8 +1152,6 @@ void emulator_update_cheats_info(retro_emulator_file_t *file) {
             if (!last_comma) continue;
             *last_comma = '\0';
 
-            printf("MFC: cheat: %s\n", line);
-            printf("MFC: desc: %s\n", last_comma + 1);
             if (file->cheat_count < MAX_CHEAT_CODES) {
                 file->cheat_codes[file->cheat_count] = strdup(line);
                 file->cheat_descs[file->cheat_count] = strdup(last_comma + 1);
@@ -1172,8 +1161,12 @@ void emulator_update_cheats_info(retro_emulator_file_t *file) {
                 break;
             }
         }
+    } else {
+        printf("Retro-Go: Unknown cheat extension '%s' (skipping %s)\n",
+               cheat_ext, cheat_path);
     }
-    free(cheat_path);
+
+    fclose(cheat_file);
 }
 #endif
 
@@ -1593,7 +1586,7 @@ static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_p
             header_idx = rg_register_dynamic_logo_blob(core_path, sys->header_logo_offset, sys->header_logo_size);
 
         add_emulator_ex(sys->system_name, sys->dirname, sys->extensions, pad_idx, header_idx,
-                        sys->parse_type, core_path);
+                        sys->parse_type, core_path, sys->cheat_ext);
 
         printf("CORE: registered '%s' (%s) from %s, parse_type=%lu\n",
               sys->system_name, sys->dirname, core_path, (unsigned long)sys->parse_type);
