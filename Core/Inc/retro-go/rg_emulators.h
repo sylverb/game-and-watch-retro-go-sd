@@ -98,6 +98,8 @@ typedef struct {
 
 
 void emulators_init();
+/* After launcher wake: reboot if /cores set changed; else refresh ROM list. */
+void emulators_resync_after_wake(void);
 void rg_emulators_restore_main_menu_browse_path(void);
 void emulator_init(retro_emulator_t *emu);
 void emulator_refresh_list(retro_emulator_t *emu);

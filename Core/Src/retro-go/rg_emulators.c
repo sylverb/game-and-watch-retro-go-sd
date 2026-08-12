@@ -27,6 +27,7 @@
 #include "heap.hpp"
 #include "gw_flash.h"
 #include "gw_flash_alloc.h"
+#include "crc32.h"
 #if SD_CARD == 0
 #include "rg_frogfs.h"
 #else
@@ -75,10 +76,10 @@ static retro_emulator_file_t *shared_files = NULL;
 #if !defined(COVERFLOW)
 #define COVERFLOW 0
 #endif /* COVERFLOW */
-/* Builtin launcher systems that are not discovered from /cores/*.bin
- * (Homebrew + Favorites). Capacity for emulators[]/systems[] is sized at boot
- * as BUILTIN_SYSTEM_EMULATORS + systems described by probeable CORE bins. */
-#define BUILTIN_SYSTEM_EMULATORS 2
+/* Builtin launcher systems in emulators[] (Homebrew only — Favorites is a
+ * separate tab). Capacity is sized at boot as BUILTIN + systems from CORE
+ * bins; if /cores changes while asleep, wake reboots for a clean re-init. */
+#define BUILTIN_SYSTEM_EMULATORS 1
 static retro_emulator_t *emulators;
 static rom_system_t *systems;
 static int emulators_count = 0;
@@ -1608,19 +1609,24 @@ static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_p
     }
 }
 
-/* Scans /cores/*.bin (FatFs) and registers one tab per system in each
- * probe-able core. Files that aren't a "CORE"/GNW_CORE_META_VERSION
- * container are silently skipped. */
-static int count_core_systems(void)
+/* Order-independent fingerprint of probeable /cores/*.bin (path + systems
+ * count). Catches add/remove/replace even when the system-tab count is
+ * unchanged (e.g. delete one core and add another). */
+static uint32_t cores_set_fingerprint(int *out_systems)
 {
     DIR dir;
     FILINFO fno;
     gnw_core_meta_t meta;
     char path[128];
+    uint32_t fp = 0;
     int total = 0;
+    int files = 0;
 
-    if (f_opendir(&dir, "/cores") != FR_OK)
+    if (f_opendir(&dir, "/cores") != FR_OK) {
+        if (out_systems)
+            *out_systems = 0;
         return 0;
+    }
 
     while (f_readdir(&dir, &fno) == FR_OK && fno.fname[0] != 0) {
         if (fno.fattrib & AM_DIR)
@@ -1630,12 +1636,21 @@ static int count_core_systems(void)
             continue;
 
         snprintf(path, sizeof(path), "/cores/%s", fno.fname);
-        if (gnw_core_probe(path, &meta, NULL))
-            total += (int)meta.systems_count;
+        if (!gnw_core_probe(path, &meta, NULL))
+            continue;
+
+        uint32_t h = crc32_le(0, (const unsigned char *)path, (unsigned int)strlen(path));
+        h = crc32_le(h, (const unsigned char *)&meta.systems_count, sizeof(meta.systems_count));
+        fp ^= h;
+        total += (int)meta.systems_count;
+        files++;
     }
 
     f_closedir(&dir);
-    return total;
+    fp = crc32_le(fp, (const unsigned char *)&files, sizeof(files));
+    if (out_systems)
+        *out_systems = total;
+    return fp;
 }
 
 static void emulators_scan_cores(void)
@@ -1985,14 +2000,21 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
 #endif
 }
 
+#if SD_CARD == 1
+/* Fingerprint of /cores from the last clean emulators_init(). Wake compares
+ * a fresh cores_set_fingerprint(); mismatch → reboot. */
+static uint32_t cores_set_fp_at_boot;
+#endif
+
 void emulators_init()
 {
     int from_cores = 0;
 #if SD_CARD == 1
-    from_cores = count_core_systems();
+    cores_set_fp_at_boot = cores_set_fingerprint(&from_cores);
 #endif
     /* Exact fit: builtins + every system described by CORE headers on the
-     * SD card. AHB is a bump allocator (no realloc), so size once up front. */
+     * SD card. AHB/DTC are bump allocators (no realloc). If /cores changes
+     * while asleep, emulators_resync_after_wake() reboots for a clean init. */
     emulators_capacity = BUILTIN_SYSTEM_EMULATORS + from_cores;
     if (emulators_capacity < BUILTIN_SYSTEM_EMULATORS)
         emulators_capacity = BUILTIN_SYSTEM_EMULATORS;
@@ -2031,11 +2053,33 @@ void emulators_init()
     /* Migrated systems (Watara Supervision, ...) register themselves here
      * by dropping a packaged .bin under /cores/ on the SD card — no
      * firmware rebuild needed to add/update/remove one. Capacity was
-     * sized from count_core_systems() above so new cores are not dropped. */
+     * sized from cores_set_fingerprint() above so new cores are not dropped. */
     emulators_scan_cores();
     printf("CORE: %d system tab(s) (%d from /cores, capacity %d)\n",
            emulators_count, from_cores, emulators_capacity);
 #endif
+}
+
+void emulators_resync_after_wake(void)
+{
+#if SD_CARD == 1
+    uint32_t now_fp = cores_set_fingerprint(NULL);
+    if (now_fp != cores_set_fp_at_boot) {
+        printf("CORE: /cores set changed (fp 0x%08lx → 0x%08lx), rebooting\n",
+               (unsigned long)cores_set_fp_at_boot, (unsigned long)now_fp);
+        HAL_NVIC_SystemReset();
+    }
+#endif
+
+    tab_t *tab = gui_get_current_tab();
+    if (tab == NULL)
+        return;
+
+    /* Invalid browse subfolder → reset + refresh inside validate.
+     * Otherwise always refresh so ROMs / homebrews added while the SD was
+     * out appear without changing tabs. */
+    if (!rg_emulator_validate_browse_path_for_tab(tab))
+        gui_refresh_tab(tab);
 }
 
 static bool browse_subpath_is_safe(const char *s)

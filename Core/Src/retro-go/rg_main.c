@@ -825,8 +825,7 @@ void retro_loop()
                 }
                 else {
                     odroid_system_sleep_ex(SLEEP_ENTER_SLEEP_WITH_ANIMATION, NULL);
-                    if (!rg_emulator_validate_browse_path_for_tab(tab))
-                        gui_refresh_tab(tab);
+                    emulators_resync_after_wake();
                     power_key_pressed = true;
                 }
             }
@@ -849,8 +848,7 @@ void retro_loop()
         {
             printf("Idle timeout expired\n");
             odroid_system_sleep();
-            if (!rg_emulator_validate_browse_path_for_tab(tab))
-                gui_refresh_tab(tab);
+            emulators_resync_after_wake();
         }
 
         gui_redraw();
