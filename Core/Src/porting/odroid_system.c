@@ -44,6 +44,11 @@ void odroid_system_init(int appId, int sampleRate)
     currentApp.id = appId;
     currentApp.romPath = ACTIVE_FILE->path;
 
+    /* appId is only used to distinguish launcher (0) vs emulator (!=0).
+     * Per-core settings live in /data/<stem>.cfg, not APPID slots. */
+    if (appId == APPID_LAUNCHER)
+        odroid_settings_unbind_core_cfg();
+
     odroid_settings_init();
     odroid_audio_init(sampleRate);
     odroid_display_init();
@@ -84,11 +89,21 @@ rg_app_desc_t *odroid_system_get_app()
 static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPath, char *out, int out_size)
 {
     const char *fileName = _romPath ?: currentApp.romPath;
+    char homebrew_rel[200];
 
     if (strstr(fileName, ODROID_BASE_PATH_ROMS))
     {
         fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
         fileName += strlen(ODROID_BASE_PATH_ROMS);
+    }
+    else if (strstr(fileName, ODROID_BASE_PATH_HOMEBREWS))
+    {
+        /* /homebrews/Foo.bin → relative "/homebrew/Foo.bin" so covers stay
+         * under /covers/homebrew/ and saves under /data/homebrew/. */
+        const char *base = strrchr(fileName, '/');
+        base = base ? base + 1 : fileName;
+        snprintf(homebrew_rel, sizeof(homebrew_rel), "/homebrew/%s", base);
+        fileName = homebrew_rel;
     }
 
     if (!fileName || strlen(fileName) < 4)
@@ -146,7 +161,10 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             break;
 
         case ODROID_PATH_ROM_FILE:
-            snprintf(out, out_size, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
+            if (strncmp(fileName, "/homebrew/", 10) == 0)
+                snprintf(out, out_size, "%s/%s", ODROID_BASE_PATH_HOMEBREWS, fileName + 10);
+            else
+                snprintf(out, out_size, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
             break;
 
         case ODROID_PATH_CRC_CACHE:
@@ -209,11 +227,19 @@ void odroid_system_get_cheat_path_to_buf(const char *_romPath, const char *cheat
                                          char *buf, int buf_size)
 {
     const char *fileName = _romPath ?: currentApp.romPath;
+    char homebrew_rel[200];
 
     if (strstr(fileName, ODROID_BASE_PATH_ROMS))
     {
         fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
         fileName += strlen(ODROID_BASE_PATH_ROMS);
+    }
+    else if (strstr(fileName, ODROID_BASE_PATH_HOMEBREWS))
+    {
+        const char *base = strrchr(fileName, '/');
+        base = base ? base + 1 : fileName;
+        snprintf(homebrew_rel, sizeof(homebrew_rel), "/homebrew/%s", base);
+        fileName = homebrew_rel;
     }
 
     if (!fileName || strlen(fileName) < 4 || !cheat_ext || !cheat_ext[0])

@@ -109,6 +109,25 @@ legacy single-system sugar) to the on-disk suffix under `/cheats/` —
 `ggcodes`, `pceplus`, or `mcf`. Leave empty if the core has no cheat
 support; the launcher then skips probing entirely.
 
+## Per-core settings (`.cfg`)
+
+Emulator display/region options are **not** stored in the global `/CONFIG`
+blob (that only holds launcher-wide settings). On launch the firmware binds:
+
+| Binary | Settings file |
+|--------|----------------|
+| `/cores/<stem>.bin` | `/data/<stem>.cfg` |
+| Multi-tab core (same `.bin`) | one shared `/data/<stem>.cfg` |
+| `/homebrews/<stem>.bin` | `/data/homebrew/<stem>.cfg` |
+
+Format: magic `RGCF`, version 1, `app_config_t` (palette/scaling/filter/…),
+crc32. Cores keep using `odroid_settings_*` / `app_int32_*` — the bind in
+`emulator_start()` routes them into the active `.cfg`.
+
+Homebrew payloads and Zelda3/SMW assets live under **`/homebrews/`** (not
+`/roms/homebrew/`). Covers remain `/covers/homebrew/<stem>.img`. Project
+build trees still use `roms/homebrew/` for restool US ROM inputs.
+
 ## Extending the ABI (Phase 1-equivalent)
 
 Follow the checklist already documented in `docs/PICO8_EXTERNAL_MODULE.md`

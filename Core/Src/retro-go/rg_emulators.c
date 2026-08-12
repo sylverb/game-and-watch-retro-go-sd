@@ -131,6 +131,15 @@ bool rg_rom_list_arg_is_parent(const void *arg)
 
 static void emulator_browse_folder_path(const retro_emulator_t *emu, char *folder, size_t folder_size)
 {
+    /* Homebrew lives at SD root /homebrews (not under /roms/). dirname stays
+     * "homebrew" so covers remain /covers/homebrew/<stem>.img. */
+    if (emu->dirname[0] && strcmp(emu->dirname, "homebrew") == 0) {
+        if (emu->browse_subpath[0])
+            snprintf(folder, folder_size, "%s/%s", RG_BASE_PATH_HOMEBREWS, emu->browse_subpath);
+        else
+            snprintf(folder, folder_size, "%s", RG_BASE_PATH_HOMEBREWS);
+        return;
+    }
     if (emu->browse_subpath[0])
         snprintf(folder, folder_size, "%s/%s/%s", RG_BASE_PATH_ROMS, emu->dirname, emu->browse_subpath);
     else
@@ -772,7 +781,10 @@ void emulator_init(retro_emulator_t *emu)
     sprintf(folder, ODROID_BASE_PATH_SAVES "/%s", emu->dirname);
     rg_storage_mkdir(folder);
 
-    sprintf(folder, ODROID_BASE_PATH_ROMS "/%s", emu->dirname);
+    if (emu->dirname[0] && strcmp(emu->dirname, "homebrew") == 0)
+        snprintf(folder, sizeof(folder), "%s", ODROID_BASE_PATH_HOMEBREWS);
+    else
+        sprintf(folder, ODROID_BASE_PATH_ROMS "/%s", emu->dirname);
     rg_storage_mkdir(folder);
 
     emulator_browse_folder_path(emu, folder, sizeof(folder));
@@ -788,7 +800,10 @@ void emulator_refresh_list(retro_emulator_t *emu)
 {
     char folder[RG_PATH_MAX];
 
-    sprintf(folder, ODROID_BASE_PATH_ROMS "/%s", emu->dirname);
+    if (emu->dirname[0] && strcmp(emu->dirname, "homebrew") == 0)
+        snprintf(folder, sizeof(folder), "%s", ODROID_BASE_PATH_HOMEBREWS);
+    else
+        sprintf(folder, ODROID_BASE_PATH_ROMS "/%s", emu->dirname);
     rg_storage_mkdir(folder);
 
     emulator_browse_folder_path(emu, folder, sizeof(folder));
@@ -1290,7 +1305,7 @@ extern LTDC_HandleTypeDef hltdc;
  *
  * Lets an out-of-tree homebrew binary run without any firmware-side
  * dispatch-table entry or linker overlay symbols: drop a .bin under
- * /roms/homebrew/ and it runs, as long as it starts with a GWHB container
+ * /homebrews/ and it runs, as long as it starts with a GWHB container
  * (see gwhb.h).
  *
  * v1 meta: firmware loads only the code payload into RAM_EMU, zeroes BSS,
@@ -1306,7 +1321,7 @@ static void show_homebrew_error_screen(const char *reason)
 {
   /* Distinct from show_corrupted_installation_screen(): that one tells the
    * user to reinstall the whole firmware, which is the wrong advice when
-   * only a /roms/homebrew/*.bin failed to load. */
+   * only a /homebrews/*.bin failed to load. */
   odroid_dialog_choice_t choices[] = {
     {0, reason ? reason : "Homebrew load failed", "", -1, NULL},
     ODROID_DIALOG_CHOICE_SEPARATOR,
@@ -1881,6 +1896,32 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     }
     const char *dyn_core_path = dyn_core_path_buf[0] ? dyn_core_path_buf : NULL;
 
+    /* Per-core / per-homebrew settings: /data/<stem>.cfg before AHB wipe. */
+    {
+        char stem[64];
+        stem[0] = '\0';
+        if (dyn_core_path) {
+            const char *base = strrchr(dyn_core_path, '/');
+            base = base ? base + 1 : dyn_core_path;
+            strncpy(stem, base, sizeof(stem) - 1);
+            stem[sizeof(stem) - 1] = '\0';
+            char *dot = strrchr(stem, '.');
+            if (dot)
+                *dot = '\0';
+            odroid_settings_bind_core_cfg(stem);
+        } else if (strcmp(system_name, "Homebrew") == 0
+                   || strstr(newfile->path, "/homebrews/") != NULL) {
+            const char *base = strrchr(newfile->path, '/');
+            base = base ? base + 1 : newfile->path;
+            strncpy(stem, base, sizeof(stem) - 1);
+            stem[sizeof(stem) - 1] = '\0';
+            char *dot = strrchr(stem, '.');
+            if (dot)
+                *dot = '\0';
+            odroid_settings_bind_homebrew_cfg(stem);
+        }
+    }
+
     ACTIVE_FILE = newfile;
 #if CHEAT_CODES == 1
     CHOSEN_FILE = newfile;
@@ -1914,9 +1955,12 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     if (dyn_core_path) {
       run_dynamic_core(dyn_core_path, load_state, start_paused, save_slot);
     } else if (strcmp(system_name, "Homebrew") == 0
-               || strstr(ACTIVE_FILE->path, "/homebrew/") != NULL) {
+               || strstr(ACTIVE_FILE->path, "/homebrews/") != NULL) {
       run_gwhb_homebrew(ACTIVE_FILE->path, load_state, start_paused, save_slot);
     }
+
+    odroid_settings_unbind_core_cfg();
+    odroid_settings_commit();
 
 #if CHEAT_CODES == 1
     for (int i = 0; i < newfile->cheat_count; i++) {
@@ -2027,10 +2071,7 @@ void rg_emulators_restore_main_menu_browse_path(void)
     emu->browse_subpath[sizeof(emu->browse_subpath) - 1] = '\0';
 
     char folder[RG_PATH_MAX];
-    if (emu->browse_subpath[0])
-        snprintf(folder, sizeof(folder), "%s/%s/%s", RG_BASE_PATH_ROMS, emu->dirname, emu->browse_subpath);
-    else
-        snprintf(folder, sizeof(folder), "%s/%s", RG_BASE_PATH_ROMS, emu->dirname);
+    emulator_browse_folder_path(emu, folder, sizeof(folder));
 
     rg_stat_t st = rg_storage_stat(folder);
     if (!st.exists || !st.is_dir)
@@ -2055,7 +2096,10 @@ retro_emulator_file_t *emulator_get_file(char *file_path)
 {
     for (int i = 0; i < emulators_count; i++) {
         char prefix[RG_PATH_MAX + 24];
-        snprintf(prefix, sizeof(prefix), "%s/%s/", RG_BASE_PATH_ROMS, emulators[i].dirname);
+        if (emulators[i].dirname[0] && strcmp(emulators[i].dirname, "homebrew") == 0)
+            snprintf(prefix, sizeof(prefix), "%s/", RG_BASE_PATH_HOMEBREWS);
+        else
+            snprintf(prefix, sizeof(prefix), "%s/%s/", RG_BASE_PATH_ROMS, emulators[i].dirname);
         size_t plen = strlen(prefix);
         if (strncmp(file_path, prefix, plen) != 0)
             continue;

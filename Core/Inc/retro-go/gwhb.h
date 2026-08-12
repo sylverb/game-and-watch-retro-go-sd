@@ -1,8 +1,8 @@
 /*
  * Universal Homebrew Header (GWHB)
  *
- * Homebrew binaries live under /roms/homebrew/*.bin (one launcher tab, no
- * per-system dirname/extensions). The on-disk container is versioned like
+ * Homebrew binaries live under /homebrews/*.bin (one launcher tab; covers
+ * stay under /covers/homebrew/). The on-disk container is versioned like
  * CORE, but the meta is much smaller: identity + RAM_EMU load sizes + an
  * optional embedded JPEG cover for coverflow.
  *

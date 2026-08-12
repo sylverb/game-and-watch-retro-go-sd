@@ -1420,7 +1420,7 @@ MAPPERS_DIR := $(CORES_DIR)/nes_fceumm_mappers
 # there for LittleFS prune (--nes-mapper-bins-dir).
 MAPPERS_BUILD_DIR := cores/nes_fceumm_mappers
 MAPPERS_PACK := $(MAPPERS_DIR)/mappers.pak
-HOMEBREWS_FOLDER := $(SD_FOLDER)/roms/homebrew
+HOMEBREWS_FOLDER := $(SD_FOLDER)/homebrews
 RELEASE_FOLDER := release
 
 # | $(BUILD_DIR): order-only so parallel (-j) mkdir side-effects cannot
@@ -1429,6 +1429,7 @@ RELEASE_FOLDER := release
 create_sd_folders: | $(BUILD_DIR)
 	$(V)mkdir -p $(SD_FOLDER)
 	$(V)mkdir -p $(SD_FOLDER)/bios
+	$(V)mkdir -p $(HOMEBREWS_FOLDER)
 	$(V)mkdir -p $(FONTS_DIR)
 	$(V)mkdir -p $(LANG_DIR)
 	$(V)mkdir -p $(RELEASE_FOLDER)

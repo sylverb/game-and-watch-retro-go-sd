@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Package a standalone homebrew build into the GWHB-header .bin format
-loaded from /roms/homebrew/ (see Core/Inc/retro-go/gwhb.h and
+loaded from /homebrews/ (see Core/Inc/retro-go/gwhb.h and
 run_gwhb_homebrew() in Core/Src/retro-go/rg_emulators.c).
 
 File layout (little-endian):
