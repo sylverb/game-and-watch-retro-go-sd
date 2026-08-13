@@ -93,7 +93,10 @@
 
 /************************* Miscellaneous Configuration ************************/
 /*!< Uncomment the following line if you need to use initialized data in D2 domain SRAM (AHB SRAM) */
-/* #define DATA_IN_D2_SRAM */
+/* Required: the link scripts place .persistent/.data/.bss and the newlib heap
+   in AHB SRAM (0x30000000). Without this, RCC->AHB2ENR stays 0 and crt0's
+   .data copy bus-faults before main -- invisible under gwemu, dead on silicon. */
+#define DATA_IN_D2_SRAM
 
 /*!< Uncomment the following line if you need to relocate your vector Table in
      Internal SRAM. */
