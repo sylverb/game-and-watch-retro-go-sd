@@ -81,9 +81,6 @@ f_opendir core_f_opendir
 f_closedir core_f_closedir
 f_readdir core_f_readdir
 # --- G&W hardware: LCD ---
-# get/clear/clear_buffers/sync/clone map to core_* wrappers over
-# lcd_buffer / lcd_copy_fb. lcd_sleep_while_swap_pending is composed in
-# the bridge from lcd_is_swap_pending + WFI (no ABI slot).
 lcd_swap core_lcd_swap
 lcd_get_active_buffer core_lcd_get_active_buffer
 lcd_get_inactive_buffer core_lcd_get_inactive_buffer
@@ -110,6 +107,7 @@ ram_calloc core_ram_calloc
 ram_get_free_size core_ram_get_free_size
 dtc_malloc core_dtc_malloc
 dtc_calloc core_dtc_calloc
+dtc_init core_dtc_init
 # --- G&W hardware: RTC ---
 # NOTE: per-field RTC getters and GW_GetUnixTM/mktime were dropped from
 # the firmware table. Cores read "now" via time()+localtime() only.
@@ -125,7 +123,8 @@ odroid_system_init core_odroid_system_init
 odroid_system_emu_init core_odroid_system_emu_init
 odroid_system_emu_load_state core_odroid_system_emu_load_state
 odroid_system_get_app core_odroid_system_get_app
-dma2d_ctl core_dma2d_ctl
+dma2d_m2m_rgb565_start core_dma2d_m2m_rgb565_start
+dma2d_poll core_dma2d_poll
 odroid_audio_mute core_odroid_audio_mute
 # --- retro-go: input / display ---
 odroid_input_read_gamepad core_odroid_input_read_gamepad
@@ -172,8 +171,7 @@ odroid_settings_ActiveGameGenieCodes_is_enabled core_odroid_settings_ActiveGameG
 # NOTE: strtok is intentionally NOT here — gw_core_bridge.c defines a real
 # local implementation (static per-core state), same reasoning as
 # memcpy/memset/memmove above. NOTE: GW_GetUnixTM/mktime were dropped —
-# use time()+localtime() (see "time core_time" above). lcd_clone is in
-# the LCD block above (wrapper over lcd_copy_fb).
+# use time()+localtime() (see "time core_time" above).
 odroid_settings_Palette_get core_odroid_settings_Palette_get
 odroid_settings_Palette_set core_odroid_settings_Palette_set
 # --- Lynx (handy-go): fputs via fwrite/strlen; calloc via mem_ctl(DTCM) ---
@@ -206,8 +204,6 @@ rg_storage_get_adjacent_files core_rg_storage_get_adjacent_files
 rg_basename core_rg_basename
 audio_stop_playing core_audio_stop_playing
 # --- LCD-Game-Emulator (Game & Watch) ---
-# JPEG_Decode* stay mapped to core_* wrappers that call jpeg_ctl on the
-# ABI (4 historical names, 1 ABI slot — see gw_core_bridge.c).
 GW_SetUnixTM core_GW_SetUnixTM
 lcd_is_swap_pending core_lcd_is_swap_pending
 JPEG_DecodeToFrameInit core_JPEG_DecodeToFrameInit
@@ -227,3 +223,32 @@ lcd_backlight_set core_lcd_backlight_set
 draw_error_screen core_draw_error_screen
 # --- Battery (BQ24072 via odroid_input) ---
 odroid_input_read_battery core_odroid_input_read_battery
+# --- Music / media homebrew (PCM ISR + UI chrome) ---
+pcm_attach core_pcm_attach
+pcm_audio_enable core_pcm_audio_enable
+pcm_audio_set core_pcm_audio_set
+pcm_audio_setpos core_pcm_audio_setpos
+pcm_audio_pos core_pcm_audio_pos
+odroid_audio_volume_set core_odroid_audio_volume_set
+lcd_backlight_get core_lcd_backlight_get
+lcd_backlight_on core_lcd_backlight_on
+lcd_backlight_off core_lcd_backlight_off
+i18n_get_text_width core_i18n_get_text_width
+i18n_draw_text_line core_i18n_draw_text_line
+odroid_overlay_dialog core_odroid_overlay_dialog
+odroid_overlay_draw_logo core_odroid_overlay_draw_logo
+odroid_overlay_draw_battery core_odroid_overlay_draw_battery
+odroid_overlay_clock core_odroid_overlay_clock
+sd_io_set_poll core_sd_io_set_poll
+odroid_display_get_backlight core_odroid_display_get_backlight
+odroid_display_set_backlight core_odroid_display_set_backlight
+cosf core_cosf
+sqrtf core_sqrtf
+log10 core_log10
+rg_storage_scandir core_rg_storage_scandir
+rg_storage_delete core_rg_storage_delete
+get_darken_pixel_d core_get_darken_pixel_d
+i18n_get_text_height core_i18n_get_text_height
+odroid_overlay_get_font_size core_odroid_overlay_get_font_size
+odroid_overlay_get_font_width core_odroid_overlay_get_font_width
+odroid_overlay_draw_fill_rect core_odroid_overlay_draw_fill_rect

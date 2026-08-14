@@ -90,116 +90,6 @@ typedef enum {
     GW_MEM_OP_FREE_SIZE = 2,  /* free bytes in pool (RAM only today) */
 } gw_mem_op_t;
 
-/* Hardware JPEG ops for jpeg_ctl() below. Replaces four ABI slots
- * (JPEG_DecodeToFrameInit/ToFrame/GetSize/DeInit) with one entry —
- * only the LCD-Game-Emulator core uses this surface. */
-typedef enum {
-    GW_JPEG_INIT     = 0,  /* a=JPEG_Buffer, b=JPEG_Buffer_Size */
-    GW_JPEG_DECODE   = 1,  /* a=Src, b=Dest, c=(x<<16)|y, d=luma_alpha */
-    GW_JPEG_GET_SIZE = 2,  /* a=Src, b=(uintptr_t)width*, c=(uintptr_t)height* */
-    GW_JPEG_DEINIT   = 3,  /* no args */
-} gw_jpeg_op_t;
-
-/* LCD framebuffer selector — argument to GW_LCD_BUFFER. */
-typedef enum {
-    GW_LCD_BUF_ACTIVE   = 0,
-    GW_LCD_BUF_INACTIVE = 1,
-    GW_LCD_BUF_BOTH     = 2,  /* clear_buffers — CLEAR flag required */
-} gw_lcd_buf_t;
-
-#define GW_LCD_CLEAR  1u  /* OR into GW_LCD_BUFFER flags to zero buffer(s) */
-
-/* Direction for GW_LCD_COPY_FB — replaces lcd_sync + lcd_clone. */
-typedef enum {
-    GW_LCD_COPY_ACTIVE_TO_INACTIVE = 0,  /* former lcd_sync() */
-    GW_LCD_COPY_INACTIVE_TO_ACTIVE = 1,  /* former lcd_clone() */
-} gw_lcd_copy_t;
-
-/* Unified LCD ops for lcd_ctl() — absorbs swap/buffer/copy plus the
- * former leftover slots (setup_framebuffers, bonus pool, CLUT, vblank,
- * refresh, pixel position, swap-pending, backlight). */
-typedef enum {
-    GW_LCD_SWAP            = 0,
-    GW_LCD_BUFFER          = 1,  /* a=gw_lcd_buf_t, b=flags → (uintptr_t)ptr */
-    GW_LCD_COPY_FB         = 2,  /* a=gw_lcd_copy_t */
-    GW_LCD_SETUP_FB        = 3,  /* a=lcd_mode (int) */
-    GW_LCD_GET_BONUS_POOL  = 4,  /* a=(uintptr_t)uint8_t**, b=(uintptr_t)size_t* */
-    GW_LCD_SET_CLUT        = 5,  /* a=(uintptr_t)clut*, b=count */
-    GW_LCD_WAIT_VBLANK     = 6,
-    GW_LCD_SET_REFRESH     = 7,  /* a=frequency */
-    GW_LCD_GET_PIXEL_POS   = 8,  /* → pixel position */
-    GW_LCD_IS_SWAP_PENDING = 9,  /* → non-zero if swap pending */
-    GW_LCD_BACKLIGHT_SET   = 10, /* a=brightness */
-} gw_lcd_op_t;
-
-/* Hardware audio ops for audio_ctl() below. Replaces the former per-call
- * ABI slots (audio_start_playing / get_active / clear_* / get_*_length /
- * start_playing_full_length / stop_playing + odroid_audio_init / mute /
- * sample_rate_get / volume_get) with one entry. Bridge re-exposes the
- * historical names as thin wrappers. */
-typedef enum {
-    GW_AUDIO_START           = 0,  /* a = half-buffer sample count */
-    GW_AUDIO_START_FULL      = 1,  /* a = full DMA sample count */
-    GW_AUDIO_STOP            = 2,
-    GW_AUDIO_GET_ACTIVE      = 3,  /* → (uintptr_t)int16_t* */
-    GW_AUDIO_CLEAR_ACTIVE    = 4,
-    GW_AUDIO_CLEAR_INACTIVE  = 5,
-    GW_AUDIO_CLEAR_BOTH      = 6,  /* full DMA buffer memset */
-    GW_AUDIO_GET_LENGTH      = 7,  /* → half-buffer sample count */
-    GW_AUDIO_GET_FULL_LENGTH = 8,  /* → full DMA sample count */
-    GW_AUDIO_INIT            = 9,  /* a = sample_rate (odroid_audio_init) */
-    GW_AUDIO_SAMPLE_RATE_GET = 10,
-    GW_AUDIO_MUTE            = 11, /* a = mute bool */
-    GW_AUDIO_VOLUME_GET      = 12,
-} gw_audio_op_t;
-
-/* FatFs directory ops for fatfs_dir_ctl(). */
-typedef enum {
-    GW_FATFS_OPENDIR  = 0,  /* a=DIR*, b=path */
-    GW_FATFS_CLOSEDIR = 1,  /* a=DIR* */
-    GW_FATFS_READDIR  = 2,  /* a=DIR*, b=FILINFO* */
-} gw_fatfs_dir_op_t;
-
-/* Odroid display scaling/filter for display_ctl(). */
-typedef enum {
-    GW_DISP_GET_SCALING = 0,  /* → odroid_display_scaling_t as uint */
-    GW_DISP_SET_SCALING = 1,  /* a = mode */
-    GW_DISP_GET_FILTER  = 2,  /* → filter mode as int */
-} gw_disp_op_t;
-
-/* Odroid input for input_ctl() — gamepad + battery (BQ24072 behind
- * firmware). Replaces the former standalone odroid_input_read_gamepad /
- * odroid_input_read_battery ABI slots. Bridge re-exposes those names. */
-typedef enum {
-    GW_INPUT_READ_GAMEPAD = 0,  /* a = odroid_gamepad_state_t* */
-    GW_INPUT_READ_BATTERY = 1,  /* a = odroid_battery_state_t* */
-} gw_input_op_t;
-
-/* Hardware SHA-1 for sha1_ctl(). calculate_sha1_file is composed in the
- * bridge as FILE_LIMIT with max_bytes=(ssize_t)-1 (whole file). */
-typedef enum {
-    GW_SHA1_FILE_LIMIT = 0,  /* a=path, b=(uintptr_t)(ssize_t)max_bytes, c=out[20] */
-    GW_SHA1_HW         = 1,  /* a=data, b=len, c=out[20] */
-} gw_sha1_op_t;
-
-/* LZ4 helpers for lz4_ctl(). lzma_inflate stays separate (different codec). */
-typedef enum {
-    GW_LZ4_UNCOMPRESS = 0,  /* a=src, b=dst → uncompressed size */
-    GW_LZ4_GET_SIZE   = 1,  /* a=src → file size */
-} gw_lz4_op_t;
-
-/* DMA2D ops for dma2d_ctl() — RGB565 M2M blit used by the SNES core
- * (async present while audio runs). Firmware owns the HAL handle; cores
- * must not link stm32h7xx_hal_dma2d. Reconfigure+start every frame so a
- * prior JPEG/cover path that left different Mode/offsets cannot poison
- * the next blit (same rule as jshsakura main_snes.c). */
-typedef enum {
-    /* a=src, b=dst, c=(width<<16)|height → 0 ok, nonzero0 HAL failure */
-    GW_DMA2D_M2M_RGB565_START = 0,
-    /* a=timeout_ms → HAL_StatusTypeDef (HAL_OK=0, HAL_TIMEOUT, …) */
-    GW_DMA2D_POLL             = 1,
-} gw_dma2d_op_t;
-
 typedef struct {
     /* Header — every plugin checks these before using the rest. */
     uint32_t version;        /* == GW_FIRMWARE_ABI_VERSION for this build */
@@ -291,6 +181,9 @@ typedef struct {
     void           (*longjmp)(jmp_buf env, int val);  /* noreturn */
     struct lconv  *(*localeconv)(void);
     double         (*pow)(double x, double y);
+    float          (*cosf)(float x);
+    float          (*sqrtf)(float x);
+    double         (*log10)(double x);
 
     /* ================================================================
      * libc: assert
@@ -318,32 +211,67 @@ typedef struct {
     uint64_t (*uldivmod_rem)(uint64_t, uint64_t);
 
     /* ================================================================
-     * FatFs directory API (ff.h) — one ctl for opendir/closedir/readdir.
+     * FatFs directory API (ff.h)
      * ================================================================ */
-    FRESULT (*fatfs_dir_ctl)(gw_fatfs_dir_op_t op, void *a, void *b);
+    FRESULT (*f_opendir)(DIR *dp, const TCHAR *path);
+    FRESULT (*f_closedir)(DIR *dp);
+    FRESULT (*f_readdir)(DIR *dp, FILINFO *fno);
 
     /* ================================================================
      * G&W hardware: LCD
      *
-     * lcd_ctl() is the single entry for swap, framebuffer get/clear/
-     * copy, LUT8 setup, bonus pool, CLUT, vblank, refresh rate, pixel
-     * position, swap-pending poll, and backlight. Bridge re-exposes
-     * historical names as thin wrappers. lcd_sleep_while_swap_pending
-     * is composed in the bridge from IS_SWAP_PENDING + WFI (no slot).
+     * lcd_setup_framebuffers takes lcd_mode_t (gw_lcd.h) exposed as int
+     * so this header does not pull in the LCD driver.
      * ================================================================ */
-    uintptr_t (*lcd_ctl)(gw_lcd_op_t op, uint32_t a, uint32_t b, uint32_t c);
+    void     (*lcd_swap)(void);
+    void    *(*lcd_get_active_buffer)(void);
+    void    *(*lcd_get_inactive_buffer)(void);
+    void    *(*lcd_clear_active_buffer)(void);
+    void    *(*lcd_clear_inactive_buffer)(void);
+    void     (*lcd_clear_buffers)(void);
+    void     (*lcd_sync)(void);
+    void     (*lcd_clone)(void);
+    void     (*lcd_wait_for_vblank)(void);
+    void     (*lcd_set_refresh_rate)(uint32_t frequency);
+    uint32_t (*lcd_get_pixel_position)(void);
+    uint32_t (*lcd_is_swap_pending)(void);
+    bool     (*lcd_sleep_while_swap_pending)(void);
+    void     (*lcd_backlight_set)(uint8_t brightness);
+    uint8_t  (*lcd_backlight_get)(void);
+    void     (*lcd_backlight_on)(void);
+    void     (*lcd_backlight_off)(void);
+    void     (*lcd_setup_framebuffers)(int lcd_mode);
+    void     (*lcd_get_bonus_pool)(uint8_t **out_ptr, size_t *out_size);
+    void     (*lcd_set_clut)(const uint32_t *clut, uint16_t count);
 
     /* ================================================================
      * G&W hardware: audio
      *
-     * audio_ctl() is the single entry for DMA start/stop, buffer get/
-     * clear, length queries, and the odroid mute/init/rate/volume
-     * helpers. Replaces twelve former slots (still ABI v2 while cores
-     * are in active development). Bridge re-exposes historical names
-     * (audio_start_playing, odroid_audio_mute, …) as thin wrappers;
-     * audio_get_buffer_size is composed as GET_LENGTH * sizeof(int16_t).
+     * DMA start/stop, buffer get/clear, length queries, odroid mute/
+     * init/rate/volume, and the ISR-fed PCM ring for homebrews (Music /
+     * Video). Fill lives in firmware gw_audio.c so the SAI ISR never
+     * calls RAM_EMU code.
      * ================================================================ */
-    uintptr_t (*audio_ctl)(gw_audio_op_t op, uint32_t a);
+    void     (*audio_start_playing)(uint16_t length);
+    void     (*audio_start_playing_full_length)(uint16_t length);
+    void     (*audio_stop_playing)(void);
+    int16_t *(*audio_get_active_buffer)(void);
+    void     (*audio_clear_active_buffer)(void);
+    void     (*audio_clear_inactive_buffer)(void);
+    void     (*audio_clear_buffers)(void);
+    uint16_t (*audio_get_buffer_length)(void);
+    uint16_t (*audio_get_buffer_full_length)(void);
+    uint16_t (*audio_get_buffer_size)(void);
+    void     (*odroid_audio_init)(int sample_rate);
+    int      (*odroid_audio_sample_rate_get)(void);
+    void     (*odroid_audio_mute)(bool mute);
+    int      (*odroid_audio_volume_get)(void);
+    void     (*odroid_audio_volume_set)(int level);
+    void     (*pcm_attach)(int16_t *ring, int size, volatile uint16_t *head, volatile uint16_t *tail);
+    void     (*pcm_audio_enable)(int on);
+    void     (*pcm_audio_set)(int vol, int play);
+    void     (*pcm_audio_setpos)(uint32_t samples);
+    uint32_t (*pcm_audio_pos)(void);
 
     /* ================================================================
      * G&W hardware: allocators
@@ -396,19 +324,36 @@ typedef struct {
 
     /* ================================================================
      * retro-go: input / display
-     *
-     * input_ctl() folds gamepad + battery reads. display_ctl() folds
-     * get/set scaling + get filter.
      * ================================================================ */
-    uintptr_t (*input_ctl)(gw_input_op_t op, void *a);
-    uintptr_t (*display_ctl)(gw_disp_op_t op, uint32_t a);
+    void                     (*odroid_input_read_gamepad)(odroid_gamepad_state_t *out_state);
+    odroid_battery_state_t   (*odroid_input_read_battery)(void);
+    odroid_display_scaling_t (*odroid_display_get_scaling_mode)(void);
+    void                     (*odroid_display_set_scaling_mode)(odroid_display_scaling_t mode);
+    /* Real return type is odroid_display_filter_t; forwarded as int so
+     * callers that don't include the enum still compile. */
+    int                      (*odroid_display_get_filter_mode)(void);
+    odroid_display_backlight_t (*odroid_display_get_backlight)(void);
+    void                     (*odroid_display_set_backlight)(odroid_display_backlight_t level);
 
     /* ================================================================
      * retro-go: overlay / SD / settings
-     * (odroid_overlay_cache_file_in_flash composed as relocate(..., NULL).)
      * ================================================================ */
     int      (*odroid_overlay_draw_text)(uint16_t x, uint16_t y, uint16_t width,
                                          const char *text, uint16_t color, uint16_t color_bg);
+    int      (*odroid_overlay_dialog)(const char *header, odroid_dialog_choice_t *options,
+                                      int selected, void_callback_t repaint,
+                                      odroid_menu_flags_t flags);
+    void     (*odroid_overlay_draw_logo)(uint16_t x_pos, uint16_t y_pos, int16_t logo_idx,
+                                         uint16_t color);
+    void     (*odroid_overlay_draw_battery)(odroid_battery_state_t battery, int x, int y);
+    void     (*odroid_overlay_clock)(int x_pos, int y_pos);
+    size_t   (*odroid_overlay_cache_file_in_ram)(const char *file_path, uint8_t *dest_address);
+    uint8_t *(*odroid_overlay_cache_file_in_flash)(const char *file_path, uint32_t *file_size_p,
+                                                   bool byte_swap);
+    uint8_t *(*odroid_overlay_cache_file_in_flash_relocate)(const char *file_path,
+                                                           uint32_t *file_size_p, bool byte_swap,
+                                                           gw_flash_relocate_cb_t relocate_cb);
+    void     (*draw_error_screen)(const char *main_line, const char *line_1, const char *line_2);
     int      (*odroid_sdcard_mkdir)(const char *path);
     int32_t  (*odroid_settings_app_int32_get)(const char *key, int32_t default_value);
     void     (*odroid_settings_app_int32_set)(const char *key, int32_t value);
@@ -455,11 +400,6 @@ typedef struct {
      * savestate-path/handler logic without an engine rebuild. */
     bool                        (*odroid_system_emu_load_state)(int slot);
 
-    /* (odroid_audio_mute folded into audio_ctl — see audio block above.) */
-
-    /* (lcd_setup_framebuffers / lcd_get_bonus_pool / lcd_set_clut folded
-     * into lcd_ctl — see LCD block above.) */
-
     /* ================================================================
      * v1 append: surface required to port a "classic" emulator core
      * (e.g. Watara Supervision) to the external-core model. Identified
@@ -468,21 +408,12 @@ typedef struct {
     char    *(*strcpy)(char *, const char *);
     void    *(*malloc)(size_t size);
 
-    /* (lcd_wait_for_vblank / lcd_set_refresh_rate / audio_get_buffer_length
-     * folded into lcd_ctl / audio_ctl.) */
-
-    /* (odroid_display_get_filter_mode folded into display_ctl.) */
-
-    size_t   (*odroid_overlay_cache_file_in_ram)(const char *file_path,
-                                                 uint8_t *dest_address);
-
     /* ================================================================
      * v1 append: surface required to port the Mega Drive / Genesis
      * (gwenesis) core to the external-core model. Identified by porting
      * Core/Src/porting/gwenesis/main_gwenesis.c against this ABI.
-     * (odroid_audio_* / audio_*_full_length folded into audio_ctl.
      * DWT cycle helpers are implemented locally in the bridge via CMSIS
-     * MMIO — no ABI slots.)
+     * MMIO — no ABI slots.
      * ================================================================ */
     uint8_t  (*odroid_settings_cpu_oc_level_get)(void);
     /* SystemClock_Config's argument is the CPU overclock level (0 = stock);
@@ -496,8 +427,6 @@ typedef struct {
      * exposed as `int` for the same reason as lcd_setup_framebuffers.
      * Returns a strdup'd string the caller must free(). */
     char    *(*odroid_system_get_path)(int type, const char *romPath);
-
-    /* (lcd_get_pixel_position folded into lcd_ctl.) */
 
     /* frame_counter (gw_lcd.h): incremented by the LCD vsync ISR. Engine
      * reads the live value through frame_counter_ptr instead of linking
@@ -537,8 +466,7 @@ typedef struct {
      * Color, C++) to the external-core model. Identified by porting
      * Core/Src/porting/gb_tgbdual/main_gb_tgbdual.cpp (+ gw_renderer.cpp)
      * against this ABI. (GW_GetUnixTM/mktime were dropped during
-     * external-core development — use time()+localtime() instead.
-     * lcd_clone was folded into lcd_copy_fb — see the LCD block above.)
+     * external-core development — use time()+localtime() instead.)
      * ================================================================ */
     int32_t  (*odroid_settings_Palette_get)(void);
     void     (*odroid_settings_Palette_set)(int32_t value);
@@ -555,11 +483,12 @@ typedef struct {
     /* ================================================================
      * v2 append: blueMSX (MSX) porting surface. Identified by porting
      * Core/Src/porting/msx/main_msx.c (+ msx_database.c) against this ABI.
-     * (ahb_* → mem_ctl; odroid_audio_volume_get → audio_ctl;
-     * calculate_sha1_* → sha1_ctl. calculate_sha1_file is bridge-composed
-     * as FILE_LIMIT with max_bytes=-1.)
+     * (ahb_* → mem_ctl. calculate_sha1_file is the whole-file form of
+     * calculate_sha1_file_limit.)
      * ================================================================ */
-    int8_t   (*sha1_ctl)(gw_sha1_op_t op, uintptr_t a, uintptr_t b, uintptr_t c);
+    int8_t   (*calculate_sha1_file)(const char *file_path, uint8_t *output);
+    int8_t   (*calculate_sha1_file_limit)(const char *file_path, ssize_t max_bytes, uint8_t *output);
+    int8_t   (*calculate_sha1_hw)(const uint8_t *data, size_t len, uint8_t *output);
 
     /* ================================================================
      * v2 append: blueMSX extras (RTC init, disk-swap UI, ROM loader).
@@ -570,23 +499,21 @@ typedef struct {
     bool     (*rg_storage_get_adjacent_files)(const char *path, char *prev_path,
                                               char *next_path);
     const char *(*rg_basename)(const char *path);
-    /* (audio_stop_playing folded into audio_ctl.) */
 
     /* ================================================================
      * v2 append: LCD-Game-Emulator (Game & Watch handhelds).
      * GW_SetUnixTM is the only RTC write entry left after the read-side
      * getters were dropped (no portable libc setter on this firmware).
-     * jpeg_ctl replaces the former four JPEG_Decode* slots (same
-     * ctl-style unification; still ABI v2 while cores are in
-     * active development). Bridge re-exposes JPEG_DecodeToFrameInit /
-     * ToFrame / GetSize / DeInit as thin wrappers so gw_romloader.c
-     * is unchanged.
      * ================================================================ */
     void     (*GW_SetUnixTM)(struct tm *tm);
-    /* (lcd_is_swap_pending folded into lcd_ctl.) */
-    uint32_t (*jpeg_ctl)(gw_jpeg_op_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d);
+    uint32_t (*JPEG_DecodeToFrameInit)(uint32_t JPEG_Buffer, uint32_t JPEG_Buffer_Size);
+    uint32_t (*JPEG_DecodeToFrame)(uint32_t SrcAddress, uint32_t DestAddress,
+                                   uint16_t x, uint16_t y, uint8_t luma_alpha);
+    uint32_t (*JPEG_DecodeGetSize)(uint32_t SrcAddress, uint32_t *width, uint32_t *height);
+    uint32_t (*JPEG_DecodeDeInit)(void);
     size_t   (*lzma_inflate)(uint8_t *dst, size_t dst_size, const uint8_t *src, size_t src_size);
-    unsigned int (*lz4_ctl)(gw_lz4_op_t op, const void *a, void *b);
+    unsigned int (*lz4_uncompress)(const void *src, void *dst);
+    unsigned int (*lz4_get_file_size)(const void *src);
 
     /* ================================================================
      * v2 append: Tamagotchi P1 (tamalib) — frame-pacing reset after
@@ -598,24 +525,19 @@ typedef struct {
     /* ================================================================
      * v2 append: GBA (gpSP) — host CPU clock after SystemClock_Config
      * overclock (CMSIS SystemCoreClock is a firmware global; cores must
-     * not take its address across the ABI boundary). Plus XIP cache with
-     * relocation pass, fatal UI helpers, and backlight. (lcd_sync was
-     * folded into lcd_copy_fb — see the LCD block above.)
+     * not take its address across the ABI boundary).
      * ================================================================ */
     uint32_t (*get_SystemCoreClock)(void);
-    /* Plain cache_file_in_flash is bridge-composed as relocate(..., NULL). */
-    uint8_t *(*odroid_overlay_cache_file_in_flash_relocate)(
-        const char *file_path, uint32_t *file_size_p, bool byte_swap,
-        gw_flash_relocate_cb_t relocate_cb);
-    /* (lcd_backlight_set folded into lcd_ctl.) */
-    void     (*draw_error_screen)(const char *main_line, const char *line_1, const char *line_2);
 
     /* ================================================================
-     * v2 append: per-core option i18n. Returns the active UI language
-     * code ("en_us", "fr_fr", "zh_cn", ...). Cores look up their own
-     * string tables via gw_i18n() (core_common) with English fallback —
+     * v2 append: per-core option i18n. Cores look up their own string
+     * tables via gw_i18n() (core_common) with English fallback —
      * curr_lang / lang_t stay firmware-private.
      * ================================================================ */
+    int         (*i18n_get_text_width)(const char *text);
+    int         (*i18n_draw_text_line)(uint16_t x_pos, uint16_t y_pos, uint16_t width,
+                                       const char *text, uint16_t color, uint16_t color_bg,
+                                       char transparent);
     const char *(*i18n_lang_code)(void);
 
     /* ================================================================
@@ -628,9 +550,40 @@ typedef struct {
 
     /* ================================================================
      * v2 append: DMA2D M2M RGB565 for external cores (SNES present_frame).
-     * Append-only while ABI v2 is unpublished — no version bump.
+     * Firmware owns the HAL handle; cores must not link stm32h7xx_hal_dma2d.
+     * Reconfigure+start every frame so a prior JPEG/cover path that left
+     * different Mode/offsets cannot poison the next blit.
+     * Start returns 0 on success, ≠0 on HAL failure. Poll returns
+     * HAL_StatusTypeDef (HAL_OK=0, HAL_TIMEOUT, …).
      * ================================================================ */
-    uint32_t (*dma2d_ctl)(gw_dma2d_op_t op, uint32_t a, uint32_t b, uint32_t c);
+    uint32_t (*dma2d_m2m_rgb565_start)(uint32_t src, uint32_t dst, uint16_t width, uint16_t height);
+    uint32_t (*dma2d_poll)(uint32_t timeout_ms);
+
+    /* ================================================================
+     * v2 append: live launcher theme. Bridge macros as colors_t *.
+     * ================================================================ */
+    void **curr_colors_ptr;
+
+    /* ================================================================
+     * v2 append: HW-SPI SD DMA wait hook. Soft-SPI ignores it. Video
+     * (and similar) register a callback that demuxes/feeds PCM so the
+     * SAI ring does not underrun while FatFs blocks on a sector.
+     * ================================================================ */
+    void (*sd_io_set_poll)(void (*fn)(void));
+
+    /* ================================================================
+     * v2 append: file-manager homebrew — SD listing/delete and Simple
+     * List chrome (gui.c / rg_storage.c).
+     * ================================================================ */
+    bool     (*rg_storage_scandir)(const char *path, rg_scandir_cb_t *callback,
+                                   void *arg, uint32_t flags);
+    bool     (*rg_storage_delete)(const char *path);
+    uint16_t (*get_darken_pixel_d)(uint16_t color, uint16_t color1, uint16_t darken);
+    int      (*i18n_get_text_height)(void);
+    int      (*odroid_overlay_get_font_size)(void);
+    int      (*odroid_overlay_get_font_width)(void);
+    void     (*odroid_overlay_draw_fill_rect)(int x, int y, int width, int height,
+                                              uint16_t color);
 
 } gw_firmware_abi_t;
 

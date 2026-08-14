@@ -36,9 +36,9 @@ const char *gw_i18n(const gw_i18n_entry_t *entries)
     if (!entries)
         return "";
 
-    lang = gw_firmware_abi()->i18n_lang_code
-         ? gw_firmware_abi()->i18n_lang_code()
-         : "en_us";
+    lang = gw_firmware_abi()->i18n_lang_code();
+    if (!lang)
+        lang = "en_us";
 
     for (e = entries; e->lang != NULL; e++) {
         if (gw_i18n_is_english(e->lang))
