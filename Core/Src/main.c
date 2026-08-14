@@ -80,6 +80,8 @@ DMA_HandleTypeDef hdma_sai1_a;
 #if SD_CARD == 1
 sdcard_hw_type_t sdcard_hw_type = SDCARD_HW_UNDETECTED;
 SPI_HandleTypeDef hspi1;
+DMA_HandleTypeDef hdma_spi1_tx;
+DMA_HandleTypeDef hdma_spi1_rx;
 #endif
 SPI_HandleTypeDef hspi2;
 
@@ -1144,9 +1146,16 @@ static void MX_DMA_Init(void)
   __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
-  /* DMA1_Stream0_IRQn interrupt configuration */
+  /* DMA1_Stream0_IRQn interrupt configuration (SAI) */
   HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+#if SD_CARD == 1
+  /* DMA1_Stream1/2: SPI1 TX/RX — below SAI so audio half-fills win */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+#endif
 
 }
 

@@ -73,6 +73,8 @@ extern sdcard_hw_type_t sdcard_hw_type;
 extern RTC_HandleTypeDef hrtc;
 extern OSPI_HandleTypeDef hospi1;
 extern SPI_HandleTypeDef hspi1;
+extern DMA_HandleTypeDef hdma_spi1_tx;
+extern DMA_HandleTypeDef hdma_spi1_rx;
 
 /* USER CODE END EC */
 

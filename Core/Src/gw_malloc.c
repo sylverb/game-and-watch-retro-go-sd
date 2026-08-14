@@ -36,10 +36,17 @@ void *ahb_calloc(size_t count, size_t size)
   return calloc(count, size);
 }
 
+#if SD_CARD == 1
+void sd_io_on_ram_init(void);
+#endif
+
 /* RAM_EMU bump from ram_start. Forgot by ram_init(). */
 void ram_init(void)
 {
   current_ram_pointer = 0;
+#if SD_CARD == 1
+  sd_io_on_ram_init();
+#endif
 }
 
 size_t ram_get_free_size(void)

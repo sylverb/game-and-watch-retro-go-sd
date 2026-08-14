@@ -21,6 +21,19 @@
 bool fs_mounted = false;
 static FRESULT cause;
 
+static void (*s_sd_io_poll)(void);
+
+void sd_io_set_poll(void (*fn)(void))
+{
+    s_sd_io_poll = fn;
+}
+
+void sd_io_poll(void)
+{
+    if (s_sd_io_poll)
+        s_sd_io_poll();
+}
+
 void sdcard_error_screen(void) {
     lcd_backlight_set(180);
     
