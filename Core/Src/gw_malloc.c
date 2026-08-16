@@ -82,17 +82,29 @@ void *ram_calloc(size_t count, size_t size)
 
 /* ITC RAM is 64kB, fast; bump with no free. */
 
+static uint32_t itc_pool_limit(void)
+{
+  return ((uint32_t)&__itcram_start__) + ((uint32_t)(&__ITCMRAM_LENGTH__)) -
+         ((uint32_t)(&__NULLPTR_LENGTH__));
+}
+
 void itc_init(void)
 {
   current_itc_pointer = (uint32_t)(&__itcram_end__);
 }
 
+size_t itc_get_free_size(void)
+{
+  if (current_itc_pointer == 0)
+    current_itc_pointer = (uint32_t)(&__itcram_end__);
+  uint32_t lim = itc_pool_limit();
+  return (current_itc_pointer < lim) ? (size_t)(lim - current_itc_pointer) : 0;
+}
+
 void *itc_malloc(size_t size)
 {
   void *pointer = (void *)0xffffffff;
-  if (((current_itc_pointer + size + 3) & ~0x03) <=
-      ((((uint32_t)&__itcram_start__) + ((uint32_t)(&__ITCMRAM_LENGTH__)) -
-        ((uint32_t)(&__NULLPTR_LENGTH__))))) {
+  if (((current_itc_pointer + size + 3) & ~0x03) <= itc_pool_limit()) {
     pointer = (void *)current_itc_pointer;
     current_itc_pointer = (current_itc_pointer + size + 3) & ~0x03;
   }
@@ -113,6 +125,14 @@ void *itc_calloc(size_t count, size_t size)
 void dtc_init(void)
 {
   current_dtc_pointer = (uint32_t)(&__dtc_padding_start__);
+}
+
+size_t dtc_get_free_size(void)
+{
+  if (current_dtc_pointer == 0)
+    current_dtc_pointer = (uint32_t)(&__dtc_padding_start__);
+  uint32_t lim = (uint32_t)&__dtc_padding_end__;
+  return (current_dtc_pointer < lim) ? (size_t)(lim - current_dtc_pointer) : 0;
 }
 
 void *dtc_malloc(size_t size)

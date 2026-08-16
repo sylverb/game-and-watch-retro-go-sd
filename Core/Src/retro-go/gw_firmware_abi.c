@@ -188,9 +188,13 @@ static uintptr_t abi_mem_ctl(gw_mem_op_t op, gw_mem_pool_t pool, size_t count, s
         }
         return 0;
     case GW_MEM_OP_FREE_SIZE:
-        if (pool == GW_MEM_RAM)
-            return (uintptr_t)ram_get_free_size();
-        return 0;
+        switch (pool) {
+        case GW_MEM_ITC: return (uintptr_t)itc_get_free_size();
+        case GW_MEM_RAM: return (uintptr_t)ram_get_free_size();
+        case GW_MEM_AHB: return (uintptr_t)ahb_get_free_size();
+        case GW_MEM_DTC: return (uintptr_t)dtc_get_free_size();
+        default:         return 0;
+        }
     default:
         return 0;
     }

@@ -38,6 +38,7 @@
  */
 #include <cstddef>
 #include <cstring>
+#include <cstdio>
 #include <sys/reent.h>
 
 extern "C" {
@@ -45,50 +46,101 @@ extern "C" {
 }
 
 /* ====================================================================
- * heap_alloc_mem() family (Core/Inc/heap.hpp) — small allocator used by
- * classic C++ ports (currently: gb_tgbdual) needing a temporary
- * ITC-then-RAM-then-AHB allocation strategy on top of the plain
- * ram_malloc()/itc_malloc()/ahb_calloc() core_common trampolines.
+ * heap_alloc_mem() — ITCM only if heap_itc_alloc(true); otherwise AHB
+ * (freeable newlib heap) first, then RAM_EMU bump, then DTCM bump.
  * ==================================================================== */
-static bool s_heap_itc_alloc;
+static bool s_heap_itc_alloc = false;
 
 extern "C" void heap_itc_alloc(bool itc)
 {
     s_heap_itc_alloc = itc;
 }
 
+static const char *heap_pool_name(const void *ptr)
+{
+    uintptr_t p = (uintptr_t)ptr;
+    if (p < 0x00010000u)
+        return "ITCM";
+    if (p >= 0x20000000u && p < 0x20020000u)
+        return "DTCM";
+    if (p >= 0x24000000u && p < 0x24100000u)
+        return "RAM_EMU";
+    if (p >= 0x30000000u && p < 0x30020000u)
+        return "AHB";
+    return "?";
+}
+
 extern "C" void *heap_alloc_mem(size_t s)
 {
     void *ptr = NULL;
+    const char *pool = NULL;
 
     if (s_heap_itc_alloc) {
         void *p = itc_malloc(s);
         /* ITC RAM starts at 0x00000000, so itc_malloc() can't use NULL as
          * its own "allocation failed" sentinel — see gw_malloc.c. */
-        if (p != (void *)0xffffffff)
+        if (p != (void *)0xffffffff) {
             ptr = p;
+            pool = "ITCM";
+        }
     }
-    if (!ptr)
+    if (!ptr) {
+        ptr = ahb_malloc(s);
+        if (ptr)
+            pool = "AHB";
+    }
+    if (!ptr) {
         ptr = ram_malloc(s);
-    if (!ptr)
-        ptr = ahb_calloc(1, s); /* true AHB bump — ram_malloc() already just failed */
-    if (ptr)
+        if (ptr)
+            pool = "RAM_EMU";
+    }
+    if (!ptr) {
+        ptr = dtc_malloc(s);
+        if (ptr)
+            pool = "DTCM";
+    }
+
+    if (ptr) {
         memset(ptr, 0, s);
+        printf("[heap] %u B -> %s @ %p (tag %s)\n",
+               (unsigned)s, pool, ptr, heap_pool_name(ptr));
+    } else {
+        printf("[heap] %u B -> FAIL\n", (unsigned)s);
+    }
 
     return ptr;
 }
 
+extern "C" size_t heap_get_largest_free_size(void)
+{
+    /* Mirrors heap_alloc_mem()'s pool walk: one allocation lands in one
+     * pool, so this is the max, not the sum. ITC only after
+     * heap_itc_alloc(true). */
+    size_t n = ahb_get_free_size();
+    size_t ram = ram_get_free_size();
+    size_t dtc = dtc_get_free_size();
+    if (ram > n)
+        n = ram;
+    if (dtc > n)
+        n = dtc;
+    if (s_heap_itc_alloc) {
+        size_t itc = itc_get_free_size();
+        if (itc > n)
+            n = itc;
+    }
+    return n;
+}
+
 extern "C" size_t heap_free_mem(void)
 {
-    return ram_get_free_size();
+    return heap_get_largest_free_size();
 }
 
 extern "C" void cpp_heap_init(size_t bss_end)
 {
     /* No private bump heap here (unlike the old firmware-side heap.cpp) —
-     * every allocation goes through the shared ram_malloc()/itc_malloc()/
-     * ahb_calloc() pools instead. Kept only for source compatibility with
-     * heap.hpp; bss_end is unused. */
+     * every allocation goes through the shared ram/itc/ahb/dtc pools.
+     * Kept only for source compatibility with heap.hpp; bss_end is unused. */
     (void)bss_end;
     s_heap_itc_alloc = false;
 }

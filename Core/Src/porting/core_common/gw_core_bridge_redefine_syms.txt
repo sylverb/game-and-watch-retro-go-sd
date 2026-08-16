@@ -102,12 +102,14 @@ audio_get_buffer_length core_audio_get_buffer_length
 itc_malloc core_itc_malloc
 itc_calloc core_itc_calloc
 itc_init core_itc_init
+itc_get_free_size core_itc_get_free_size
 ram_malloc core_ram_malloc
 ram_calloc core_ram_calloc
 ram_get_free_size core_ram_get_free_size
 dtc_malloc core_dtc_malloc
 dtc_calloc core_dtc_calloc
 dtc_init core_dtc_init
+dtc_get_free_size core_dtc_get_free_size
 # --- G&W hardware: RTC ---
 # NOTE: per-field RTC getters and GW_GetUnixTM/mktime were dropped from
 # the firmware table. Cores read "now" via time()+localtime() only.
@@ -152,6 +154,7 @@ common_emu_clear_dwt_cycles core_common_emu_clear_dwt_cycles
 # --- v1 append: Mega Drive / gwenesis porting surface ---
 ahb_malloc core_ahb_malloc
 ahb_calloc core_ahb_calloc
+ahb_get_free_size core_ahb_get_free_size
 odroid_audio_init core_odroid_audio_init
 odroid_audio_sample_rate_get core_odroid_audio_sample_rate_get
 audio_start_playing_full_length core_audio_start_playing_full_length
@@ -174,7 +177,7 @@ odroid_settings_ActiveGameGenieCodes_is_enabled core_odroid_settings_ActiveGameG
 # use time()+localtime() (see "time core_time" above).
 odroid_settings_Palette_get core_odroid_settings_Palette_get
 odroid_settings_Palette_set core_odroid_settings_Palette_set
-# --- Lynx (handy-go): fputs via fwrite/strlen; calloc via mem_ctl(DTCM) ---
+# --- Lynx (handy-go): fputs via fwrite/strlen; calloc via AHB (freeable) ---
 fputs core_fputs
 calloc core_calloc
 # --- Atari 2600 (Stella): atoi/strcasecmp composed from strtol/tolower ---

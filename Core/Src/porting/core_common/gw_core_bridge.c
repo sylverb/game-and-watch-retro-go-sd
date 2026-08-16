@@ -268,6 +268,12 @@ double core_pow(double x, double y) { return gw_firmware_abi()->pow(x, y); }
 void  *core_malloc(size_t size) { return gw_firmware_abi()->malloc(size); }
 void   core_free(void *ptr) { gw_firmware_abi()->free(ptr); }
 void  *core_realloc(void *ptr, size_t size) { return gw_firmware_abi()->realloc(ptr, size); }
+/* Standard calloc matches malloc/free: AHB newlib heap, so free() works.
+ * Pool-specific callers keep using itc_calloc/dtc_calloc/ahb_calloc. */
+void  *core_calloc(size_t nmemb, size_t size)
+{
+    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_AHB, nmemb, size);
+}
 
 /* ====================================================================
  * libc: stdio.h
@@ -611,6 +617,10 @@ void core_itc_init(void)
 {
     (void)gw_firmware_abi()->mem_ctl(GW_MEM_OP_INIT, GW_MEM_ITC, 0, 0);
 }
+size_t core_itc_get_free_size(void)
+{
+    return (size_t)gw_firmware_abi()->mem_ctl(GW_MEM_OP_FREE_SIZE, GW_MEM_ITC, 0, 0);
+}
 void *core_ram_malloc(size_t size)
 {
     return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_RAM, 1, size);
@@ -634,6 +644,10 @@ void *core_dtc_calloc(size_t count, size_t size)
 void core_dtc_init(void)
 {
     (void)gw_firmware_abi()->mem_ctl(GW_MEM_OP_INIT, GW_MEM_DTC, 0, 0);
+}
+size_t core_dtc_get_free_size(void)
+{
+    return (size_t)gw_firmware_abi()->mem_ctl(GW_MEM_OP_FREE_SIZE, GW_MEM_DTC, 0, 0);
 }
 
 /* ====================================================================
@@ -810,6 +824,10 @@ void *core_ahb_calloc(size_t count, size_t size)
 {
     return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_AHB, count, size);
 }
+size_t core_ahb_get_free_size(void)
+{
+    return (size_t)gw_firmware_abi()->mem_ctl(GW_MEM_OP_FREE_SIZE, GW_MEM_AHB, 0, 0);
+}
 
 uint8_t core_odroid_settings_cpu_oc_level_get(void) { return gw_firmware_abi()->odroid_settings_cpu_oc_level_get(); }
 void    core_SystemClock_Config(uint8_t new_oc_level) { gw_firmware_abi()->SystemClock_Config(new_oc_level); }
@@ -891,22 +909,14 @@ char *strtok(char *str, const char *delim)
 /* ====================================================================
  * Lynx (handy-go) helpers composed from existing ABI entries — no ABI
  * append needed. handy-go's LSS savestate path uses
- * `#define lss_printf(fp, str) (fputs(str, fp) >= 0)` (system.h), and
- * lynxdec.cpp's public-key decrypt temps use calloc()/free(). free() is
- * already trampolined; these two fill the remaining holes. calloc routes
- * through mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTC, ...) (DTCM bump — same
- * pool as dtc_malloc; no per-block free).
+ * `#define lss_printf(fp, str) (fputs(str, fp) >= 0)` (system.h).
+ * lynxdec.cpp calloc()/free() go through the standard AHB trampolines.
  * ==================================================================== */
 int core_fputs(const char *s, FILE *stream)
 {
     const gw_firmware_abi_t *abi = gw_firmware_abi();
     size_t len = abi->strlen(s);
     return (abi->fwrite(s, 1, len, stream) == len) ? 0 : EOF;
-}
-
-void *core_calloc(size_t nmemb, size_t size)
-{
-    return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_DTC, nmemb, size);
 }
 
 /* ====================================================================
@@ -1221,6 +1231,7 @@ double core_log10(double x)
  * malloc/free/... and satisfy libstdc++ without dragging in newlib.
  * ==================================================================== */
 void  *malloc(size_t size) { return core_malloc(size); }
+void  *calloc(size_t nmemb, size_t size) { return core_calloc(nmemb, size); }
 void   free(void *ptr) { core_free(ptr); }
 void  *realloc(void *ptr, size_t size) { return core_realloc(ptr, size); }
 void   abort(void) { core_abort(); while (1) {} }
