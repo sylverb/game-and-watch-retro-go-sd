@@ -174,6 +174,8 @@ const char *get_font_file(uint32_t codepoint) {
         return font_files_cp1251[curr_font];        // Cyrillic (CP1251)
     } else if (codepoint >= 0x0370 && codepoint <= 0x03FF) {
         return "fonts/unicode_greek.bin";           // Greek and Coptic
+    } else if (codepoint >= 0x2000 && codepoint <= 0x206F) {
+        return "fonts/unicode_general_punct.bin";   // General Punctuation (ellipsis etc.)
     } else if (codepoint >= 0x2200 && codepoint <= 0x22FF) {
         return "fonts/unicode_math_operators.bin";  // Mathematical Operators
     } else if (codepoint >= 0x25A0 && codepoint <= 0x25FF) {
@@ -260,6 +262,10 @@ static FontEntry *get_font_data(uint32_t codepoint) {
         // Greek and Coptic: variable-width, N=144
         char_offset = codepoint - 0x0370;
         varwidth_N = 144;
+    } else if (codepoint >= 0x2000 && codepoint <= 0x206F) {
+        // General Punctuation: variable-width, N=112
+        char_offset = codepoint - 0x2000;
+        varwidth_N = 112;
     } else if (codepoint >= 0x2200 && codepoint <= 0x22FF) {
         // Mathematical Operators: variable-width, N=256
         char_offset = codepoint - 0x2200;

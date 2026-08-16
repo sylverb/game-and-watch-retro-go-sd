@@ -1354,7 +1354,7 @@ SD_FOLDER := sd_content
 FONTS_DIR := $(SD_FOLDER)/fonts
 UNICODE_FONT_SOURCE ?= assets/fonts/fusion-pixel-12px-monospaced-zh_hant.ttf
 # tools/gen_unicode_bin.py --script names → /fonts/unicode_<name>.bin (trimmed by active UI langs)
-UNICODE_FONT_SCRIPTS := greek math_operators geometric misc_symbols
+UNICODE_FONT_SCRIPTS := greek general_punct math_operators geometric misc_symbols
 ifneq ($(filter 1,$(ZH_CN) $(ZH_TW) $(JA_JP) $(KO_KR)),)
 # CJK Unified Ideographs (kanji / hanzi / hanja) + punctuation/fullwidth blocks
 UNICODE_FONT_SCRIPTS += cjk_punct fullwidth cjk
