@@ -70,9 +70,9 @@ pad_logo=assets/pad.bmp,header_logo=assets/header_cd.bmp,cheat_ext=pceplus \\
         --segment itcm:__ITCM_CORE_START__:__CORE_ITCM_CODE_END__:__CORE_ITCM_BSS_END__:build/pce_core_itcm.bin \\
         --out ../pce.bin
 
-Extra ITCM segments are auto-detected from ELF symbols
-(__CORE_ITCM_*, section .core_itcm) when present; pass
---no-auto-segments to disable. Explicit --segment still wins for a
+Extra ITCM / RAM_UC segments are auto-detected from ELF symbols
+(__CORE_ITCM_*, .core_itcm; __CORE_RAM_UC_*, .core_ram_uc) when present;
+pass --no-auto-segments to disable. Explicit --segment still wins for a
 given region. AHB/DTCM are not valid load targets (firmware heap /
 dtcm bump) — pack_core rejects them.
 
@@ -100,7 +100,7 @@ GNW_CORE_META_VERSION = 3
 GNW_CORE_MAX_SEGMENTS = 4
 GNW_CORE_MAX_SYSTEMS = 4
 
-REGION_NAME_TO_ID = {"ram_emu": 0, "itcm": 1}
+REGION_NAME_TO_ID = {"ram_emu": 0, "itcm": 1, "ram_uc": 2}
 PARSE_NAME_TO_ID = {"rom": 0, "cdrom": 1}
 
 # Must mirror gnw_core_segment_t exactly (Core/Inc/retro-go/gnw_core_meta.h):
@@ -412,6 +412,13 @@ AUTO_EXTRA_SEGMENTS = (
         "code_end": "__CORE_ITCM_CODE_END__",
         "bss_end": "__CORE_ITCM_BSS_END__",
         "section": ".core_itcm",
+    },
+    {
+        "region": "ram_uc",
+        "start": "__RAM_UC_CORE_START__",
+        "code_end": "__CORE_RAM_UC_CODE_END__",
+        "bss_end": "__CORE_RAM_UC_BSS_END__",
+        "section": ".core_ram_uc",
     },
 )
 

@@ -92,6 +92,9 @@ lcd_clear_buffers core_lcd_clear_buffers
 lcd_sync core_lcd_sync
 lcd_clone core_lcd_clone
 lcd_sleep_while_swap_pending core_lcd_sleep_while_swap_pending
+lcd_setup_framebuffers core_lcd_setup_framebuffers
+lcd_get_bonus_pool core_lcd_get_bonus_pool
+lcd_set_clut core_lcd_set_clut
 # --- G&W hardware: audio ---
 audio_start_playing core_audio_start_playing
 audio_get_active_buffer core_audio_get_active_buffer

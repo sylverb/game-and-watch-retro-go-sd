@@ -1353,8 +1353,8 @@ __attribute__((optimize("-O0"))) static void MPU_Config(void)
  * RAM_EMU above it.
  *
  * Power-of-2 decomposition is hand-coded for the two sizes we use:
- *   300 KB (RGB565) → 256 + 32 + 8 + 4
- *   154 KB (LUT8  ) → 128 + 16 + 8 + 2
+ *   300 KiB (RGB565) → 256 + 32 + 8 + 4
+ *   150 KiB (LUT8  ) → 128 + 16 + 4 + 2
  * Both consume exactly 4 MPU regions (3..6), so the live count never
  * changes. Caller is responsible for HAL_MPU_Disable/Enable bracket.
  *
@@ -1383,12 +1383,12 @@ void mpu_set_lcd_pool_uncached_range(uint32_t framebuffer_bytes)
     r5_size_kb =   8; r5_enum = MPU_REGION_SIZE_8KB;
                       r6_enum = MPU_REGION_SIZE_4KB;
   } else {
-    /* LUT8 — exactly 154 KB framebuffer footprint, leaves the 146 KB
-     * bonus area cacheable by default (CPU sees engine-accessible
-     * memory as Normal Write-back). */
+    /* LUT8 — exactly 150 KiB framebuffer footprint, so the entire
+     * 150 KiB bonus (__RAM_UC_CORE_START__) is cacheable Normal
+     * Write-back (executable core code / leftover heap). */
     r3_size_kb = 128; r3_enum = MPU_REGION_SIZE_128KB;
     r4_size_kb =  16; r4_enum = MPU_REGION_SIZE_16KB;
-    r5_size_kb =   8; r5_enum = MPU_REGION_SIZE_8KB;
+    r5_size_kb =   4; r5_enum = MPU_REGION_SIZE_4KB;
                       r6_enum = MPU_REGION_SIZE_2KB;
   }
 

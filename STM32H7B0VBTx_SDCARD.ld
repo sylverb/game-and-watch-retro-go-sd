@@ -76,11 +76,10 @@ __DTCMRAM_LENGTH__  = 128K;
  * where the firmware actually loads it (see run_dynamic_core()). */
 INCLUDE ld/gnw_ram_emu.ld
 /* __ITCM_CORE_START__/__ITCM_CORE_LENGTH__ come from ld/gnw_itcm_core.ld
- * (shared with cores that place hot code in ITCM). __AHB_CORE_* from
- * ld/gnw_ahb_core.ld is legacy (AHB is heap-only now) and only used by the
- * ASSERTs below against this firmware's AHBRAM layout. */
+ * (shared with cores that place hot code in ITCM). */
 INCLUDE ld/gnw_itcm_core.ld
-INCLUDE ld/gnw_ahb_core.ld
+/* __RAM_UC_CORE_* (LUT8 LCD-bonus window) from ld/gnw_ram_uc_core.ld. */
+INCLUDE ld/gnw_ram_uc_core.ld
 __AHBRAM_LENGTH__   = 128K;
 __AHBRAM_PERSISTENT_RESERVE__ = 8K; /* MPU non-cacheable: boot_magic/logbuf + remote-input */
 __AHBRAM_REMOTE_INPUT_RESERVE__ = 12; /* last bytes of persistent pad; scripts/remote_input.py */
@@ -143,9 +142,8 @@ SECTIONS
     __itcram_start__ = .;
   } > ITCMRAM
 
-  /* ITCM hot code section — empty in GPL stub build.
-     The separately-distributed engine binary loads its own ITCM code
-     from /cores/pico8_itcm.bin at runtime. */
+  /* ITCM hot code section — empty in the firmware. Cores that declare a
+     GNW_CORE_REGION_ITCM segment are memcpy'd here at launch. */
   ._itcram_hot :
   {
     __itcram_hot_start__ = .;
@@ -156,11 +154,11 @@ SECTIONS
   ASSERT(__ITCM_CORE_START__ == __itcram_hot_start__,
          "Error: ld/gnw_itcm_core.ld's __ITCM_CORE_START__ no longer matches __itcram_hot_start__ — a core's fixed ITCM segment would overlap firmware-resident ITCM data")
 
-  /* Uncached and unbuffered LCD framebuffer pool. Sized for the largest
-   * supported mode (2x RGB565 framebuffers = 300K). lcd_setup_framebuffers()
-   * carves it up at boot via __lcd_pool_start__; in LUT8 mode the upper
-   * ~154K is freed as a "bonus pool" (lcd_get_bonus_pool()) that PICO-8
-   * folds into its TLSF allocator via g_platform.scratch_base/size. */
+  /* LCD framebuffer pool (300 KiB). RGB565 fills it with two 150 KiB
+   * framebuffers. LUT8 shrinks that footprint to 150 KiB; the upper
+   * 150 KiB is the cacheable GNW_CORE_REGION_RAM_UC window
+   * (__RAM_UC_CORE_START__, see ld/gnw_ram_uc_core.ld) plus leftover
+   * heap from lcd_get_bonus_pool(). */
   ._ram_uc (NOLOAD) :
   {
     __ram_uc_start__ = .;
@@ -170,6 +168,11 @@ SECTIONS
     __lcd_pool_end__ = .;
     __ram_uc_end__ = .;
   } > RAM_UC
+
+  ASSERT(__lcd_pool_start__ + __RAM_UC_FB_BYTES__ == __RAM_UC_CORE_START__,
+         "Error: LUT8 core window must start immediately after the LUT8 double framebuffer")
+  ASSERT(__RAM_UC_CORE_START__ + __RAM_UC_CORE_LENGTH__ == __RAM_EMU_START__,
+         "Error: LUT8 core window (ld/gnw_ram_uc_core.ld) must sit exactly between the LUT8 framebuffers and RAM_EMU")
 
   .sd_fonts_cp1251_greybeard : {
     . = ALIGN(4);
@@ -259,38 +262,9 @@ SECTIONS
    * at runtime (see "Cores externes avec ABI" plan). They all shared the
    * same __RAM_EMU_START__ VMA (only one core is ever resident at a
    * time), so removing them is safe; re-adding one is a copy of an old
-   * git revision of this file, not a from-scratch design. PICO-8 (below)
-   * and the graphics/font sections are untouched. */
-
-  /* PICO-8 engine load address (RAM), at the LOW end of the LCD bonus area.
-     No firmware-compiled stub occupies this VMA anymore (the GPL
-     install-prompt stub, main_pico8_stub.c, was removed from the build —
-     see Core/Src/porting/pico8/main_pico8_stub.c and rg_emulators.c). The
-     real engine is loaded fresh from /cores/pico8.bin at runtime by
-     emulator_start() every time a PICO-8 cart is launched; if that file is
-     absent, nothing is dispatched (was previously a fallback to the stub).
-
-     Layout — engine lives at the LOW end of the LCD bonus area:
-       __RAM_UC_START__              = 0x24000000
-       _PICO8_FB_OFFSET (LUT8 fb)    = 0x025800   (154 KB)
-       __overlay_pico8_vma           = 0x24026800
-       engine end (BSS_END, varies)
-       TLSF main pool starts here, runs to __RAM_EMU_END__ = 0x24100000
-
-     The LCD MUST be in LUT8 mode when pico8.bin is loaded into this
-     range, otherwise the load overwrites the active RGB565 framebuffer.
-     rg_emulators.c calls lcd_setup_framebuffers(LCD_MODE_LUT8) before
-     load_core_bin_with_header("/cores/pico8.bin", ...).
-
-     Why a fixed address, not a linked section: the firmware never
-     compiles/links anything at this VMA anymore, it is purely a runtime
-     load target address (like __RAM_EMU_START__ for the classic dynamic
-     cores) — the engine's own entry trampoline zeroes its BSS at startup
-     (equivalent of crt0), and main_pico8.c computes its TLSF pool from
-     its own link-time BSS_END..__RAM_EMU_END__. So the engine can grow
-     freely without anyone rebuilding this firmware. */
-  _PICO8_FB_OFFSET = 2 * 320 * 240;          /* LUT8 framebuffer = 154 KB */
-  __overlay_pico8_vma = __RAM_UC_START__ + _PICO8_FB_OFFSET;
+   * git revision of this file, not a from-scratch design. The LUT8 core
+   * window (__RAM_UC_CORE_START__, ld/gnw_ram_uc_core.ld) and the
+   * graphics/font sections are untouched. */
 
   .overlay_graphics : {
     . = ALIGN(4);
@@ -453,11 +427,6 @@ SECTIONS
     . = ALIGN(4);
     __ahbram_end__ = .;
   } > AHBRAM
-
-  ASSERT(__AHB_CORE_START__ == __ahbram_start__,
-         "Error: ld/gnw_ahb_core.ld's __AHB_CORE_START__ no longer matches __ahbram_start__")
-  ASSERT(__AHB_CORE_LENGTH__ <= (__ahbram_audio_start__ - __ahbram_start__),
-         "Error: ld/gnw_ahb_core.ld's __AHB_CORE_LENGTH__ overlaps the .audio DMA reserve at the top of AHB SRAM")
 
   /* DTCM: bump pool from ORIGIN up to the stack redzone. */
   ._dtcm_free (NOLOAD) :

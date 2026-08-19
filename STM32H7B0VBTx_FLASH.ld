@@ -93,6 +93,8 @@ __RAM_FCEUMM_START__ = __RAM_EMU_START__ + __RAM_FCEUMM_MAPPER_LENGTH__;
 __RAM_EMU_END__     = __RAM_EMU_START__ + __RAM_EMU_LENGTH__;
 __RAM_END__         = __RAM_START__ + 1024K;
 
+INCLUDE ld/gnw_ram_uc_core.ld
+
 /****
  * External Flash Layout
  *
@@ -170,11 +172,11 @@ SECTIONS
     __itcram_end__ = .;
   } >ITCMRAM
 
-  /* Uncached and unbuffered LCD framebuffer pool. Sized for the largest
-   * supported mode (2x RGB565 framebuffers = 300K). lcd_setup_framebuffers()
-   * carves it up at boot via __lcd_pool_start__; in LUT8 mode the upper
-   * ~154K is freed as a "bonus pool" (lcd_get_bonus_pool()) that PICO-8
-   * folds into its TLSF allocator via g_platform.scratch_base/size. */
+  /* LCD framebuffer pool (300 KiB). RGB565 fills it with two 150 KiB
+   * framebuffers. LUT8 shrinks that footprint to 150 KiB; the upper
+   * 150 KiB is the cacheable GNW_CORE_REGION_RAM_UC window
+   * (__RAM_UC_CORE_START__, see ld/gnw_ram_uc_core.ld) plus leftover
+   * heap from lcd_get_bonus_pool(). */
   ._ram_uc (NOLOAD) :
   {
     __ram_uc_start__ = .;
@@ -184,6 +186,11 @@ SECTIONS
     __lcd_pool_end__ = .;
     __ram_uc_end__ = .;
   } > RAM_UC
+
+  ASSERT(__lcd_pool_start__ + __RAM_UC_FB_BYTES__ == __RAM_UC_CORE_START__,
+         "Error: LUT8 core window must start immediately after the LUT8 double framebuffer")
+  ASSERT(__RAM_UC_CORE_START__ + __RAM_UC_CORE_LENGTH__ == __RAM_EMU_START__,
+         "Error: LUT8 core window (ld/gnw_ram_uc_core.ld) must sit exactly between the LUT8 framebuffers and RAM_EMU")
 
   .sd_fonts_cp1251_greybeard : {
     . = ALIGN(4);
@@ -661,16 +668,6 @@ INCLUDE build/fceumm_mappers.ld
     ASSERT(ABSOLUTE(_OVERLAY_CELESTE_BSS_END) < __RAM_EMU_END__, "Error: CELESTE BSS overflow");
   }
   _OVERLAY_CELESTE_BSS_SIZE = SIZEOF(.overlay_celeste_bss);
-
-  /* PICO-8 engine load address (RAM), at the LOW end of the LCD bonus
-     area. No firmware-compiled stub occupies this VMA anymore (the GPL
-     install-prompt stub, main_pico8_stub.c, was removed from the build).
-     In SD_CARD=0 builds the SD-built pico8.bin/.ro/_itcm.bin blobs are
-     bundled into FrogFS/LittleFS and loaded at runtime to this same
-     address; firmware switches LCD to LUT8 before load. Keep
-     _PICO8_FB_OFFSET in sync with the SD repo's linker script. */
-  _PICO8_FB_OFFSET = 2 * 320 * 240;          /* LUT8 framebuffer = 154 KB */
-  __overlay_pico8_vma = __RAM_UC_START__ + _PICO8_FB_OFFSET;
 
   .overlay_tama __RAM_EMU_START__ : {
     . = ALIGN(4);

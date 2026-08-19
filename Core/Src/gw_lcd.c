@@ -34,6 +34,11 @@ uint32_t active_framebuffer;
 uint32_t frame_counter;
 uint32_t last_frequency = 60;
 
+/* Staged CLUT flush: HAL_LTDC_ReloadEventCallback applies it at vblank.
+ * Definition lives with the CLUT helpers further down. */
+static uint8_t clut_hw_dirty;
+static void clut_hw_flush(void);
+
 #define HAL_DAC_ENABLED(__HANDLE__, __DAC_Channel__) \
   (((__HANDLE__)->Instance->CR & (DAC_CR_EN1 << ((__DAC_Channel__) & 0x10UL))))
 
@@ -99,6 +104,10 @@ static void gw_lcd_spi_tx(SPI_HandleTypeDef *spi, uint8_t *pData) {
 
 void lcd_deinit(SPI_HandleTypeDef *spi) {
   __HAL_LTDC_DISABLE_IT(&hltdc, LTDC_IT_LI | LTDC_IT_RR);
+  /* Stop scanning out before cutting panel rails — otherwise the glass
+   * sees a live RGB/CLK bus while VDD collapses, and the next SPI bring-up
+   * can leave it in a stuck state (FB+LTDC OK, screen garbage). */
+  __HAL_LTDC_DISABLE(&hltdc);
 
   // Power off
   gw_set_power_1V8(0);
@@ -127,18 +136,31 @@ void lcd_init(SPI_HandleTypeDef *spi, LTDC_HandleTypeDef *ltdc, lcd_init_flags_t
   // Disable LCD Chip select
   gw_lcd_set_chipselect(0);
 
-  // Wake up !
-  // Enable 1.8V &3V3 power supply
-  gw_lcd_set_reset(0);
-  gw_set_power_3V3(1);
-  gw_set_power_1V8(1);
+  /* MX_LTDC_Init() already set LTDEN. Keep the RGB bus quiet while the
+   * panel powers up and takes its SPI config — a live pixel clock during
+   * that window is a plausible cause of the intermittent "FB dump OK /
+   * screen scrambled" boot glitch (survives sleep because wake re-runs
+   * the same race; only a full reboot eventually wins). */
+  __HAL_LTDC_DISABLE(ltdc);
 
-  // Lets go, bootup sequence.
-  /* reset sequence */
-  gw_lcd_set_reset(1);
-  HAL_Delay(5);
+  // LCD held out of reset while rails come up
   gw_lcd_set_reset(0);
+
+  // Enable 3V3 then 1V8 with settle time (restored after 6a7f9f99 which
+  // dropped these delays and made panel bring-up racy).
+  gw_set_power_3V3(1);
+  HAL_Delay(2);
+  gw_set_power_1V8(1);
+  HAL_Delay(50);
+  wdog_refresh();
+
+  /* reset sequence */
+  gw_lcd_set_reset(0);
+  HAL_Delay(1);
+  gw_lcd_set_reset(1);
   HAL_Delay(20);
+  gw_lcd_set_reset(0);
+  HAL_Delay(50);
   wdog_refresh();
 
   gw_lcd_spi_tx(spi, (uint8_t *)"\x08\x80");
@@ -155,27 +177,26 @@ void lcd_init(SPI_HandleTypeDef *spi, LTDC_HandleTypeDef *ltdc, lcd_init_flags_t
   gw_lcd_spi_tx(spi, (uint8_t *)"\x14\x80");
   wdog_refresh();
 
-  // Wait for screen to finish initializing
-  HAL_Delay(50);
-  wdog_refresh();
-
   if (flags & LCD_INIT_CLEAR_BUFFERS) {
     lcd_clear_buffers();
   }
 
-  HAL_LTDC_SetAddress(ltdc,(uint32_t) fb1, 0);
+  HAL_LTDC_SetAddress(ltdc, (uint32_t)fb1, 0);
   HAL_LTDC_ProgramLineEvent(&hltdc, 239);
   __HAL_LTDC_ENABLE_IT(&hltdc, LTDC_IT_LI | LTDC_IT_RR);
+  __HAL_LTDC_ENABLE(ltdc);
 
   printf("LCD: Finished init\n");
 }
 
 void HAL_LTDC_ReloadEventCallback (LTDC_HandleTypeDef *hltdc) {
-  if (active_framebuffer == 0) {
-    HAL_LTDC_SetAddress(hltdc, (uint32_t) fb2, 0);
-  } else {
-    HAL_LTDC_SetAddress(hltdc, (uint32_t) fb1, 0);
-  }
+  /* Address is already in the shadow CFBAR from lcd_swap()'s NoReload
+   * SetAddress — this interrupt means that shadow just became live, at
+   * the start of vblank. Applying CLUT here (not during active scan)
+   * keeps palette updates off the visible raster. */
+  (void)hltdc;
+  if (clut_hw_dirty)
+    clut_hw_flush();
 }
 
 void HAL_LTDC_LineEventCallback (LTDC_HandleTypeDef *hltdc) {
@@ -208,6 +229,11 @@ uint32_t lcd_get_pixel_position()
 
 void lcd_swap(void)
 {
+  /* Program the just-drawn buffer into the shadow CFBAR, then reload at
+   * vblank. HAL_LTDC_SetAddress() would SRCR-IMR from the reload ISR a
+   * few lines into the next frame (horizontal bar at the top of the
+   * panel). NoReload + VBR applies at the actual start of blanking. */
+  HAL_LTDC_SetAddress_NoReload(&hltdc, (uint32_t)lcd_get_active_buffer(), 0);
   HAL_LTDC_Reload(&hltdc, LTDC_RELOAD_VERTICAL_BLANKING);
   active_framebuffer = active_framebuffer ? 0 : 1;
 }
@@ -254,15 +280,27 @@ void lcd_set_buffers(uint16_t *buf1, uint16_t *buf2)
   fb2 = buf2;
 }
 
-/* ----- LCD pool layout / mode switching (Phase 2) -----
+/* ----- LCD pool layout / mode switching -----
  *
- * RGB565 mode: 2 framebuffers x 154K = 300K, fills the pool, no bonus.
- * LUT8 mode:   2 framebuffers x 77K  = 154K, leaves 154K of bonus.
+ * RGB565 mode: 2 framebuffers x 150 KiB = 300 KiB, fills the pool, no bonus.
+ * LUT8 mode:   2 framebuffers x  75 KiB = 150 KiB, leaves 150 KiB of bonus
+ *              at __RAM_UC_CORE_START__ (cacheable; see
+ *              mpu_set_lcd_pool_uncached_range).
  *
  * `current_lcd_mode` tracks the active layout so lcd_get_bonus_pool reports
  * the right region. Initialised to RGB565 to match the static-init layout
- * of framebuffer1/2 + fb1/2 set up at the top of this file. */
+ * of framebuffer1/2 + fb1/2 set up at the top of this file.
+ * `bonus_claimed` is a prefix of that LUT8 leftover reserved by the core
+ * loader (GNW_CORE_REGION_RAM_UC); lcd_get_bonus_pool skips it. */
 static lcd_mode_t current_lcd_mode = LCD_MODE_RGB565;
+static size_t bonus_claimed;
+
+static size_t lcd_bonus_total(void)
+{
+  size_t pool = (size_t)((uintptr_t)__lcd_pool_end__ - (uintptr_t)__lcd_pool_start__);
+  size_t fb_block = 2 * (size_t)(GW_LCD_WIDTH * GW_LCD_HEIGHT);
+  return (pool > fb_block) ? (pool - fb_block) : 0;
+}
 
 void lcd_setup_framebuffers(lcd_mode_t mode)
 {
@@ -278,15 +316,14 @@ void lcd_setup_framebuffers(lcd_mode_t mode)
     pixel_format  = LTDC_PIXEL_FORMAT_RGB565;
   }
 
-  /* Clear both framebuffer regions BEFORE the format change. Until
+  /* Clear framebuffer regions BEFORE the format change. Until
    * HAL_LTDC_Reload() takes effect at the next vsync the LTDC keeps
-   * reading the old data; if we leave stale RGB565 bytes in place and
-   * then switch to LUT8 mode, those bytes get reinterpreted as CLUT
-   * indices and the screen flashes garbage colors briefly. Zeroing the
-   * framebuffer means the transition is smoothly black-to-black (zero
-   * is black in both RGB565 and CLUT idx 0 on PICO-8's palette). Clear
-   * the union of the two modes' framebuffer footprints (= max stride),
-   * never the bonus region — PICO-8's pool may live there. */
+   * reading the old data; stale RGB565 bytes reinterpreted as LUT8
+   * indices flash garbage. Zero is black in both RGB565 and CLUT idx 0.
+   * The union of the two modes' footprints is the whole 300 KiB pool
+   * whenever RGB565 is involved (so entering/leaving LUT8 also wipes
+   * the bonus). LUT8→LUT8 only zeros the 150 KiB FB pair, preserving a
+   * loaded RAM_UC segment and leftover heap. */
   {
     size_t old_fb = (current_lcd_mode == LCD_MODE_LUT8)
         ? (size_t)(GW_LCD_WIDTH * GW_LCD_HEIGHT * 1)
@@ -303,22 +340,32 @@ void lcd_setup_framebuffers(lcd_mode_t mode)
   fb1 = (uint16_t *)(base);
   fb2 = (uint16_t *)(base + fb_size_bytes);
 
+  /* Fresh bonus when leaving LUT8, or when entering it from RGB565.
+   * LUT8→LUT8 keeps bonus_claimed so a core re-setup does not un-hide
+   * a loaded RAM_UC prefix. */
+  if (mode != LCD_MODE_LUT8 || current_lcd_mode != LCD_MODE_LUT8)
+    bonus_claimed = 0;
+
   current_lcd_mode = mode;
   active_framebuffer = 0;
 
-  /* Push to LTDC: change format and source address, then reload at vsync. */
+  /* Display the empty back buffer so the first present can fill framebuffer1
+   * without tearing. lcd_swap() will point LTDC at the just-drawn buffer. */
   HAL_LTDC_SetPixelFormat(&hltdc, pixel_format, 0);
-  HAL_LTDC_SetAddress(&hltdc, (uint32_t)fb1, 0);
+  HAL_LTDC_SetAddress_NoReload(&hltdc, (uint32_t)framebuffer2, 0);
+  if (mode == LCD_MODE_LUT8)
+    HAL_LTDC_EnableCLUT_NoReload(&hltdc, 0);
   HAL_LTDC_Reload(&hltdc, LTDC_RELOAD_VERTICAL_BLANKING);
 
   /* MPU follow-up: re-cover the LCD pool so only the active framebuffer
-   * region stays uncached. In LUT8 mode the 146 KB bonus area becomes
-   * cacheable Normal memory, which is essential if cold engine code or
-   * the engine's TLSF pool lives there. The framebuffer footprint must
-   * stay uncached so LTDC sees CPU writes immediately. */
+   * region stays uncached. In LUT8 mode the entire 150 KiB bonus
+   * (__RAM_UC_CORE_START__) becomes cacheable Normal memory, which is
+   * required if a core segment or leftover heap lives there. The
+   * framebuffer footprint must stay uncached so LTDC sees CPU writes
+   * immediately. */
   uint32_t fb_footprint = (mode == LCD_MODE_LUT8)
-      ? (uint32_t)(2 * GW_LCD_WIDTH * GW_LCD_HEIGHT)        /* 154 KB */
-      : (uint32_t)(2 * GW_LCD_WIDTH * GW_LCD_HEIGHT * 2);   /* 300 KB */
+      ? (uint32_t)(2 * GW_LCD_WIDTH * GW_LCD_HEIGHT)        /* 150 KiB */
+      : (uint32_t)(2 * GW_LCD_WIDTH * GW_LCD_HEIGHT * 2);   /* 300 KiB */
   SCB_CleanInvalidateDCache_by_Addr(
       (uint32_t *)base,
       (int32_t)((uintptr_t)__lcd_pool_end__ - (uintptr_t)base));
@@ -334,57 +381,98 @@ void lcd_setup_framebuffers(lcd_mode_t mode)
 void lcd_get_bonus_pool(uint8_t **out_ptr, size_t *out_size)
 {
   if (current_lcd_mode == LCD_MODE_LUT8) {
-    /* 2 LUT8 framebuffers occupy the lower 154K; the rest is bonus. */
     size_t fb_block = 2 * (size_t)(GW_LCD_WIDTH * GW_LCD_HEIGHT);
-    if (out_ptr)  *out_ptr  = __lcd_pool_start__ + fb_block;
-    if (out_size) *out_size = (size_t)((uintptr_t)__lcd_pool_end__ -
-                                       (uintptr_t)__lcd_pool_start__) - fb_block;
+    size_t total = lcd_bonus_total();
+    size_t claimed = (bonus_claimed < total) ? bonus_claimed : total;
+    if (out_ptr)  *out_ptr  = __lcd_pool_start__ + fb_block + claimed;
+    if (out_size) *out_size = total - claimed;
   } else {
     if (out_ptr)  *out_ptr  = NULL;
     if (out_size) *out_size = 0;
   }
 }
 
+void lcd_claim_bonus_pool(size_t nbytes)
+{
+  if (current_lcd_mode != LCD_MODE_LUT8 || nbytes == 0)
+    return;
+  size_t total = lcd_bonus_total();
+  if (bonus_claimed >= total)
+    return;
+  size_t room = total - bonus_claimed;
+  bonus_claimed += (nbytes < room) ? nbytes : room;
+}
+
 /* Active CLUT staged for HAL_LTDC_ConfigCLUT and reused by lcd_pack_color()
  * for nearest-match RGB→index lookups.
  *
- * Layout (sized to fit DTCM BSS budget — bumped only by ~16 bytes vs the
- * cart-only 64-entry baseline):
- *   [0..32)         cart palette entries (count ≤ 32)
- *   [32..64)        cart palette darkened twins (LCD_DARKEN_BIT path)
- *   [64..64+OMAX)   Retro-Go overlay theme entries (LCD_OVERLAY_CLUT_BASE)
+ * The LTDC layer CLUT is 256 slots. Two layouts share that table:
+ *
+ *   Small palettes (count ≤ 128, pico-8 = 32):
+ *     [0..count)         cart palette
+ *     [count..2*count)   darkened twins (LCD_DARKEN_BIT = index+count)
+ *     [64..64+OMAX)      Retro-Go overlay theme (LCD_OVERLAY_CLUT_BASE)
+ *                        when 2*count ≤ 64 this sits past the twins;
+ *                        otherwise it overlaps cart/twin slots and the
+ *                        overlay rewrite wins while the menu is up
+ *
+ *   Full 256-colour palettes (SNES CGRAM, Doom PLAYPAL):
+ *     [0..256)           cart palette; no room for darkened twins
+ *     overlay slots still live at 0x40 and overwrite cart[64..67]
+ *     while the in-game menu is drawn (restored on the next lcd_set_clut)
  *
  * No darkened-twin slots for the overlay — see gw_lcd.h for rationale.
  * Setting LCD_DARKEN_BIT (0x20) on a cart pixel byte switches it to the
- * darker twin; the LTDC's CLUT does the lookup at scanout. */
-#define LCD_CLUT_CACHE_MAX     32
-#define LCD_EXTENDED_CLUT_MAX  (LCD_CLUT_CACHE_MAX * 2 + LCD_OVERLAY_CLUT_MAX)
-static uint32_t active_clut[LCD_EXTENDED_CLUT_MAX];
-static uint16_t active_clut_count   = 0;   /* cart entries in [0..count); twins at [count..2*count) */
+ * darker twin when twins were programmed; on a 256-colour cart that bit
+ * just selects another cart colour. */
+#define LCD_CLUT_HW_MAX  256
+static uint32_t active_clut[LCD_CLUT_HW_MAX];
+static uint16_t active_clut_count   = 0;   /* cart entries in [0..count) */
 static uint16_t overlay_clut_count  = 0;   /* overlay entries in [BASE..BASE+count) */
+static uint8_t  clut_dark_twins     = 0;   /* twins stored at [count..2*count) */
 
-/* Push the entire populated range to the LTDC. The HAL writes index =
- * counter, so we always send slot 0 onward. Determine how far we need
- * to go from whichever range is populated. */
-static void clut_push(void)
+static int clut_hw_total(void)
 {
-  int total = (int)(2u * active_clut_count);
+  int total = (int)active_clut_count;
+  if (clut_dark_twins)
+    total = (int)(2u * active_clut_count);
   if (overlay_clut_count > 0) {
     int overlay_end = LCD_OVERLAY_CLUT_BASE + overlay_clut_count;
     if (overlay_end > total) total = overlay_end;
   }
+  if (total > LCD_CLUT_HW_MAX) total = LCD_CLUT_HW_MAX;
+  return total;
+}
+
+/* Write the staged CLUT into LTDC RAM. Called from the vblank reload ISR
+ * so the 256 CLUTWR stores never land on a visible scanline (that showed
+ * up as a horizontal bar sweeping the panel, frozen at the top in pause). */
+static void clut_hw_flush(void)
+{
+  int total = clut_hw_total();
+  clut_hw_dirty = 0;
   if (total <= 0) return;
-  HAL_LTDC_ConfigCLUT(&hltdc, active_clut, total, 0);
-  HAL_LTDC_EnableCLUT(&hltdc, 0);
+  HAL_LTDC_ConfigCLUT(&hltdc, active_clut, (uint32_t)total, 0);
+  HAL_LTDC_EnableCLUT_NoReload(&hltdc, 0);
+}
+
+/* Stage a hardware update for the next lcd_swap() vblank. Do not write
+ * CLUTWR here — that is live scanout memory. */
+static void clut_push(void)
+{
+  if (clut_hw_total() <= 0) return;
+  clut_hw_dirty = 1;
 }
 
 /* Compute and store a 40%-darkened twin of `e` (RGB888) at slot `idx`. */
 static void clut_store_dark_twin(int idx, uint32_t e)
 {
   int keep = 100 - LCD_DARKEN_PERCENT;
-  uint32_t r = (((e >> 16) & 0xFF) * keep) / 100;
-  uint32_t g = (((e >>  8) & 0xFF) * keep) / 100;
-  uint32_t b = (((e      ) & 0xFF) * keep) / 100;
+  uint32_t r, g, b;
+  if (idx < 0 || idx >= LCD_CLUT_HW_MAX) return;
+  r = (((e >> 16) & 0xFF) * keep) / 100;
+  g = (((e >>  8) & 0xFF) * keep) / 100;
+  b = (((e      ) & 0xFF) * keep) / 100;
   active_clut[idx] = (r << 16) | (g << 8) | b;
 }
 
@@ -436,7 +524,7 @@ void lcd_convert_lut8_to_rgb565(const uint8_t *src, uint16_t *dst, size_t count,
       } else {
         dst[i] = 0;
       }
-    } else if (idx < LCD_EXTENDED_CLUT_MAX) {
+    } else if (idx < LCD_CLUT_HW_MAX) {
       dst[i] = rgb888_entry_to_rgb565(active_clut[idx]);
     } else {
       dst[i] = 0;
@@ -447,12 +535,18 @@ void lcd_convert_lut8_to_rgb565(const uint8_t *src, uint16_t *dst, size_t count,
 void lcd_set_clut(const uint32_t *clut, uint16_t count)
 {
   if (current_lcd_mode != LCD_MODE_LUT8 || clut == NULL || count == 0) return;
-  if (count > LCD_CLUT_CACHE_MAX) count = LCD_CLUT_CACHE_MAX;
+  if (count > LCD_CLUT_HW_MAX) count = LCD_CLUT_HW_MAX;
 
-  /* Cart palette → [0..count); darkened twins → [count..2*count). */
-  for (uint16_t i = 0; i < count; i++) {
+  for (uint16_t i = 0; i < count; i++)
     active_clut[i] = clut[i];
-    clut_store_dark_twin(count + i, clut[i]);
+
+  /* Darkened twins at [count..2*count) only when they fit in the 256-slot
+   * hardware table. Pico-8 (count=32) still gets [32..64). A 256-colour
+   * cart fills the table and has no twin slots. */
+  clut_dark_twins = ((uint32_t)count * 2u) <= (uint32_t)LCD_CLUT_HW_MAX;
+  if (clut_dark_twins) {
+    for (uint16_t i = 0; i < count; i++)
+      clut_store_dark_twin(count + i, clut[i]);
   }
   active_clut_count = count;
   clut_push();

@@ -1503,7 +1503,9 @@ static void run_gwhb_homebrew(const char *path, uint8_t load_state, uint8_t star
  * gnw_core_meta_t (+ optional inline logo blobs). Unlike GWHB, the core
  * does not need to know how to zero its own BSS or pick an LCD mode: the
  * firmware does the former using the size read from metadata at scan
- * time, and classic cores always use the default RGB565 framebuffers.
+ * time, and the default LCD mode is RGB565. A core that declares a
+ * GNW_CORE_REGION_RAM_UC segment is switched to LUT8 by the loader
+ * before that payload is copied.
  *
  * emulators_scan_cores() probes every /cores/*.bin at boot and registers
  * one tab per valid core (see add_emulator_dynamic()); run_dynamic_core()
@@ -1557,10 +1559,19 @@ static bool gnw_core_probe(const char *path, gnw_core_meta_t *out_meta, uint16_t
         goto done;
     if (out_meta->segments[0].region != GNW_CORE_REGION_RAM_EMU)
         goto done;
-    for (uint32_t i = 0; i < out_meta->segments_count; i++) {
-        uint32_t region = out_meta->segments[i].region;
-        if (region != GNW_CORE_REGION_RAM_EMU && region != GNW_CORE_REGION_ITCM)
-            goto done;
+    {
+        uint32_t seen = 0;
+        for (uint32_t i = 0; i < out_meta->segments_count; i++) {
+            uint32_t region = out_meta->segments[i].region;
+            if (region != GNW_CORE_REGION_RAM_EMU &&
+                region != GNW_CORE_REGION_ITCM &&
+                region != GNW_CORE_REGION_RAM_UC)
+                goto done;
+            uint32_t bit = 1u << region;
+            if (seen & bit)
+                goto done; /* at most one segment per region */
+            seen |= bit;
+        }
     }
 
     for (uint32_t i = 0; i < out_meta->systems_count; i++) {
@@ -1701,6 +1712,10 @@ static uint8_t *dynamic_core_region_base(uint32_t region, uint32_t *out_max_len)
         if (out_max_len)
             *out_max_len = (uint32_t)&__ITCM_CORE_LENGTH__;
         return (uint8_t *)&__ITCM_CORE_START__;
+    case GNW_CORE_REGION_RAM_UC:
+        if (out_max_len)
+            *out_max_len = (uint32_t)&__RAM_UC_CORE_LENGTH__;
+        return (uint8_t *)&__RAM_UC_CORE_START__;
     default:
         if (out_max_len)
             *out_max_len = 0;
@@ -1715,8 +1730,11 @@ static uint8_t *dynamic_core_region_base(uint32_t region, uint32_t *out_max_len)
  * right file offset into it, zeroes `bss_size` bytes right after. For ITCM
  * segments, immediately bump-reserves that same code+bss span via
  * itc_malloc (after itc_init() by the caller) so the core's own later
- * itc_* allocations never collide with its fixed segment; the entry symbol
- * is never resolved at firmware link time, the core provides its own
+ * itc_* allocations never collide with its fixed segment. For RAM_UC
+ * segments the LCD is switched to LUT8 first (otherwise the copy would
+ * smash the RGB565 framebuffer), then the same span is carved out of
+ * lcd_get_bonus_pool() via lcd_claim_bonus_pool(). The entry symbol is
+ * never resolved at firmware link time, the core provides its own
  * trampoline (see cores/_template) because it is a completely separate ELF.
  * Also seeds `ram_start` to right past segment 0's code+bss before jumping
  * in — see the comment at that assignment below. */
@@ -1743,6 +1761,15 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
 
     uint32_t file_offset = CORE_HEADER_MIN_SIZE + (uint32_t)header_length;
 
+    /* LUT8 must be live before any RAM_UC memcpy: in RGB565 the 150 KiB
+     * window is the second framebuffer (uncached, scanned by LTDC). */
+    for (uint32_t i = 0; i < meta.segments_count; i++) {
+        if (meta.segments[i].region == GNW_CORE_REGION_RAM_UC) {
+            lcd_setup_framebuffers(LCD_MODE_LUT8);
+            break;
+        }
+    }
+
     for (uint32_t i = 0; i < meta.segments_count; i++) {
         const gnw_core_segment_t *seg = &meta.segments[i];
         uint32_t region_len = 0;
@@ -1755,9 +1782,9 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
          * would reject every valid ITCM segment (which is every core built
          * with CORE_EXTRA_SEGMENTS=itcm:..., e.g. cores/pce) as "too big"
          * and show the corrupted-installation screen. region_len is always
-         * a nonzero constant for RAM_EMU/ITCM and is explicitly zeroed only
-         * in the `default:` case, so it's an unambiguous invalid-region
-         * sentinel. */
+         * a nonzero constant for RAM_EMU/ITCM/RAM_UC and is explicitly
+         * zeroed only in the `default:` case, so it's an unambiguous
+         * invalid-region sentinel. */
         if (region_len == 0 || (uint64_t)seg->code_size + seg->bss_size > region_len) {
             show_corrupted_installation_screen();
             return;
@@ -1791,14 +1818,16 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
              * global constructors (gw_core_entry.S's .init_array loop runs
              * before CORE_ENTRY, e.g. cores/gb_tgbdual's operator new). */
             ram_start = (uint32_t)(base + seg->code_size + seg->bss_size);
-        } else {
-            /* Extra loadable segments are ITCM-only. Reserve the span in the
-             * ITCM bump so later itc_* allocs start past the loaded code+bss. */
+        } else if (seg->region == GNW_CORE_REGION_ITCM) {
+            /* Reserve the span in the ITCM bump so later itc_* allocs
+             * start past the loaded code+bss. */
             void *reserved = itc_malloc(seg->code_size + seg->bss_size);
             if (reserved != base) {
                 show_corrupted_installation_screen();
                 return;
             }
+        } else if (seg->region == GNW_CORE_REGION_RAM_UC) {
+            lcd_claim_bonus_pool((size_t)seg->code_size + seg->bss_size);
         }
 
         file_offset += seg->code_size;

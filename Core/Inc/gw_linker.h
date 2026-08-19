@@ -36,14 +36,15 @@ extern uint32_t __itcram_hot_end__;
 extern void * __RAM_EMU_START__[];
 extern uint32_t __RAM_EMU_END__;
 
-/* From ld/gnw_itcm_core.ld / ld/gnw_ahb_core.ld — fixed base+length a
+/* From ld/gnw_itcm_core.ld / ld/gnw_ram_uc_core.ld — fixed base+length a
  * dynamic core's non-RAM_EMU segments (see gnw_core_region_t) may target.
  * Plain linker-script constants, not section symbols: read as
- * (uint32_t)&__ITCM_CORE_START__ etc., same convention as __RAM_EMU_START__. */
+ * (uint32_t)&__ITCM_CORE_START__ etc., same convention as __RAM_EMU_START__.
+ * AHB/DTCM are firmware heaps (ahb_malloc / dtc_*), not load regions. */
 extern void * __ITCM_CORE_START__[];
 extern uint32_t __ITCM_CORE_LENGTH__;
-extern void * __AHB_CORE_START__[];
-extern uint32_t __AHB_CORE_LENGTH__;
+extern void * __RAM_UC_CORE_START__[];
+extern uint32_t __RAM_UC_CORE_LENGTH__;
 extern void * _OVERLAY_NES_LOAD_START[];
 extern uint8_t _OVERLAY_NES_SIZE;
 extern void * _OVERLAY_NES_BSS_START[];
@@ -137,11 +138,9 @@ extern void * _OVERLAY_CELESTE_BSS_START[];
 extern uint8_t _OVERLAY_CELESTE_BSS_SIZE;
 /* _OVERLAY_PICO8_LOAD_START/_SIZE/_BSS_START/_BSS_END/_BSS_SIZE removed:
  * they only ever existed for the firmware-compiled GPL install-prompt
- * stub (main_pico8_stub.c), which is no longer built — see the
- * .overlay_pico8 removal in STM32H7B0VBTx_SDCARD.ld/_FLASH.ld. The real
- * engine loads at the plain symbol __overlay_pico8_vma (extern'd directly
- * in rg_emulators.c, not via this header) and computes its own BSS
- * layout at link time. */
+ * stub (main_pico8_stub.c), which is no longer built. LUT8 extra core
+ * code now loads as a GNW_CORE_REGION_RAM_UC segment at
+ * __RAM_UC_CORE_START__ (ld/gnw_ram_uc_core.ld). */
 extern void * _OVERLAY_TAMA_LOAD_START[];
 extern uint8_t _OVERLAY_TAMA_SIZE;
 extern void * _OVERLAY_TAMA_BSS_START[];

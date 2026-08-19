@@ -56,19 +56,22 @@
 #                    every non-bridge object (.c/.cpp/.cxx/.cc/.S).
 #   CORE_LDSCRIPT    defaults to $(TEMPLATE_DIR)/core_ram_emu.ld. Point this
 #                    at your own script (INCLUDE-ing ld/gnw_itcm_core.ld /
-#                    ld/gnw_ahb_core.ld as needed) if you use CORE_EXTRA_SEGMENTS
+#                    ld/gnw_ram_uc_core.ld as needed) if you use CORE_EXTRA_SEGMENTS
 #                    — see cores/pce/pce_core.ld for an ITCM example.
 #   CORE_LDLIBS      extra -l flags, e.g. -lm (cores/md) or -lstdc++
 #                    (cores/a2600: Stella's std::string). Linked after -lgcc.
 #   CORE_EXTRA_SEGMENTS  space-separated "region:section" pairs for code/data
 #                    that must land in a fixed memory region other than
 #                    RAM_EMU (segment 0, always produced by TARGET_BIN below)
-#                    — e.g. "itcm:core_itcm" extracts the `.core_itcm` output
-#                    section (defined by your own CORE_LDSCRIPT) into
-#                    build/$(CORE_NAME)_core_itcm.bin via objcopy
+#                    — e.g. "itcm:core_itcm" or "ram_uc:core_ram_uc" extracts
+#                    the `.core_itcm` / `.core_ram_uc` output section (defined
+#                    by your own CORE_LDSCRIPT) into
+#                    build/$(CORE_NAME)_core_<region>.bin via objcopy
 #                    --only-section. Each pair needs a matching --segment
 #                    argument in the core's own `pack` target (see
-#                    tools/pack_core.py and cores/pce/Makefile).
+#                    tools/pack_core.py and cores/pce/Makefile). RAM_UC is
+#                    the LUT8 LCD bonus; the firmware switches to LUT8
+#                    before loading it.
 #   GCC_PATH         toolchain bin dir, same convention as the root Makefile
 #   OPT              optimization level, default -Os (code-size matters more
 #                     here than for the always-resident launcher: this is the
@@ -331,7 +334,7 @@ $(TARGET_ELF): $(C_OBJECTS) $(CXX_OBJECTS) $(ASM_OBJECTS) $(CORE_LDSCRIPT)
 # dump: a plain whole-ELF dump lays out every loadable section by absolute
 # address across ALL memory regions in one blob, so it silently produces a
 # multi-hundred-KB file full of zero padding (or worse, corrupts pack_core.py's
-# code_size math) the moment a second region (ITCM/AHB, via
+# code_size math) the moment a second region (ITCM/RAM_UC, via
 # CORE_EXTRA_SEGMENTS) exists anywhere in the link — explicit sections don't
 # have that problem since only sections placed in RAM_EMU are named here.
 $(TARGET_BIN): $(TARGET_ELF)

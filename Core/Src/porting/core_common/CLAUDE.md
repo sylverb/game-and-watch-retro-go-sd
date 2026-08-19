@@ -48,10 +48,13 @@ flowchart LR
 
 ## Load regions
 
-Packed segments may target **RAM_EMU** (always segment 0) and optionally
-**ITCM** (hot code). AHB/DTCM are not `gnw_core_region_t` values — they are
+Packed segments may target **RAM_EMU** (always segment 0), optionally
+**ITCM** (hot code), and optionally **RAM_UC** (LUT8 LCD bonus, 150 KiB
+at `__RAM_UC_CORE_START__` — firmware switches the LTDC to LUT8 before
+loading). AHB/DTCM are not `gnw_core_region_t` values — they are
 firmware dynamic pools (`malloc` / `dtc_*`); cores allocate from them at
-runtime via the ABI (`ahb_malloc`, `dtc_malloc`, `mem_ctl`).
+runtime via the ABI (`ahb_malloc`, `dtc_malloc`, `mem_ctl`). Leftover
+RAM_UC after the loaded code+bss is `lcd_get_bonus_pool()`.
 
 ## Porting a new core: checklist
 

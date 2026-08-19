@@ -5,7 +5,7 @@
  *
  * This file is both the default link script AND the memory-layout reference
  * for core authors. Read it once when you start a core; only fork it when
- * you need an extra ITCM region — see "Extending" below.
+ * you need an extra ITCM or RAM_UC region — see "Extending" below.
  *
  * Related pieces (not duplicated here):
  *   cores/_template/Makefile              — build / objcopy / pack rules
@@ -118,15 +118,23 @@
  *  Extending (multi-segment cores)
  * ============================================================================
  *
- * Most cores need only this script. If you need ITCM for hot code:
+ * Most cores need only this script. Extra regions:
  *
+ * ITCM (hot code):
  *   1. Copy this file to your core dir (e.g. my_core.ld) and set
  *      CORE_LDSCRIPT := my_core.ld
  *   2. INCLUDE ld/gnw_itcm_core.ld.
  *   3. Add MEMORY { ITCM ... } and output sections for it.
  *   4. Define __CORE_ITCM_CODE_END__ / __CORE_ITCM_BSS_END__.
- *   5. Wire CORE_EXTRA_SEGMENTS / let pack_core auto-detect .core_itcm.
- *      Reference: cores/pce/pce_core.ld, cores/gba/gba_core.ld.
+ *   5. Wire CORE_EXTRA_SEGMENTS=itcm:core_itcm / let pack_core auto-detect
+ *      .core_itcm. Reference: cores/pce/pce_core.ld, cores/gba/gba_core.ld.
+ *
+ * RAM_UC (LUT8 LCD bonus, 150 KiB at __RAM_UC_CORE_START__):
+ *   Same recipe with ld/gnw_ram_uc_core.ld, MEMORY { RAM_UC_CORE ... },
+ *   output section .core_ram_uc, symbols __CORE_RAM_UC_CODE_END__ /
+ *   __CORE_RAM_UC_BSS_END__, and CORE_EXTRA_SEGMENTS=ram_uc:core_ram_uc.
+ *   Firmware switches the LTDC to LUT8 before loading this segment.
+ *   The leftover after code+bss is lcd_get_bonus_pool().
  *
  * Do NOT place core segments in AHB or DTCM — those are firmware dynamic
  * pools (malloc heap / dtcm_* bump + stack). pack_core and gnw_core_probe

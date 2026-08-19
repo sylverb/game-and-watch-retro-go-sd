@@ -254,8 +254,8 @@ int odroid_overlay_draw_text_line(uint16_t x_pos, uint16_t y_pos, uint16_t width
  * the LCD bonus area freed when LUT8 shrinks the framebuffer footprint.
  *
  * Supported sizes (hand-decomposed into exactly 4 MPU regions):
- *   300 KB (RGB565, the full LCD pool)
- *   154 KB (LUT8, leaving 146 KB cacheable bonus)
+ *   300 KiB (RGB565, the full LCD pool)
+ *   150 KiB (LUT8, leaving 150 KiB cacheable bonus)
  *
  * Caller is responsible for HAL_MPU_Disable/Enable bracket — the function
  * only writes the region descriptors. */

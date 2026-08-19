@@ -21,7 +21,8 @@
  * like the old compile-time build did) and UP TO GNW_CORE_MAX_SEGMENTS
  * independently-loaded code+bss blobs, each targeting a different fixed
  * memory region (see gnw_core_region_t) instead of always landing in
- * RAM_EMU — e.g. PC Engine's CPU-hot code runs from ITCM for performance.
+ * RAM_EMU — e.g. PC Engine's CPU-hot code runs from ITCM, and a LUT8
+ * core can place a cold/overflow blob in the 150 KiB LCD bonus.
  *
  * Backwards-compat rules mirror gw_firmware_abi_t: only ADD fields inside
  * "reserved" (shrinking it), never reorder/remove/resize existing fields.
@@ -45,12 +46,16 @@ extern "C" {
  *
  *   RAM_EMU — always segment[0], entry trampoline at offset 0
  *   ITCM    — optional extra segment(s) for CPU-hot code (ld/gnw_itcm_core.ld)
+ *   RAM_UC  — optional extra segment in the LUT8 LCD bonus
+ *             (ld/gnw_ram_uc_core.ld). Firmware switches the LTDC to LUT8
+ *             before loading this region.
  *
  * AHB/DTCM are firmware dynamic pools (malloc / dtc_*), not load targets —
  * they are not part of this enum. */
 typedef enum {
     GNW_CORE_REGION_RAM_EMU = 0,
     GNW_CORE_REGION_ITCM    = 1,
+    GNW_CORE_REGION_RAM_UC  = 2,
 } gnw_core_region_t;
 
 /* How the launcher should populate a system's ROM browser list. GNW_PARSE_ROM
@@ -69,7 +74,9 @@ typedef enum {
  * followed by bss_size zeroed bytes. For ITCM segments, the firmware also
  * reserves code_size+bss_size via itc_malloc right after loading so the
  * core's later itc_* allocations never collide with the fixed segment —
- * see docs/PICO8_EXTERNAL_MODULE.md's "ITCM Back-Page Allocation". */
+ * see docs/PICO8_EXTERNAL_MODULE.md's "ITCM Back-Page Allocation". For
+ * RAM_UC segments, the same span is carved out of lcd_get_bonus_pool()
+ * via lcd_claim_bonus_pool(). */
 typedef struct {
     uint32_t region;    /* gnw_core_region_t */
     uint32_t code_size;
