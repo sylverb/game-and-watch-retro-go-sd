@@ -155,9 +155,12 @@ double core_strtod(const char *nptr, char **endptr) { return gw_firmware_abi()->
  * only emits them when it has proven the alignment itself), so those skip
  * the runtime check and go straight to the word-copy loop.
  *
- * Define GW_CORE_BRIDGE_DISABLE_SDK_MEMOPS to exclude these and provide
- * your own memcpy/memset/memmove/__aeabi_mem* (e.g. ITCM-placed versions). */
+ * Define GW_CORE_BRIDGE_DISABLE_SDK_MEMCPY / _MEMSET / _MEMMOVE to
+ * selectively exclude those real functions (the __aeabi_mem* helpers
+ * remain and call into memcpy/memset/memmove).
+ * Define GW_CORE_BRIDGE_DISABLE_SDK_MEMOPS to exclude the whole block. */
 #ifndef GW_CORE_BRIDGE_DISABLE_SDK_MEMOPS
+#ifndef GW_CORE_BRIDGE_DISABLE_SDK_MEMCPY
 void *memcpy(void *dst, const void *src, size_t n)
 {
     uint8_t *d = (uint8_t *)dst;
@@ -179,7 +182,9 @@ void *memcpy(void *dst, const void *src, size_t n)
     while (n--) *d++ = *s++;
     return dst;
 }
+#endif /* GW_CORE_BRIDGE_DISABLE_SDK_MEMCPY */
 
+#ifndef GW_CORE_BRIDGE_DISABLE_SDK_MEMMOVE
 void *memmove(void *dst, const void *src, size_t n)
 {
     uint8_t *d = (uint8_t *)dst;
@@ -194,7 +199,9 @@ void *memmove(void *dst, const void *src, size_t n)
     while (n--) *--d = *--s;
     return dst;
 }
+#endif /* GW_CORE_BRIDGE_DISABLE_SDK_MEMMOVE */
 
+#ifndef GW_CORE_BRIDGE_DISABLE_SDK_MEMSET
 void *memset(void *dst, int c, size_t n)
 {
     uint8_t *d = (uint8_t *)dst;
@@ -213,6 +220,7 @@ void *memset(void *dst, int c, size_t n)
     while (n--) *d++ = b;
     return dst;
 }
+#endif /* GW_CORE_BRIDGE_DISABLE_SDK_MEMSET */
 
 /* ARM EABI memory helpers the compiler emits instead of plain memcpy/
  * memset/memmove for struct copies, local-array init, etc. (AAPCS
