@@ -153,7 +153,11 @@ double core_strtod(const char *nptr, char **endptr) { return gw_firmware_abi()->
  * word-aligned. __aeabi_memcpy4/8 and __aeabi_memset4/8/__aeabi_memclr4/8
  * are compiler-guaranteed 4/8-byte aligned by construction (the compiler
  * only emits them when it has proven the alignment itself), so those skip
- * the runtime check and go straight to the word-copy loop. */
+ * the runtime check and go straight to the word-copy loop.
+ *
+ * Define GW_CORE_BRIDGE_DISABLE_SDK_MEMOPS to exclude these and provide
+ * your own memcpy/memset/memmove/__aeabi_mem* (e.g. ITCM-placed versions). */
+#ifndef GW_CORE_BRIDGE_DISABLE_SDK_MEMOPS
 void *memcpy(void *dst, const void *src, size_t n)
 {
     uint8_t *d = (uint8_t *)dst;
@@ -243,6 +247,7 @@ void __aeabi_memset8(void *d, size_t n, int c) { __aeabi_memset4(d, n, c); }
 void __aeabi_memclr(void *d, size_t n) { memset(d, 0, n); }
 void __aeabi_memclr4(void *d, size_t n) { __aeabi_memset4(d, n, 0); }
 void __aeabi_memclr8(void *d, size_t n) { __aeabi_memset4(d, n, 0); }
+#endif /* GW_CORE_BRIDGE_DISABLE_SDK_MEMOPS */
 
 /* ====================================================================
  * libc: ctype.h
@@ -265,6 +270,7 @@ void  core_qsort(void *base, size_t nmemb, size_t size, int (*compar)(const void
     gw_firmware_abi()->qsort(base, nmemb, size, compar);
 }
 double core_pow(double x, double y) { return gw_firmware_abi()->pow(x, y); }
+#ifndef GW_CORE_BRIDGE_DISABLE_SDK_MALLOC
 void  *core_malloc(size_t size) { return gw_firmware_abi()->malloc(size); }
 void   core_free(void *ptr) { gw_firmware_abi()->free(ptr); }
 void  *core_realloc(void *ptr, size_t size) { return gw_firmware_abi()->realloc(ptr, size); }
@@ -274,6 +280,7 @@ void  *core_calloc(size_t nmemb, size_t size)
 {
     return (void *)gw_firmware_abi()->mem_ctl(GW_MEM_OP_ALLOC, GW_MEM_AHB, nmemb, size);
 }
+#endif
 
 /* ====================================================================
  * libc: stdio.h
@@ -336,6 +343,11 @@ int core_snprintf(char *s, size_t n, const char *fmt, ...)
     int r = gw_firmware_abi()->vsnprintf(s, n, fmt, ap);
     va_end(ap);
     return r;
+}
+
+int core_vsnprintf(char *s, size_t n, const char *fmt, va_list ap)
+{
+    return gw_firmware_abi()->vsnprintf(s, n, fmt, ap);
 }
 
 /* Minimal LCG — FCEU_MemoryRand / NSF visuals only need non-crypto entropy. */
@@ -1230,10 +1242,12 @@ double core_log10(double x)
  * call core_*; this bridge object does NOT, so these wrappers stay as
  * malloc/free/... and satisfy libstdc++ without dragging in newlib.
  * ==================================================================== */
+#ifndef GW_CORE_BRIDGE_DISABLE_SDK_MALLOC
 void  *malloc(size_t size) { return core_malloc(size); }
 void  *calloc(size_t nmemb, size_t size) { return core_calloc(nmemb, size); }
 void   free(void *ptr) { core_free(ptr); }
 void  *realloc(void *ptr, size_t size) { return core_realloc(ptr, size); }
+#endif
 void   abort(void) { core_abort(); while (1) {} }
 void   exit(int status) { core_exit(status); while (1) {} }
 int    memcmp(const void *a, const void *b, size_t n) { return core_memcmp(a, b, n); }

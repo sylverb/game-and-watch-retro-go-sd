@@ -70,6 +70,7 @@ vfprintf core_vfprintf
 sprintf core_sprintf
 vsprintf core_vsprintf
 snprintf core_snprintf
+vsnprintf core_vsnprintf
 exit core_exit
 # --- libc: assert.h ---
 __assert_func core_assert_func
