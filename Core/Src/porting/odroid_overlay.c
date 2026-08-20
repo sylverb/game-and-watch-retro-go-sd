@@ -1873,7 +1873,9 @@ uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint
         /* Wait out the previous VBLANK reload — skipping the update (the old
          * `if (lcd_is_swap_pending()) return`) left one buffer with the
          * progress UI and the other with the pre-load frame, so consecutive
-         * swaps flickered between them. */
+         * swaps flickered between them.
+         * lcd_sleep_while_swap_pending() is timed out in gw_lcd.c so a stuck
+         * LTDC SRCR after overclock cannot freeze this bar forever. */
         lcd_sleep_while_swap_pending();
 
         odroid_overlay_draw_progress_bar(curr_lang->s_Caching_Game, progress);

@@ -211,11 +211,20 @@ uint32_t lcd_is_swap_pending(void)
 
 bool lcd_sleep_while_swap_pending(void)
 {
+  /* VBLANK reload normally clears SRCR within one frame (~16 ms). After a
+   * PLL rewrite (SystemClock_Config) LTDC can leave VBR/IMR stuck: an
+   * unbounded __WFI() loop freezes the UI (e.g. "Caching game" at 0%) and
+   * starves the window watchdog. Cap the wait and keep kicking WWDG. */
+  const uint32_t timeout_ms = 100;
+  uint32_t start = HAL_GetTick();
   uint32_t pending = false;
 
   while (lcd_is_swap_pending())
   {
     pending = true;
+    wdog_refresh();
+    if ((HAL_GetTick() - start) >= timeout_ms)
+      break;
     __WFI();
   }
 
