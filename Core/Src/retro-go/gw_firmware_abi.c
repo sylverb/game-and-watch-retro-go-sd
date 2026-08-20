@@ -389,7 +389,6 @@ const gw_firmware_abi_t g_firmware_abi = {
     .odroid_overlay_cache_file_in_flash_relocate =
         (uint8_t *(*)(const char *, uint32_t *, bool, gw_flash_relocate_cb_t))
             odroid_overlay_cache_file_in_flash_relocate,
-    .draw_error_screen                           = draw_error_screen,
     .odroid_sdcard_mkdir                         = odroid_sdcard_mkdir,
     .odroid_settings_app_int32_get               = odroid_settings_app_int32_get,
     .odroid_settings_app_int32_set               = odroid_settings_app_int32_set,

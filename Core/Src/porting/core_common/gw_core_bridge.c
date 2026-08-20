@@ -1129,11 +1129,6 @@ uint8_t *core_odroid_overlay_cache_file_in_flash_relocate(
         file_path, file_size_p, byte_swap, relocate_cb);
 }
 
-void core_draw_error_screen(const char *main_line, const char *line_1, const char *line_2)
-{
-    gw_firmware_abi()->draw_error_screen(main_line, line_1, line_2);
-}
-
 /* ====================================================================
  * v2 append: Music / media
  * ==================================================================== */

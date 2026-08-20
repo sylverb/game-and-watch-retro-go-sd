@@ -4,8 +4,6 @@
 #include "stdint.h"
 #include "rg_i18n_lang.h"
 
-#define ODROID_DIALOG_CHOICE_SEPARATOR {0x0F0F0F0E, "-", "-", -1, NULL}
-
 #define FONT_COUNT 9
 
 extern const char* gui_fonts[];
