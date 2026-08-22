@@ -733,6 +733,19 @@ uint32_t core_dma2d_m2m_rgb565_start(uint32_t src, uint32_t dst, uint16_t width,
     return gw_firmware_abi()->dma2d_m2m_rgb565_start(src, dst, width, height);
 }
 
+uint32_t core_dma2d_m2m_rgb565_start_ex(uint32_t src, uint32_t dst, uint16_t width, uint16_t height,
+                                        uint16_t src_offset, uint16_t dst_offset)
+{
+    return gw_firmware_abi()->dma2d_m2m_rgb565_start_ex(src, dst, width, height,
+                                                        src_offset, dst_offset);
+}
+
+uint32_t core_dma2d_r2m_rgb565_start(uint32_t color, uint32_t dst, uint16_t width, uint16_t height,
+                                     uint16_t dst_offset)
+{
+    return gw_firmware_abi()->dma2d_r2m_rgb565_start(color, dst, width, height, dst_offset);
+}
+
 uint32_t core_dma2d_poll(uint32_t timeout_ms)
 {
     return gw_firmware_abi()->dma2d_poll(timeout_ms);

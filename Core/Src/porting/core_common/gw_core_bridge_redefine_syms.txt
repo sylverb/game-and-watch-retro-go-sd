@@ -130,6 +130,8 @@ odroid_system_emu_init core_odroid_system_emu_init
 odroid_system_emu_load_state core_odroid_system_emu_load_state
 odroid_system_get_app core_odroid_system_get_app
 dma2d_m2m_rgb565_start core_dma2d_m2m_rgb565_start
+dma2d_m2m_rgb565_start_ex core_dma2d_m2m_rgb565_start_ex
+dma2d_r2m_rgb565_start core_dma2d_r2m_rgb565_start
 dma2d_poll core_dma2d_poll
 odroid_audio_mute core_odroid_audio_mute
 # --- retro-go: input / display ---

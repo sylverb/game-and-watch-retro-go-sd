@@ -587,6 +587,26 @@ typedef struct {
     void     (*odroid_overlay_draw_fill_rect)(int x, int y, int width, int height,
                                               uint16_t color);
 
+    /* ================================================================
+     * v2 append: DMA2D R2M solid RGB565 fill for homebrews/cores.
+     * Same HAL handle as dma2d_m2m_rgb565_start (re-Init every start).
+     * color = RGB565; dst_offset = output line offset in pixels (OOR),
+     * i.e. pitch_in_pixels - width (0 for a tightly packed rectangle).
+     * Start returns 0 on success; poll via dma2d_poll().
+     * ================================================================ */
+    uint32_t (*dma2d_r2m_rgb565_start)(uint32_t color, uint32_t dst,
+                                       uint16_t width, uint16_t height,
+                                       uint16_t dst_offset);
+
+    /* ================================================================
+     * v2 append: DMA2D M2M RGB565 with line offsets (pitch - width).
+     * src_offset / dst_offset are in pixels (FGOR / OOR). The legacy
+     * dma2d_m2m_rgb565_start is equivalent to offsets of 0.
+     * ================================================================ */
+    uint32_t (*dma2d_m2m_rgb565_start_ex)(uint32_t src, uint32_t dst,
+                                          uint16_t width, uint16_t height,
+                                          uint16_t src_offset, uint16_t dst_offset);
+
 } gw_firmware_abi_t;
 
 /* The firmware publishes this instance at GW_FIRMWARE_ABI_ADDRESS via the

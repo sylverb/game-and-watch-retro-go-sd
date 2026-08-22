@@ -76,10 +76,15 @@ extern "C" {
 extern uint32_t __CORE_CODE_END__;
 extern uint32_t __CORE_BSS_END__;
 
-/* DMA2D M2M RGB565 (ABI). Firmware owns the HAL handle; objcopy remaps
+/* DMA2D helpers (ABI). Firmware owns the HAL handle; objcopy remaps
  * these names to core_dma2d_* trampolines. Start returns 0 on success;
- * poll returns HAL_StatusTypeDef (HAL_OK=0, HAL_TIMEOUT=3, …). */
+ * poll returns HAL_StatusTypeDef (HAL_OK=0, HAL_TIMEOUT=3, …).
+ * Offsets are line skips in pixels (pitch - width). R2M color is RGB565. */
 uint32_t dma2d_m2m_rgb565_start(uint32_t src, uint32_t dst, uint16_t width, uint16_t height);
+uint32_t dma2d_m2m_rgb565_start_ex(uint32_t src, uint32_t dst, uint16_t width, uint16_t height,
+                                   uint16_t src_offset, uint16_t dst_offset);
+uint32_t dma2d_r2m_rgb565_start(uint32_t color, uint32_t dst, uint16_t width, uint16_t height,
+                                uint16_t dst_offset);
 uint32_t dma2d_poll(uint32_t timeout_ms);
 
 /* One-time bridge setup. Currently a no-op placeholder (all state above is
