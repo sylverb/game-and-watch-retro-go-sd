@@ -20,6 +20,8 @@
 #define CONFIG_MAGIC 0xcafef00d
 #define CORE_CFG_MAGIC 0x52474346u /* 'RGCF' */
 #define CORE_CFG_VERSION 1
+#define CORE_CFG_USER_SLOTS 16
+#define CORE_CFG_USER_KEY_MAX 12 /* matches ESP "%.12s" app_int32 key budget */
 
 #if !defined  (COVERFLOW)
   #define COVERFLOW 0
@@ -46,6 +48,11 @@ static const char* Key_DispScaling = "DispScaling";
 static const char* Key_DispFilter = "DispFilter";
 static const char* Key_DispOverscan = "DispOverscan";
 
+typedef struct {
+    char key[CORE_CFG_USER_KEY_MAX]; /* empty key[0] = free slot */
+    int32_t value;
+} core_cfg_user_entry_t;
+
 typedef struct app_config {
     uint8_t region;
     uint8_t palette;
@@ -55,6 +62,7 @@ typedef struct app_config {
     uint8_t sprite_limit;
     uint8_t disp_rotation;
     uint8_t reserved;
+    core_cfg_user_entry_t user[CORE_CFG_USER_SLOTS];
 } app_config_t;
 
 typedef struct {
@@ -117,6 +125,7 @@ static const app_config_t app_config_defaults = {
     .sprite_limit = 1,
     .disp_rotation = ODROID_DISPLAY_ROTATION_AUTO,
     .reserved = 0,
+    .user = {{0}},
 };
 
 static const persistent_config_t persistent_config_default = {
@@ -299,6 +308,37 @@ static void core_cfg_mark_dirty(void)
 {
     if (core_cfg_bound)
         core_cfg_dirty = true;
+}
+
+/* Find a user KV slot by key; optionally allocate an empty slot. */
+static int core_cfg_user_find(app_config_t *cfg, const char *key, bool create)
+{
+    int free_slot = -1;
+    char truncated[CORE_CFG_USER_KEY_MAX];
+
+    if (!cfg || !key || !key[0])
+        return -1;
+
+    strncpy(truncated, key, CORE_CFG_USER_KEY_MAX - 1);
+    truncated[CORE_CFG_USER_KEY_MAX - 1] = '\0';
+
+    for (int i = 0; i < CORE_CFG_USER_SLOTS; i++) {
+        if (cfg->user[i].key[0] == '\0') {
+            if (create && free_slot < 0)
+                free_slot = i;
+            continue;
+        }
+        if (strcmp(cfg->user[i].key, truncated) == 0)
+            return i;
+    }
+
+    if (create && free_slot >= 0) {
+        strncpy(cfg->user[free_slot].key, truncated, CORE_CFG_USER_KEY_MAX - 1);
+        cfg->user[free_slot].key[CORE_CFG_USER_KEY_MAX - 1] = '\0';
+        cfg->user[free_slot].value = 0;
+        return free_slot;
+    }
+    return -1;
 }
 
 void odroid_settings_init()
@@ -570,6 +610,11 @@ int32_t odroid_settings_app_int32_get(const char *key, int32_t default_value)
         return cfg->disp_overscan;
     if (strcmp(key, Key_DispRotation) == 0)
         return cfg->disp_rotation;
+
+    /* Arbitrary per-core / homebrew keys (ESP NVS parity). */
+    int slot = core_cfg_user_find(cfg, key, false);
+    if (slot >= 0)
+        return cfg->user[slot].value;
     return default_value;
 }
 
@@ -592,8 +637,14 @@ void odroid_settings_app_int32_set(const char *key, int32_t value)
         cfg->disp_overscan = (uint8_t)value;
     else if (strcmp(key, Key_DispRotation) == 0)
         cfg->disp_rotation = (uint8_t)value;
-    else
-        return;
+    else {
+        int slot = core_cfg_user_find(cfg, key, true);
+        if (slot < 0) {
+            printf("odroid_settings_app_int32_set: no free user slot for '%s'\n", key);
+            return;
+        }
+        cfg->user[slot].value = value;
+    }
     core_cfg_mark_dirty();
 }
 

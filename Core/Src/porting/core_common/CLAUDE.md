@@ -123,9 +123,10 @@ blob (that only holds launcher-wide settings). On launch the firmware binds:
 | Multi-tab core (same `.bin`) | one shared `/data/<stem>.cfg` |
 | `/homebrews/<stem>.bin` | `/data/homebrew/<stem>.cfg` |
 
-Format: magic `RGCF`, version 1, `app_config_t` (palette/scaling/filter/…),
-crc32. Cores keep using `odroid_settings_*` / `app_int32_*` — the bind in
-`emulator_start()` routes them into the active `.cfg`.
+Format: magic `RGCF`, version 1, `app_config_t` (palette/scaling/filter/…
+plus up to 16 arbitrary `app_int32` user keys ≤11 chars), crc32. Cores keep
+using `odroid_settings_*` / `app_int32_*` — the bind in `emulator_start()`
+routes them into the active `.cfg`.
 
 Homebrew payloads and Zelda3/SMW assets live under **`/homebrews/`** (not
 `/roms/homebrew/`). Covers remain `/covers/homebrew/<stem>.img`. Project

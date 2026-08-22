@@ -104,17 +104,21 @@ static odroid_display_backlight_t gw_abi_odroid_display_get_backlight(void)
     return odroid_display_get_backlight();
 }
 
-/* DMA2D M2M RGB565 for external cores. Own handle (JPEG has another);
+/* DMA2D M2M / R2M for external cores. Own handle (JPEG has another);
  * both drive the same peripheral — START always re-Inits + ConfigLayer. */
 static DMA2D_HandleTypeDef gw_abi_dma2d;
 
-static uint32_t gw_abi_dma2d_m2m_rgb565_start(uint32_t src, uint32_t dst,
-                                             uint16_t width, uint16_t height)
+static uint32_t gw_abi_dma2d_m2m_rgb565_start_ex(uint32_t src, uint32_t dst,
+                                                 uint16_t width, uint16_t height,
+                                                 uint16_t src_offset, uint16_t dst_offset)
 {
+    if (width == 0 || height == 0)
+        return 1;
+
     gw_abi_dma2d.Instance = DMA2D;
     gw_abi_dma2d.Init.Mode = DMA2D_M2M;
     gw_abi_dma2d.Init.ColorMode = DMA2D_OUTPUT_RGB565;
-    gw_abi_dma2d.Init.OutputOffset = 0;
+    gw_abi_dma2d.Init.OutputOffset = dst_offset;
     gw_abi_dma2d.Init.AlphaInverted = DMA2D_REGULAR_ALPHA;
     gw_abi_dma2d.Init.RedBlueSwap = DMA2D_RB_REGULAR;
     gw_abi_dma2d.Init.BytesSwap = DMA2D_BYTES_REGULAR;
@@ -123,7 +127,7 @@ static uint32_t gw_abi_dma2d_m2m_rgb565_start(uint32_t src, uint32_t dst,
         return 1;
 
     gw_abi_dma2d.LayerCfg[1].InputColorMode = DMA2D_INPUT_RGB565;
-    gw_abi_dma2d.LayerCfg[1].InputOffset = 0;
+    gw_abi_dma2d.LayerCfg[1].InputOffset = src_offset;
     gw_abi_dma2d.LayerCfg[1].AlphaMode = DMA2D_NO_MODIF_ALPHA;
     gw_abi_dma2d.LayerCfg[1].InputAlpha = 0xFF;
     gw_abi_dma2d.LayerCfg[1].AlphaInverted = DMA2D_REGULAR_ALPHA;
@@ -136,9 +140,50 @@ static uint32_t gw_abi_dma2d_m2m_rgb565_start(uint32_t src, uint32_t dst,
     return 0;
 }
 
+static uint32_t gw_abi_dma2d_m2m_rgb565_start(uint32_t src, uint32_t dst,
+                                             uint16_t width, uint16_t height)
+{
+    return gw_abi_dma2d_m2m_rgb565_start_ex(src, dst, width, height, 0, 0);
+}
+
 static uint32_t gw_abi_dma2d_poll(uint32_t timeout_ms)
 {
     return (uint32_t)HAL_DMA2D_PollForTransfer(&gw_abi_dma2d, timeout_ms);
+}
+
+/* Expand RGB565 → ARGB8888 layout expected by HAL_DMA2D_Start(R2M). */
+static uint32_t gw_abi_rgb565_to_argb8888(uint32_t color)
+{
+    uint32_t c = color & 0xFFFFu;
+    uint32_t r5 = (c >> 11) & 0x1Fu;
+    uint32_t g6 = (c >> 5) & 0x3Fu;
+    uint32_t b5 = c & 0x1Fu;
+
+    return 0xFF000000u | (r5 << 19) | (g6 << 10) | (b5 << 3);
+}
+
+static uint32_t gw_abi_dma2d_r2m_rgb565_start(uint32_t color, uint32_t dst,
+                                              uint16_t width, uint16_t height,
+                                              uint16_t dst_offset)
+{
+    if (width == 0 || height == 0)
+        return 1;
+
+    gw_abi_dma2d.Instance = DMA2D;
+    gw_abi_dma2d.Init.Mode = DMA2D_R2M;
+    gw_abi_dma2d.Init.ColorMode = DMA2D_OUTPUT_RGB565;
+    gw_abi_dma2d.Init.OutputOffset = dst_offset;
+    gw_abi_dma2d.Init.AlphaInverted = DMA2D_REGULAR_ALPHA;
+    gw_abi_dma2d.Init.RedBlueSwap = DMA2D_RB_REGULAR;
+    gw_abi_dma2d.Init.BytesSwap = DMA2D_BYTES_REGULAR;
+    gw_abi_dma2d.Init.LineOffsetMode = DMA2D_LOM_PIXELS;
+    if (HAL_DMA2D_Init(&gw_abi_dma2d) != HAL_OK)
+        return 1;
+
+    if (HAL_DMA2D_Start(&gw_abi_dma2d, gw_abi_rgb565_to_argb8888(color),
+                        dst, width, height) != HAL_OK)
+        return 1;
+    return 0;
 }
 
 /* newlib's __errno is not in a public header on all targets. */
@@ -503,4 +548,10 @@ const gw_firmware_abi_t g_firmware_abi = {
     .odroid_overlay_get_font_size  = odroid_overlay_get_font_size,
     .odroid_overlay_get_font_width = odroid_overlay_get_font_width,
     .odroid_overlay_draw_fill_rect = odroid_overlay_draw_fill_rect,
+
+    /* v2 append: DMA2D R2M solid RGB565 fill */
+    .dma2d_r2m_rgb565_start      = gw_abi_dma2d_r2m_rgb565_start,
+
+    /* v2 append: DMA2D M2M RGB565 with src/dst line offsets */
+    .dma2d_m2m_rgb565_start_ex   = gw_abi_dma2d_m2m_rgb565_start_ex,
 };
