@@ -24,6 +24,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 import struct
 import subprocess
 import sys
@@ -44,14 +45,24 @@ assert META_STRUCT_SIZE == 96, META_STRUCT_SIZE
 
 
 def parse_version(spec: str) -> tuple[int, int, int]:
+    """Parse X.Y.Z / git describe / NOTAG into (major, minor, patch).
+
+    Only the leading X.Y.Z is stored in the header (3 bytes); the full
+    describe string is for build logs / Makefile only. NOTAG / empty → 0.0.0.
+    """
     s = spec.strip()
+    if not s or s.upper() == "NOTAG":
+        return 0, 0, 0
     if s[:1] in ("v", "V"):
         s = s[1:]
-    parts = s.split(".")
-    if len(parts) != 3:
-        sys.exit(f"error: --version expects X.Y.Z, got {spec!r}")
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", s)
+    if not m:
+        sys.exit(
+            f"error: --version expects X.Y.Z or git describe (vX.Y.Z…), "
+            f"or NOTAG; got {spec!r}"
+        )
     try:
-        major, minor, patch = (int(p) for p in parts)
+        major, minor, patch = (int(m.group(i)) for i in (1, 2, 3))
     except ValueError:
         sys.exit(f"error: --version components must be integers, got {spec!r}")
     for name, val in (("major", major), ("minor", minor), ("patch", patch)):
@@ -172,7 +183,8 @@ def main() -> None:
     ap.add_argument("--bin", type=Path, required=True,
                     help="flat RAM_EMU payload (objcopy -O binary)")
     ap.add_argument("--name", required=True, help="display name (max 31 bytes)")
-    ap.add_argument("--version", default="1.0.0", help="X.Y.Z (default: %(default)s)")
+    ap.add_argument("--version", default="1.0.0",
+                    help="X.Y.Z, git describe (vX.Y.Z…), or NOTAG → 0.0.0 (default: %(default)s)")
     ap.add_argument("--cover", type=Path, default=None,
                     help="optional JPEG cover (<= 10 KiB)")
     ap.add_argument("--flags", type=lambda s: int(s, 0), default=0)
