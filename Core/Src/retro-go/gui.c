@@ -172,7 +172,7 @@ void gui_apply_colors_to_overlay_clut(void)
         curr_colors->bg_c, curr_colors->main_c,
         curr_colors->sel_c, curr_colors->dis_c,
     };
-    uint32_t rgb888[4];
+    uint32_t rgb888[LCD_OVERLAY_CLUT_MAX];
     for (int i = 0; i < 4; i++) {
         uint16_t c = rgb565[i];
         /* RGB565 → RGB888 with bit-replication for full 0..255 range. */
@@ -184,7 +184,12 @@ void gui_apply_colors_to_overlay_clut(void)
         uint32_t b8 = (b5 << 3) | (b5 >> 2);
         rgb888[i] = (r8 << 16) | (g8 << 8) | b8;
     }
-    lcd_set_overlay_clut(rgb888, 4);
+    /* In-game HUD: white bars/icons + gray panel where letterbox has no
+     * game pixels to darken (true alpha is impossible in LUT8). */
+    rgb888[LCD_OVERLAY_CLUT_WHITE] = 0x00FFFFFFu;
+    rgb888[LCD_OVERLAY_CLUT_GRAY]  = 0x00404040u;
+    rgb888[LCD_OVERLAY_CLUT_GRAY_DARK] = 0x00202020u;
+    lcd_set_overlay_clut(rgb888, LCD_OVERLAY_CLUT_MAX);
 }
 
 static char str_buffer[128];

@@ -145,24 +145,49 @@ void lcd_convert_lut8_to_rgb565(const uint8_t *src, uint16_t *dst, size_t count,
 
 /* Reserved CLUT range for Retro-Go menu/overlay colors. Small palettes
  * (pico-8) use [0..32) + darkened twins at [32..64); we reserve
- * [64..64+MAX) for the active theme's colors. A 256-colour cart fills
- * the whole LTDC table, so these overlay slots overwrite cart[64..]
- * for the duration of the menu.
+ * [64..64+MAX) for the active theme's colors past the twins.
+ * A 256-colour cart fills the whole LTDC table: overlay slots must NOT
+ * stay stamped over cart[64..] during gameplay (Doom PLAYPAL / NES).
+ * Call lcd_overlay_clut_begin()/end() around pause/HUD chrome so theme
+ * colours are applied only while that chrome is visible.
  * No darkened twins are stored for the menu — menu pixels are drawn
  * AFTER odroid_overlay_darken_all(), so they never need a "darkened
- * menu pixel" lookup. (Side effect: lcd_pen_darken on an already-drawn
- * menu pixel falls back to black via the +0x20 OR landing on an
- * unprogrammed slot — acceptable for the rare case.)
- * MAX matches colors_t's 4 fields; bump if more menu colors get added. */
+ * menu pixel" lookup.
+ * MAX is theme (4) + HUD white + panel gray + empty-bar darker gray. */
 #define LCD_OVERLAY_CLUT_BASE  0x40   /* index 64 */
-#define LCD_OVERLAY_CLUT_MAX   4
+#define LCD_OVERLAY_CLUT_MAX   7
+#define LCD_OVERLAY_CLUT_WHITE 4      /* pure white — volume/brightness bars */
+#define LCD_OVERLAY_CLUT_GRAY  5      /* ~25% gray — HUD panel fallback */
+#define LCD_OVERLAY_CLUT_GRAY_DARK 6  /* ~12% gray — empty level boxes */
 
-/* Register the overlay theme colors (RGB888 0x00RRGGBB). Re-programs the
- * hardware CLUT preserving the cart palette. lcd_pack_color() will then
- * exact-match the registered colors instead of nearest-matching them
- * against the cart palette. Call whenever the user picks a different
- * theme. No-op when not in LUT8 mode. */
+/* Register the overlay theme colors (RGB888 0x00RRGGBB). Saves them for
+ * lcd_pack_color() exact-match and for begin/end. When overlay slots sit
+ * past the cart/twins they are also pushed to the live CLUT; otherwise
+ * only begin() stamps them (so 256-colour carts keep PLAYPAL intact).
+ * Call whenever the user picks a different theme. */
 void lcd_set_overlay_clut(const uint32_t *colors, uint16_t count);
+
+/* Temporarily stamp saved overlay colours into the live CLUT (saving any
+ * cart entries they overwrite). Nested begin/end pairs are refcounted.
+ * Pair with lcd_overlay_clut_end() after pause/HUD drawing. */
+void lcd_overlay_clut_begin(void);
+
+/* Pop one begin(). When the last nest exits and overlay collided with the
+ * cart, restore cart colours. Returns 1 if the cart CLUT was restored. */
+int lcd_overlay_clut_end(void);
+
+/* 1 if the next lcd_overlay_clut_end() will restore cart slots — callers
+ * should clear chrome pixels first to avoid a one-frame colour flash. */
+int lcd_overlay_clut_end_will_restore(void);
+
+/* Drop every begin() nest and restore cart colours when they collided.
+ * Use after pause exit (buffers already cleared). */
+void lcd_overlay_clut_end_all(void);
+
+/* Sum of R+G+B for a CLUT index (0..765). Overlay / out-of-range → 0.
+ * Used by the in-game HUD to treat near-black game pixels like letterbox
+ * (stamp solid gray — darken alone stays invisible on black). */
+int lcd_clut_luma_sum(uint8_t idx);
 
 /* Pack an RGB565 color value for the current LCD pixel format.
  *  - RGB565 mode: returns `rgb565` unchanged (write as uint16_t to fb).
@@ -183,15 +208,26 @@ int lcd_get_mode(void);
  * is fixed at compile time (RGB565) and would overflow in LUT8. */
 size_t lcd_get_frame_size(void);
 
-/* Bit set on a CLUT index byte to map it to its precomputed darkened
- * twin. lcd_set_clut() automatically programs CLUT slots [count..2*count)
- * with darkened RGB versions of slots [0..count), so a fullscreen darken
- * is simply `fb[i] |= LCD_DARKEN_BIT;` — no per-pixel approximation, the
- * LTDC CLUT does the lookup at scanout. */
-#define LCD_DARKEN_BIT  0x20  /* index +32: darkened twin slot */
+/* Historical pico-8 shortcut: with count==32, twins live at [32..64) so
+ * `idx | LCD_DARKEN_BIT` == `idx + count`. Prefer lcd_darken_index() /
+ * lcd_darken_active_buffer() — they use +count (or an RGB nearest-match
+ * fallback when a 256-colour cart left no twin slots). */
+#define LCD_DARKEN_BIT  0x20  /* index +32: darkened twin when count==32 */
 
 /* Darken percent applied to entries [count..2*count). 40 = 40% darker. */
 #define LCD_DARKEN_PERCENT  40
+
+/* 1 if lcd_set_clut() programmed darkened twins at [count..2*count). */
+int lcd_clut_has_dark_twins(void);
+
+/* Map one LUT8 index to its darkened form (twin slot, or nearest-match
+ * of a darkened RGB when twins are unavailable). Index 0 stays 0 so
+ * letterbox clears remain black. */
+uint8_t lcd_darken_index(uint8_t idx);
+
+/* Fullscreen darken of the active framebuffer in LUT8 mode. No-op in
+ * RGB565 (callers keep using get_darken_pixel there). */
+void lcd_darken_active_buffer(void);
 
 /* ----------------------------------------------------------------------
  * Mode-agnostic overlay drawing helper ("pen").
@@ -246,19 +282,14 @@ static inline void lcd_pen_run(const lcd_pen_t *p, int off, int count)
  * RGB565 path: halves each channel and adds a small constant — calling it
  * twice on the same pixel further darkens (asymptote ~ #2104 dark grey).
  *
- * LUT8 path: ORs LCD_DARKEN_BIT to hit the precomputed darkened twin in
- * the CLUT. A naive OR is idempotent, which makes overlays that rely on
- * "darken-of-darken" as a third tier (e.g. volume/brightness empty-cell
- * boxes drawn over an already-darkened rounded background) collapse into
- * the background. Match the RGB565 behavior by detecting the
- * already-darkened case and dropping to CLUT index 0 (black on the
- * active palette) so the second darken is visibly deeper. */
+ * LUT8 path: lcd_darken_index() — twin at idx+count when available, else
+ * nearest darkened RGB. A second darken on an already-darkened twin drops
+ * to index 0 (same “third tier” behaviour as the old DARKEN_BIT path). */
 static inline void lcd_pen_darken(const lcd_pen_t *p, int off)
 {
     if (p->is_lut8) {
         uint8_t *q = &((uint8_t *)p->fb)[off];
-        if (*q & LCD_DARKEN_BIT) *q = 0;
-        else                     *q |= LCD_DARKEN_BIT;
+        *q = lcd_darken_index(*q);
     } else {
         uint16_t *q = &((uint16_t *)p->fb)[off];
         *q = (uint16_t)(((*q >> 1) & 0x7BEF) + 0x2104);

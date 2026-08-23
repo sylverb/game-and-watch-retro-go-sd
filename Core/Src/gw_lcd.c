@@ -311,6 +311,10 @@ static size_t lcd_bonus_total(void)
   return (pool > fb_block) ? (pool - fb_block) : 0;
 }
 
+static void clut_apply_saved_overlay(void);
+static void clut_rebuild_darken_map(void);
+static void clut_push(void); /* defined with CLUT helpers below */
+
 void lcd_setup_framebuffers(lcd_mode_t mode)
 {
   uint8_t *base = __lcd_pool_start__;
@@ -362,8 +366,15 @@ void lcd_setup_framebuffers(lcd_mode_t mode)
    * without tearing. lcd_swap() will point LTDC at the just-drawn buffer. */
   HAL_LTDC_SetPixelFormat(&hltdc, pixel_format, 0);
   HAL_LTDC_SetAddress_NoReload(&hltdc, (uint32_t)framebuffer2, 0);
-  if (mode == LCD_MODE_LUT8)
+  if (mode == LCD_MODE_LUT8) {
+    /* Theme colours were stored while the launcher was still RGB565 —
+     * stamp them into the live CLUT now so the first core frame can
+     * lcd_pack_color() the in-game HUD exactly. */
+    clut_apply_saved_overlay();
+    clut_rebuild_darken_map();
+    clut_push();
     HAL_LTDC_EnableCLUT_NoReload(&hltdc, 0);
+  }
   HAL_LTDC_Reload(&hltdc, LTDC_RELOAD_VERTICAL_BLANKING);
 
   /* MPU follow-up: re-cover the LCD pool so only the active framebuffer
@@ -425,27 +436,89 @@ void lcd_claim_bonus_pool(size_t nbytes)
  *                        otherwise it overlaps cart/twin slots and the
  *                        overlay rewrite wins while the menu is up
  *
- *   Full 256-colour palettes (SNES CGRAM, Doom PLAYPAL):
+ *   Full 256-colour palettes (NES, Doom PLAYPAL):
  *     [0..256)           cart palette; no room for darkened twins
- *     overlay slots still live at 0x40 and overwrite cart[64..67]
- *     while the in-game menu is drawn (restored on the next lcd_set_clut)
+ *     overlay at 0x40 collides with cart[64..] — do NOT keep it stamped
+ *     after lcd_set_clut(); lcd_overlay_clut_begin()/end() apply it only
+ *     while pause/HUD chrome is drawn, then restore the cart slots
  *
  * No darkened-twin slots for the overlay — see gw_lcd.h for rationale.
- * Setting LCD_DARKEN_BIT (0x20) on a cart pixel byte switches it to the
- * darker twin when twins were programmed; on a 256-colour cart that bit
- * just selects another cart colour. */
+ * Twins are selected with idx+count (see lcd_darken_index). The old
+ * LCD_DARKEN_BIT (0x20) OR only matches that when count==32; on a
+ * 256-colour cart there are no twins and that OR picked another cart
+ * colour (NES letterbox 0 → $20 white). */
 #define LCD_CLUT_HW_MAX  256
 static uint32_t active_clut[LCD_CLUT_HW_MAX];
 static uint16_t active_clut_count   = 0;   /* cart entries in [0..count) */
 static uint16_t overlay_clut_count  = 0;   /* overlay entries in [BASE..BASE+count) */
 static uint8_t  clut_dark_twins     = 0;   /* twins stored at [count..2*count) */
+/* Survives lcd_set_clut() — used by lcd_pack_color + begin/end. */
+static uint32_t overlay_clut_saved[LCD_OVERLAY_CLUT_MAX];
+/* Cart RGB under the overlay window, saved when begin() stamps over them. */
+static uint32_t cart_clut_under_overlay[LCD_OVERLAY_CLUT_MAX];
+static uint8_t  overlay_clut_live = 0;     /* 1 if overlay colours are in active_clut */
+static uint8_t  overlay_clut_depth = 0;    /* nested begin()/end() for pause dialogs */
+/* O(1) darken for lcd_darken_index / HUD (rebuilt on set_clut). */
+static uint8_t  clut_darken_map[LCD_CLUT_HW_MAX];
+static uint8_t  clut_darken_map_valid = 0;
+
+static void clut_rebuild_darken_map(void); /* defined after clut_nearest_cart */
+
+static int clut_cart_span(void)
+{
+  if (clut_dark_twins)
+    return (int)(2u * active_clut_count);
+  return (int)active_clut_count;
+}
+
+/* Overlay window sits inside cart (or twin) slots — stamping permanently
+ * would corrupt PLAYPAL/CGRAM. */
+static int overlay_collides_with_cart(void)
+{
+  if (overlay_clut_count == 0)
+    return 0;
+  return (LCD_OVERLAY_CLUT_BASE + (int)overlay_clut_count) <= clut_cart_span();
+}
+
+static void clut_cache_cart_under_overlay(void)
+{
+  if (!overlay_collides_with_cart())
+    return;
+  for (uint16_t i = 0; i < overlay_clut_count; i++) {
+    uint16_t idx = (uint16_t)(LCD_OVERLAY_CLUT_BASE + i);
+    if (idx < active_clut_count)
+      cart_clut_under_overlay[i] = active_clut[idx];
+  }
+}
+
+static void clut_apply_saved_overlay(void)
+{
+  if (overlay_clut_count == 0)
+    return;
+  if (!overlay_clut_live)
+    clut_cache_cart_under_overlay();
+  for (uint16_t i = 0; i < overlay_clut_count; i++)
+    active_clut[LCD_OVERLAY_CLUT_BASE + i] = overlay_clut_saved[i];
+  overlay_clut_live = 1;
+}
+
+static void clut_restore_cart_under_overlay(void)
+{
+  if (!overlay_clut_live || !overlay_collides_with_cart())
+    return;
+  for (uint16_t i = 0; i < overlay_clut_count; i++) {
+    uint16_t idx = (uint16_t)(LCD_OVERLAY_CLUT_BASE + i);
+    if (idx < active_clut_count)
+      active_clut[idx] = cart_clut_under_overlay[i];
+  }
+  overlay_clut_live = 0;
+}
 
 static int clut_hw_total(void)
 {
-  int total = (int)active_clut_count;
-  if (clut_dark_twins)
-    total = (int)(2u * active_clut_count);
-  if (overlay_clut_count > 0) {
+  int total = clut_cart_span();
+  if (overlay_clut_count > 0 &&
+      (overlay_clut_live || !overlay_collides_with_cart())) {
     int overlay_end = LCD_OVERLAY_CLUT_BASE + overlay_clut_count;
     if (overlay_end > total) total = overlay_end;
   }
@@ -558,7 +631,130 @@ void lcd_set_clut(const uint32_t *clut, uint16_t count)
       clut_store_dark_twin(count + i, clut[i]);
   }
   active_clut_count = count;
+  overlay_clut_live = 0;
+  overlay_clut_depth = 0;
+
+  /* Cache cart colours under the overlay window for begin()/end(). */
+  clut_cache_cart_under_overlay();
+
+  /* Re-stamp overlay only when it sits past cart/twins (pico-8). Full
+   * 256-colour carts own every slot — permanent stamp corrupted PLAYPAL
+   * indices 64..; pause/HUD use lcd_overlay_clut_begin() instead. */
+  if (overlay_clut_count > 0 && !overlay_collides_with_cart())
+    clut_apply_saved_overlay();
+
+  clut_rebuild_darken_map();
   clut_push();
+}
+
+int lcd_clut_has_dark_twins(void)
+{
+  return clut_dark_twins != 0;
+}
+
+/* Nearest cart-palette index for an RGB888 colour (overlay slots skipped —
+ * darken targets gameplay pixels, not menu chrome already drawn on top). */
+static uint8_t clut_nearest_cart(uint32_t rgb888)
+{
+  int r = (int)((rgb888 >> 16) & 0xFF);
+  int g = (int)((rgb888 >>  8) & 0xFF);
+  int b = (int)((rgb888      ) & 0xFF);
+  int best_dist = 0x7FFFFFFF;
+  uint8_t best_idx = 0;
+  uint16_t n = active_clut_count;
+  if (n == 0) return 0;
+  if (n > LCD_CLUT_HW_MAX) n = LCD_CLUT_HW_MAX;
+
+  for (uint16_t i = 0; i < n; i++) {
+    uint32_t e = active_clut[i];
+    int er = (int)((e >> 16) & 0xFF);
+    int eg = (int)((e >>  8) & 0xFF);
+    int eb = (int)((e      ) & 0xFF);
+    int dr = r - er, dg = g - eg, db = b - eb;
+    int d = dr * dr + dg * dg + db * db;
+    if (d < best_dist) {
+      best_dist = d;
+      best_idx = (uint8_t)i;
+      if (d == 0) break;
+    }
+  }
+  return best_idx;
+}
+
+static uint32_t clut_darken_rgb888(uint32_t e)
+{
+  int keep = 100 - LCD_DARKEN_PERCENT;
+  uint32_t r = (((e >> 16) & 0xFF) * (uint32_t)keep) / 100u;
+  uint32_t g = (((e >>  8) & 0xFF) * (uint32_t)keep) / 100u;
+  uint32_t b = (((e      ) & 0xFF) * (uint32_t)keep) / 100u;
+  return (r << 16) | (g << 8) | b;
+}
+
+static void clut_rebuild_darken_map(void)
+{
+  clut_darken_map[0] = 0; /* letterbox / clear stays black */
+
+  if (clut_dark_twins && active_clut_count > 0) {
+    uint16_t c = active_clut_count;
+    for (uint16_t i = 1; i < LCD_CLUT_HW_MAX; i++) {
+      if (i < c)
+        clut_darken_map[i] = (uint8_t)(i + c);
+      else if (i < (uint16_t)(2u * c))
+        clut_darken_map[i] = 0; /* second darken → black */
+      else
+        clut_darken_map[i] = (uint8_t)i; /* overlay / beyond */
+    }
+  } else if (active_clut_count > 0) {
+    uint16_t ov0 = LCD_OVERLAY_CLUT_BASE;
+    uint16_t ov1 = (uint16_t)(LCD_OVERLAY_CLUT_BASE + overlay_clut_count);
+    for (uint16_t i = 1; i < LCD_CLUT_HW_MAX; i++) {
+      /* Never nearest-match live overlay chrome into the cart palette —
+       * that turned HUD gray into a greenish NES colour on the 2nd darken. */
+      if (overlay_clut_live && overlay_clut_count > 0 && i >= ov0 && i < ov1) {
+        clut_darken_map[i] = (uint8_t)i;
+        continue;
+      }
+      if (i < active_clut_count)
+        clut_darken_map[i] = clut_nearest_cart(clut_darken_rgb888(active_clut[i]));
+      else
+        clut_darken_map[i] = (uint8_t)i;
+    }
+  } else {
+    for (uint16_t i = 1; i < LCD_CLUT_HW_MAX; i++)
+      clut_darken_map[i] = (uint8_t)i;
+  }
+  clut_darken_map_valid = 1;
+}
+
+uint8_t lcd_darken_index(uint8_t idx)
+{
+  if (current_lcd_mode != LCD_MODE_LUT8)
+    return idx;
+  if (!clut_darken_map_valid)
+    clut_rebuild_darken_map();
+  return clut_darken_map[idx];
+}
+
+int lcd_clut_luma_sum(uint8_t idx)
+{
+  if (idx >= LCD_CLUT_HW_MAX)
+    return 0;
+  uint32_t e = active_clut[idx];
+  return (int)((e >> 16) & 0xFF) + (int)((e >> 8) & 0xFF) + (int)(e & 0xFF);
+}
+
+void lcd_darken_active_buffer(void)
+{
+  if (current_lcd_mode != LCD_MODE_LUT8)
+    return;
+
+  if (!clut_darken_map_valid)
+    clut_rebuild_darken_map();
+
+  uint8_t *fb = (uint8_t *)lcd_get_active_buffer();
+  size_t n = lcd_get_frame_size();
+  for (size_t i = 0; i < n; i++)
+    fb[i] = clut_darken_map[fb[i]];
 }
 
 void lcd_set_overlay_clut(const uint32_t *colors, uint16_t count)
@@ -566,15 +762,77 @@ void lcd_set_overlay_clut(const uint32_t *colors, uint16_t count)
   if (colors == NULL) return;
   if (count > LCD_OVERLAY_CLUT_MAX) count = LCD_OVERLAY_CLUT_MAX;
 
-  /* Always store the values (so they survive a later mode switch into
-   * LUT8). Push to hardware only if we're already in LUT8 — otherwise
-   * the next lcd_set_clut() call from the cart will pick them up via
-   * clut_push() since active_clut[] is already populated. */
-  for (uint16_t i = 0; i < count; i++) {
-    active_clut[LCD_OVERLAY_CLUT_BASE + i] = colors[i];
-  }
+  for (uint16_t i = 0; i < count; i++)
+    overlay_clut_saved[i] = colors[i];
   overlay_clut_count = count;
-  if (current_lcd_mode == LCD_MODE_LUT8) clut_push();
+
+  /* Stamp into the live table when chrome is already up, when there is no
+   * collision with the cart, or before any cart palette exists. Colliding
+   * carts keep PLAYPAL until lcd_overlay_clut_begin(). */
+  if (current_lcd_mode == LCD_MODE_LUT8) {
+    if (overlay_clut_live || !overlay_collides_with_cart() ||
+        active_clut_count == 0) {
+      clut_apply_saved_overlay();
+      clut_rebuild_darken_map();
+      clut_push();
+    }
+  } else {
+    /* Stage into active_clut so a later LUT8 switch / setup sees them. */
+    for (uint16_t i = 0; i < count; i++)
+      active_clut[LCD_OVERLAY_CLUT_BASE + i] = colors[i];
+  }
+}
+
+void lcd_overlay_clut_begin(void)
+{
+  if (current_lcd_mode != LCD_MODE_LUT8 || overlay_clut_count == 0)
+    return;
+  if (overlay_clut_depth < 255)
+    overlay_clut_depth++;
+  if (overlay_clut_depth == 1) {
+    clut_apply_saved_overlay();
+    clut_rebuild_darken_map();
+    clut_push();
+  }
+}
+
+int lcd_overlay_clut_end_will_restore(void)
+{
+  return (current_lcd_mode == LCD_MODE_LUT8 &&
+          overlay_clut_depth == 1 &&
+          overlay_clut_live &&
+          overlay_collides_with_cart()) ? 1 : 0;
+}
+
+int lcd_overlay_clut_end(void)
+{
+  if (current_lcd_mode != LCD_MODE_LUT8)
+    return 0;
+  if (overlay_clut_depth == 0)
+    return 0;
+  overlay_clut_depth--;
+  if (overlay_clut_depth > 0 || !overlay_clut_live)
+    return 0;
+  if (!overlay_collides_with_cart())
+    return 0; /* pico-8: theme stays resident past the cart */
+  clut_restore_cart_under_overlay();
+  clut_rebuild_darken_map();
+  clut_push();
+  return 1;
+}
+
+void lcd_overlay_clut_end_all(void)
+{
+  if (current_lcd_mode != LCD_MODE_LUT8)
+    return;
+  if (overlay_clut_depth == 0 && !overlay_clut_live)
+    return;
+  if (overlay_clut_live && overlay_collides_with_cart()) {
+    overlay_clut_depth = 1;
+    lcd_overlay_clut_end();
+  } else {
+    overlay_clut_depth = 0;
+  }
 }
 
 uint16_t lcd_pack_color(uint16_t rgb565)
@@ -590,19 +848,25 @@ uint16_t lcd_pack_color(uint16_t rgb565)
   int best_dist = 0x7FFFFFFF;
   int best_idx  = 0;
 
-  /* Scan overlay first — exact-match menu colors win (distance 0). */
+  /* Scan saved overlay first — exact-match menu/HUD colours win even when
+   * the live CLUT still holds cart[64..] (before begin()). */
   for (uint16_t i = 0; i < overlay_clut_count; i++) {
-    uint32_t e = active_clut[LCD_OVERLAY_CLUT_BASE + i];
+    uint32_t e = overlay_clut_saved[i];
     int er = (int)((e >> 16) & 0xFF);
     int eg = (int)((e >>  8) & 0xFF);
     int eb = (int)((e      ) & 0xFF);
     int dr = r - er, dg = g - eg, db = b - eb;
     int d  = dr*dr + dg*dg + db*db;
     if (d < best_dist) { best_dist = d; best_idx = LCD_OVERLAY_CLUT_BASE + (int)i; }
+    if (d == 0) return (uint16_t)best_idx;
   }
-  /* Then cart palette. The darkened twins are NOT searched — they're for
-   * the +LCD_DARKEN_BIT OR path, not direct color matching. */
+  /* Then cart palette. Skip live overlay slots so theme colours keep their
+   * reserved indices. Darkened twins are for lcd_darken_index(), not paint. */
   for (uint16_t i = 0; i < active_clut_count; i++) {
+    if (overlay_clut_live &&
+        i >= LCD_OVERLAY_CLUT_BASE &&
+        i < (uint16_t)(LCD_OVERLAY_CLUT_BASE + overlay_clut_count))
+      continue;
     uint32_t e = active_clut[i];
     int er = (int)((e >> 16) & 0xFF);
     int eg = (int)((e >>  8) & 0xFF);

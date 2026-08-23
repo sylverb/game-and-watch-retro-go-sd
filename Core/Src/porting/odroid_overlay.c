@@ -562,14 +562,12 @@ uint16_t get_shined_pixel(uint16_t color, uint16_t shined)
 __attribute__((optimize("unroll-loops")))
 void odroid_overlay_darken_all()
 {
-    /* LUT8 mode: each pixel is a 1-byte CLUT index. lcd_set_clut() programs
-     * a darkened twin of every entry into slots [count..2*count), so just OR
-     * LCD_DARKEN_BIT into each pixel and the LTDC's own CLUT does the dim
-     * lookup at scanout — exact RGB darkening, no nearest-match approximation. */
+    /* LUT8: lcd_darken_active_buffer() uses twin slots when present, else a
+     * nearest-match of darkened RGB (256-colour carts have no twin room —
+     * the old `|= LCD_DARKEN_BIT` turned cleared letterbox 0 into NES $20
+     * white). */
     if (lcd_get_mode() == LCD_MODE_LUT8) {
-        uint8_t *fb = (uint8_t *)lcd_get_active_buffer();
-        size_t n = lcd_get_frame_size();
-        for (size_t i = 0; i < n; i++) fb[i] |= LCD_DARKEN_BIT;
+        lcd_darken_active_buffer();
         return;
     }
 
