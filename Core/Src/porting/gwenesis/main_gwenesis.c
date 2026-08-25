@@ -671,7 +671,7 @@ int app_main_gwenesis(uint8_t load_state, uint8_t start_paused, int8_t save_slot
       SystemClock_Config(2);
   }
 
-    odroid_system_init(APPID_MD, GWENESIS_AUDIO_FREQ_NTSC);
+    odroid_system_init(APPID_CORE, GWENESIS_AUDIO_FREQ_NTSC);
     odroid_system_emu_init(&gwenesis_system_LoadState,
                            &gwenesis_system_SaveState,
                            &gwenesis_system_Screenshot,

@@ -94,13 +94,13 @@ static bool VerifyAssetsFile(const uint8 *data, size_t length) {
 static void LoadAssets() {
   const uint8_t *smw_assets;
   uint32_t smw_assets_length = 0;
-  smw_assets = (const uint8_t *)odroid_overlay_cache_file_in_flash("/roms/homebrew/smw_assets.dat", &smw_assets_length, false);
+  smw_assets = (const uint8_t *)odroid_overlay_cache_file_in_flash("/homebrews/smw_assets.dat", &smw_assets_length, false);
 
   if (smw_assets == NULL)
-    Die("Missing /roms/homebrew/smw_assets.dat file");
+    Die("Missing /homebrews/smw_assets.dat file");
 
   if (!VerifyAssetsFile(smw_assets, smw_assets_length))
-    Die("Mismatching /roms/homebrew/smw_assets.dat file");
+    Die("Mismatching /homebrews/smw_assets.dat file");
 
   // Load some assets with assets in extflash
   LoadAssetsChunk(smw_assets_length, smw_assets);
@@ -313,7 +313,7 @@ int app_main_smw(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
   ram_start = (uint32_t)&_OVERLAY_SMW_BSS_END;
 
   printf("SMW start\n");
-  odroid_system_init(APPID_SMW, SMW_AUDIO_SAMPLE_RATE);
+  odroid_system_init(APPID_HOMEBREW, SMW_AUDIO_SAMPLE_RATE);
   odroid_system_emu_init(&smw_system_LoadState, &smw_system_SaveState, &Screenshot, NULL, NULL, &smw_system_SramSave, NULL);
   
   if (start_paused) {

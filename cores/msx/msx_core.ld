@@ -1,5 +1,5 @@
 /*
- * MSX (blueMSX) core linker script — custom like cores/pce/pce_core.ld.
+ * MSX (blueMSX) core linker script — custom like other multi-region cores.
  *
  * R800 + SlotManager .text run from ITCM. Also park the tiny
  * vdpCommandPortLatchPending() there: R800_IRQ_PENDING polls it from the
@@ -7,8 +7,8 @@
  * that call showed up as a measurable cost vs the classic all-RAM_EMU
  * overlay. (-ffunction-sections gives .text.vdpCommandPortLatchPending.)
  *
- * blueMSX's former itc_malloc heap uses ahb_malloc/ahb_calloc (reset via
- * ahb_init on machine switch) so ITCM stays free for code.
+ * blueMSX's former itc_malloc heap uses dtc_malloc/dtc_calloc (reset via
+ * dtc_init on machine switch) so ITCM stays free for code.
  *
  * .core_itcm is listed before .core_entry so GNU ld claims those input
  * sections first; .core_entry's *(.text*) then skips them.

@@ -1088,7 +1088,7 @@ void app_main_amstrad(uint8_t load_state, uint8_t start_paused, int8_t save_slot
     common_emu_state.frame_time_10us = (uint16_t)(100000 / AMSTRAD_FPS + 0.5f);
     lcd_set_refresh_rate(AMSTRAD_FPS);
 
-    odroid_system_init(APPID_AMSTRAD, AMSTRAD_SAMPLE_RATE);
+    odroid_system_init(APPID_CORE, AMSTRAD_SAMPLE_RATE);
     odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, &amstrad_sleep_wake_up, NULL, NULL);
 
     // Init Sound

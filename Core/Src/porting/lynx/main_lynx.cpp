@@ -268,7 +268,7 @@ extern "C" void app_main_lynx(uint8_t load_state, uint8_t start_paused, int8_t s
 
     common_emu_state.frame_time_10us = (uint16_t)(100000 / LYNX_FPS + 0.5f);
 
-    odroid_system_init(APPID_LYNX, AUDIO_LYNX_SAMPLE_RATE);
+    odroid_system_init(APPID_CORE, AUDIO_LYNX_SAMPLE_RATE);
     odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL, NULL);
 
     /* Resume-load is DEFERRED to the first loop iteration: LoadState needs

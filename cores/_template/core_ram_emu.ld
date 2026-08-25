@@ -127,7 +127,7 @@
  *   3. Add MEMORY { ITCM ... } and output sections for it.
  *   4. Define __CORE_ITCM_CODE_END__ / __CORE_ITCM_BSS_END__.
  *   5. Wire CORE_EXTRA_SEGMENTS=itcm:core_itcm / let pack_core auto-detect
- *      .core_itcm. Reference: cores/pce/pce_core.ld, cores/gba/gba_core.ld.
+ *      .core_itcm. See cores/msx/msx_core.ld for a worked example.
  *
  * RAM_UC (LUT8 LCD bonus, 150 KiB at __RAM_UC_CORE_START__):
  *   Same recipe with ld/gnw_ram_uc_core.ld, MEMORY { RAM_UC_CORE ... },

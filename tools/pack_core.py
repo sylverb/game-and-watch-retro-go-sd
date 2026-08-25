@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-Package a standalone "core" build (see cores/_template/, cores/wsv/,
-cores/pce/) into the CORE-header .bin format the launcher discovers at boot
+Package a standalone "core" build (see cores/_template/, cores/wsv/, …) into the CORE-header .bin format the launcher discovers at boot
 (emulators_scan_cores() / gnw_core_probe() in Core/Src/retro-go/rg_emulators.c).
 
 File layout produced (all integers little-endian):
@@ -59,7 +58,7 @@ Usage — single-system, single-segment core (see cores/wsv/Makefile):
 (default: --out stem) are stored in `gnw_core_meta_t` and shown in the
 in-game pause → Info dialog (name, version, path, file date).
 
-Usage — multi-system, multi-segment core (see cores/pce/Makefile):
+Usage — multi-system, multi-segment core (ITCM + multiple --system entries):
 
     tools/pack_core.py \\
         --elf build/pce_core.elf --bin build/pce_core.bin \\
@@ -415,7 +414,7 @@ def parse_segment_arg(spec):
 
 
 # Optional extra segments discovered from ELF symbols when a custom
-# linker script defines them (see cores/pce/pce_core.ld, cores/gba/…).
+# linker script defines them (see cores/msx/msx_core.ld for a multi-region example).
 # If the triple is absent, packing is a no-op for that region.
 # AHB is intentionally omitted — AHB SRAM is the firmware malloc heap.
 AUTO_EXTRA_SEGMENTS = (

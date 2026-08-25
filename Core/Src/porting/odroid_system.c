@@ -44,7 +44,7 @@ void odroid_system_init(int appId, int sampleRate)
     currentApp.id = appId;
     currentApp.romPath = ACTIVE_FILE->path;
 
-    /* appId is only used to distinguish launcher (0) vs emulator (!=0).
+    /* appId is APPID_LAUNCHER / APPID_CORE / APPID_HOMEBREW.
      * Per-core settings live in /data/<stem>.cfg, not APPID slots. */
     if (appId == APPID_LAUNCHER)
         odroid_settings_unbind_core_cfg();
@@ -478,6 +478,9 @@ void odroid_system_switch_app(int app)
     switch (app)
     {
     case 0:
+        /* Let the core/homebrew flush its own state (settings, etc.) before
+         * we commit the bound .cfg and tear down the SD card. */
+        odroid_system_shutdown();
         odroid_settings_StartupFile_set(0);
         odroid_settings_commit();
 

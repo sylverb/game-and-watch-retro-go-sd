@@ -27,7 +27,7 @@
 #   CORE_C_INCLUDES  extra -I flags, on top of the common set below
 #   CORE_C_DEFS      extra -D flags, on top of the common set below
 #   CORE_CXX_SOURCES .cpp/.cxx/.cc files to build (e.g. cores/gb_tgbdual/Makefile,
-#                    cores/a2600/Makefile, cores/gba/Makefile's cpu.cc) —
+#                    cores/a2600/Makefile) —
 #                    compiled with $(CXX)/$(CXXFLAGS) instead of
 #                    $(CC)/$(CFLAGS), everything else (redefine-syms pass,
 #                    vpath, flat build/ dir) identical to CORE_C_SOURCES.
@@ -45,19 +45,19 @@
 #                    `typeid` likewise won't compile). Exception: Stella
 #                    (cores/a2600) needs std::string and sets
 #                    CORE_LDLIBS += -lstdc++.
-#   CORE_ASM_SOURCES .S files to build (e.g. cores/gba/Makefile's gba_bios.S)
+#   CORE_ASM_SOURCES .S files to build
 #                    — assembled with $(AS)/$(ASFLAGS), then the same
 #                    redefine-syms pass as C/CXX objects (bridge entry
 #                    gw_core_entry.S is excluded; it is always linked in
 #                    separately via BRIDGE_ASM_SOURCES).
 #   CORE_ASFLAGS     extra assembler flags (e.g. -I for .incbin search paths).
 #   CORE_EXTRA_REDEFINE_SYMS  optional second redefine-syms file (e.g.
-#                    gba_redefines). Applied after REDEFINE_SYMS_FILE on
+#                    core-specific redefine-syms). Applied after REDEFINE_SYMS_FILE on
 #                    every non-bridge object (.c/.cpp/.cxx/.cc/.S).
 #   CORE_LDSCRIPT    defaults to $(TEMPLATE_DIR)/core_ram_emu.ld. Point this
 #                    at your own script (INCLUDE-ing ld/gnw_itcm_core.ld /
 #                    ld/gnw_ram_uc_core.ld as needed) if you use CORE_EXTRA_SEGMENTS
-#                    — see cores/pce/pce_core.ld for an ITCM example.
+#                    — see cores/msx/msx_core.ld for an ITCM example.
 #   CORE_LDLIBS      extra -l flags, e.g. -lm (cores/md) or -lstdc++
 #                    (cores/a2600: Stella's std::string). Linked after -lgcc.
 #   CORE_EXTRA_SEGMENTS  space-separated "region:section" pairs for code/data
@@ -69,7 +69,7 @@
 #                    build/$(CORE_NAME)_core_<region>.bin via objcopy
 #                    --only-section. Each pair needs a matching --segment
 #                    argument in the core's own `pack` target (see
-#                    tools/pack_core.py and cores/pce/Makefile). RAM_UC is
+#                    tools/pack_core.py). RAM_UC is
 #                    the LUT8 LCD bonus; the firmware switches to LUT8
 #                    before loading it.
 #   GCC_PATH         toolchain bin dir, same convention as the root Makefile
@@ -227,7 +227,7 @@ ALL_C_SOURCES   := $(CORE_C_SOURCES) $(BRIDGE_C_SOURCES)
 ALL_CXX_SOURCES := $(CORE_CXX_SOURCES)
 ALL_ASM_SOURCES := $(CORE_ASM_SOURCES) $(BRIDGE_ASM_SOURCES)
 C_OBJECTS   := $(addprefix $(BUILD_DIR)/,$(notdir $(ALL_C_SOURCES:.c=.o)))
-# Accept .cpp (handy-go / tgbdual), .cxx (Stella / a2600), and .cc (gpSP / gba).
+# Accept .cpp (handy-go / tgbdual), .cxx (Stella / a2600), and .cc.
 CXX_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(patsubst %.cc,%.o,$(patsubst %.cxx,%.o,$(patsubst %.cpp,%.o,$(ALL_CXX_SOURCES))))))
 ASM_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(ALL_ASM_SOURCES:.S=.o)))
 BRIDGE_OBJECTS := $(addprefix $(BUILD_DIR)/,$(notdir $(BRIDGE_C_SOURCES:.c=.o)))
@@ -277,7 +277,7 @@ $(BRIDGE_OBJECTS): CFLAGS += -fno-builtin-memcpy -fno-builtin-memmove -fno-built
 # trampoline object (which defines the core_<name> targets those renames
 # point to — see gw_core_bridge_redefine_syms.txt header comment).
 # gw_core_i18n.o is NOT exempt: it must resolve strcmp etc. via trampolines.
-# Optional CORE_EXTRA_REDEFINE_SYMS (e.g. gba_redefines) runs after.
+# Optional CORE_EXTRA_REDEFINE_SYMS runs after.
 $(BUILD_DIR)/%.o: %.c $(REDEFINE_SYMS_FILE) | $(BUILD_DIR)
 	$(CC) -c $(CFLAGS) $< -o $@
 	if [ "$@" != "$(BRIDGE_NO_REDEFINE)" ]; then \
@@ -313,7 +313,6 @@ $(BUILD_DIR)/%.o: %.cxx $(REDEFINE_SYMS_FILE) | $(BUILD_DIR)
 	$(CP) --redefine-syms=$(REDEFINE_SYMS_FILE) $@
 	$(call CORE_APPLY_EXTRA_REDEFINE,$@)
 
-# gpSP (cores/gba) uses .cc — identical compile/redefine-syms path.
 $(BUILD_DIR)/%.o: %.cc $(REDEFINE_SYMS_FILE) | $(BUILD_DIR)
 	$(CXX) -c $(CXXFLAGS) $< -o $@
 	$(CP) --redefine-syms=$(REDEFINE_SYMS_FILE) $@

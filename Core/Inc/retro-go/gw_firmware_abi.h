@@ -438,8 +438,8 @@ typedef struct {
     /* ================================================================
      * v2 append: surface required to port PC Engine / PC Engine CD
      * (multi-system, multi-segment core) to the external-core model.
-     * Identified by porting Core/Src/porting/pce/main_pce.c (+ pce_cd.c)
-     * against this ABI. Pure append — no version bump needed.
+     * Required by the external PC Engine / PCE CD core. Pure append —
+     * no version bump needed.
      * ================================================================ */
     /* Matches Core/Inc/porting/crc32.h's exact declared signature
      * (`unsigned int`/`unsigned char const *`, not uint32_t/uint8_t*) —

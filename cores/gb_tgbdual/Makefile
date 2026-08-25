@@ -58,11 +58,9 @@ CORE_C_INCLUDES := \
 # defines must match the firmware's actual build flags (Makefile.common's
 # Docker release target: COVERFLOW=1 CHEAT_CODES=1) or every field after
 # `size` reads at the wrong offset — see cores/_template/Makefile's
-# CORE_COMMON_C_DEFS comment for the general hazard (cores/pce/Makefile hit
-# the CHEAT_CODES half of this first, but doesn't override COVERFLOW since
-# it never reads ->region/->system either — gb_tgbdual reads neither of
-# those, but COVERFLOW still shifts every field after `size`, cheat_count
-# included, so it must be set here regardless).
+# CORE_COMMON_C_DEFS comment for the general hazard. COVERFLOW still shifts
+# every field after `size`, cheat_count included, so it must be set here
+# regardless).
 # MAX_CHEAT_CODES=13 mirrors Makefile.common's release-build default (root
 # Makefile's -DMAX_CHEAT_CODES=$(MAX_CHEAT_CODES)).
 CORE_C_DEFS := -DTARGET_GNW -DCOVERFLOW=1 -DCHEAT_CODES=1 -DMAX_CHEAT_CODES=13
@@ -74,17 +72,14 @@ include ../_template/Makefile
 # (real hardware: same handheld, same emulator, only the cartridge's CGB
 # flag differs) — dispatched at runtime by main_gb_tgbdual.cpp reading the
 # ROM header, exactly like PC Engine's rom/cdrom split off ACTIVE_FILE->ext
-# (see cores/pce/Makefile). Logos are extracted straight from rg_logos.c's
-# existing C arrays — see tools/pack_core.py. GB and GBC share the same pad
-# (controller) logo; only the header (console) logo differs.
 PACKED_BIN := ../tgb.bin
 
 .PHONY: pack
 pack: $(TARGET_BIN)
 	python3 ../../tools/pack_core.py \
 		--elf $(TARGET_ELF) --bin $(TARGET_BIN) \
-		--system name="Game Boy",dirname=gb,ext=gb,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_gb,header_logo=../../Core/Src/retro-go/rg_logos.c:header_gb \
-		--system name="Game Boy Color",dirname=gbc,ext=gbc,parse=rom,pad_logo=../../Core/Src/retro-go/rg_logos.c:pad_gb,header_logo=../../Core/Src/retro-go/rg_logos.c:header_gbc \
+		--system name="Game Boy",dirname=gb,pad_logo=assets/pad.bmp,header_logo=assets/header_gb.bmp,ext=gb,parse=rom,cheat_ext=ggcodes \
+		--system name="Game Boy Color",dirname=gbc,pad_logo=assets/pad.bmp,header_logo=assets/header_gbc.bmp,ext=gbc,parse=rom,cheat_ext=ggcodes \
 		--core-name "TGB Dual" \
 		--out $(PACKED_BIN)
 

@@ -855,8 +855,6 @@ void retro_loop()
     }
 }
 
-#define ODROID_APPID_LAUNCHER 0
-
 #if DISABLE_SPLASH_SCREEN == 0
 void GLOBAL_DATA app_start_logo()
 {
@@ -999,7 +997,7 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
     // Show basic boot logo early on cold boot
     if (boot_mode != BOOT_MODE_HOT)
     {
-        odroid_system_init(ODROID_APPID_LAUNCHER, 32000);
+        odroid_system_init(APPID_LAUNCHER, 32000);
         uint8_t lcd_brightness = lcd_backlight_get();
         lcd_backlight_off();
 
@@ -1037,7 +1035,7 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
 #endif
 
     // Re-initialize system now that the filesystem is mounted
-    odroid_system_init(ODROID_APPID_LAUNCHER, 32000);
+    odroid_system_init(APPID_LAUNCHER, 32000);
 
     // Show logo with the correct colors when loading from emulator
     if (boot_mode == BOOT_MODE_HOT) {

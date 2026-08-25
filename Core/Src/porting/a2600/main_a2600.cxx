@@ -342,7 +342,7 @@ extern "C" void app_main_a2600(uint8_t load_state, uint8_t start_paused, int8_t 
     // G&W init
     common_emu_state.frame_time_10us = (uint16_t)(100000 / console->getFramerate() + 0.5f);
 
-    odroid_system_init(APPID_A2600, AUDIO_A2600_SAMPLE_RATE);
+    odroid_system_init(APPID_CORE, AUDIO_A2600_SAMPLE_RATE);
     odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL, NULL);
 
     /* Set initial digital sensitivity */

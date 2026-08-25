@@ -84,11 +84,11 @@ static void LoadAssetsChunk(size_t length, uint8* data) {
 
 static void LoadAssets() {
   uint32_t zelda_assets_length = 0;
-  uint8 *zelda_assets = odroid_overlay_cache_file_in_flash("/roms/homebrew/zelda3_assets.dat", &zelda_assets_length, false);
+  uint8 *zelda_assets = odroid_overlay_cache_file_in_flash("/homebrews/zelda3_assets.dat", &zelda_assets_length, false);
   static const char kAssetsSig[] = { kAssets_Sig };
 
   if (zelda_assets == NULL)
-    Die("Missing /roms/homebrew/zelda3_assets.dat file");
+    Die("Missing /homebrews/zelda3_assets.dat file");
 
   if (zelda_assets_length < 16 + 32 + 32 + 8 + kNumberOfAssets * 4 ||
       memcmp(zelda_assets, kAssetsSig, 48) != 0 ||
@@ -385,15 +385,15 @@ int app_main_zelda3(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 
   /* Store read only data into round robin flash cache memory */
   uint32_t zelda_rodata_length = 0;
-  uint8 *zelda_rodata = odroid_overlay_cache_file_in_flash("/roms/homebrew/zelda3.ro", &zelda_rodata_length, false);
+  uint8 *zelda_rodata = odroid_overlay_cache_file_in_flash("/homebrews/zelda3.ro", &zelda_rodata_length, false);
   if (zelda_rodata == NULL) {
-    printf("Missing /roms/homebrew/zelda3.ro file\n");
+    printf("Missing /homebrews/zelda3.ro file\n");
   }
 
   /* Patch application in ram to point to real flash location of data*/
   PatchCodeRodataOffset(zelda_rodata, zelda_rodata_length);
 
-  odroid_system_init(APPID_ZELDA3, ZELDA3_AUDIO_SAMPLE_RATE);
+  odroid_system_init(APPID_HOMEBREW, ZELDA3_AUDIO_SAMPLE_RATE);
   odroid_system_emu_init(&zelda3_system_LoadState, &zelda3_system_SaveState, &Screenshot, NULL, NULL, &zelda3_system_SramSave, NULL);
   
   if (start_paused) {

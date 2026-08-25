@@ -64,7 +64,7 @@ typedef struct {
 typedef struct {
     /* Pointer table sized once at boot by gui_ensure_tab_capacity()
      * (favorites + every system tab). Not a fixed compile-time array so
-     * /cores/*.bin can grow without bumping a MAX_* constant. */
+     * cores under /cores/ can grow without bumping a MAX_* constant. */
     tab_t **tabs;
     int tab_capacity;
     int tabcount;

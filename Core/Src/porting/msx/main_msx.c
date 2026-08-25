@@ -587,7 +587,6 @@ static bool update_msx_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t 
     if (event == ODROID_DIALOG_ENTER) {
         boardInfo.destroy();
         boardDestroy();
-        ahb_init();
         itc_init();
         setupEmulatorRessources(selected_msx_index);
     }
@@ -2101,7 +2100,7 @@ void app_main_msx(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     }
     common_emu_state.frame_time_10us = (uint16_t)(100000 / msx_fps + 0.5f);
 
-    odroid_system_init(APPID_MSX, AUDIO_MSX_SAMPLE_RATE);
+    odroid_system_init(APPID_CORE, AUDIO_MSX_SAMPLE_RATE);
 #if CHEAT_CODES == 1
     odroid_system_emu_init(&msx_system_LoadState, &msx_system_SaveState, &msx_screenshot, NULL, &msx_sleep_wake_up, &msx_sram_save_cb, &update_cheats_msx);
 #else

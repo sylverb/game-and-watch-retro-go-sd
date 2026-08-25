@@ -34,8 +34,6 @@
 /* Uncomment to enable debug menu in overlay */
 //#define GW_EMU_DEBUG_OVERLAY
 
-#define ODROID_APPID_GW 6
-
 const uint8_t *gw_rom_image = NULL;
 unsigned gw_rom_image_size = 0;
 
@@ -415,7 +413,7 @@ void app_main_gw(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
         {370, gw_i18n(gw_i18n_display_ram), display_ram_value, 1, &gw_debug_submenu_display_ram},
         ODROID_DIALOG_CHOICE_LAST};
 
-    odroid_system_init(ODROID_APPID_GW, GW_AUDIO_FREQ);
+    odroid_system_init(APPID_CORE, GW_AUDIO_FREQ);
     odroid_system_emu_init(&gw_system_LoadState, &gw_system_SaveState, &gw_system_Screenshot, NULL, NULL, NULL, NULL);
 
     if (start_paused) {

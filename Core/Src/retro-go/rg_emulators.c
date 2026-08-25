@@ -1780,7 +1780,7 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
          * identical to the NULL sentinel dynamic_core_region_base() returns
          * for an actually-unsupported region — a base-pointer check here
          * would reject every valid ITCM segment (which is every core built
-         * with CORE_EXTRA_SEGMENTS=itcm:..., e.g. cores/pce) as "too big"
+         * with CORE_EXTRA_SEGMENTS=itcm:...) as "too big"
          * and show the corrupted-installation screen. region_len is always
          * a nonzero constant for RAM_EMU/ITCM/RAM_UC and is explicitly
          * zeroed only in the `default:` case, so it's an unambiguous
@@ -1807,7 +1807,7 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
             /* Seed the shared RAM_EMU bump pool (ram_start/ram_malloc, see
              * gw_malloc.c) to right past this segment's own code+bss, same
              * value each core used to have to compute itself as
-             * &__CORE_BSS_END__ (see e.g. main_wsv.c/main_pce.c) — this
+             * &__CORE_BSS_END__ (see e.g. main_wsv.c) — this
              * firmware-side metadata already carries the exact code_size +
              * bss_size pack_core.py measured off that same symbol, so doing
              * it once here removes the need for every core's own main_*.c

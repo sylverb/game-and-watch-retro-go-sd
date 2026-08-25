@@ -195,8 +195,9 @@ def main():
         sd_roms_tree if sd_roms_tree.is_dir() else None,
     )
 
-    # When NES ROMs are present we rebuild a pruned mappers.pak from the per-mapper
-    # build blobs and inject it in place of the full sd_content pack.
+    # When NES ROMs are present we optionally rebuild a pruned mappers.pak from
+    # the per-mapper blobs. Needs a FCEUmm checkout (FCEUMM_GO); otherwise the
+    # drop-in cores/nes_fceumm_mappers/mappers.pak ships unchanged.
     pruned_mapper_pack = None
     nes_bins_dir = None
     if args.nes_mapper_bins_dir:
@@ -211,27 +212,34 @@ def main():
         and nes_bins_dir is not None
         and nes_bins_dir.is_dir()
     ):
-        stems, mapper_warn = nes_rom_mappers.littlefs_nes_mapper_stems(
-            repo,
-            project_roms if project_roms.is_dir() else None,
-            sd_roms_tree if sd_roms_tree.is_dir() else None,
-        )
-        for w in mapper_warn:
-            print(w, file=sys.stderr)
-        if stems is None:
+        try:
+            stems, mapper_warn = nes_rom_mappers.littlefs_nes_mapper_stems(
+                repo,
+                project_roms if project_roms.is_dir() else None,
+                sd_roms_tree if sd_roms_tree.is_dir() else None,
+            )
+            for w in mapper_warn:
+                print(w, file=sys.stderr)
+            if stems is None:
+                print(
+                    "LittleFS /cores: NES mapper scan was ambiguous; shipping full mappers.pak",
+                    file=sys.stderr,
+                )
+            else:
+                mapper_dict = gen_mappers_pack.load_mapper_dict(repo)
+                pruned_mapper_pack = build_dir / "mappers.pak"
+                n_blobs, n_pop = gen_mappers_pack.build_pack(
+                    nes_bins_dir, mapper_dict, pruned_mapper_pack, allowed_stems=stems
+                )
+                print(
+                    f"LittleFS /cores: NES mapper prune enabled "
+                    f"({n_blobs} mapper blob(s), {n_pop} mapper number(s) in mappers.pak)"
+                )
+        except FileNotFoundError as e:
             print(
-                "LittleFS /cores: NES mapper scan was ambiguous; shipping full mappers.pak",
+                f"LittleFS /cores: NES mapper prune skipped ({e}); "
+                "shipping drop-in mappers.pak",
                 file=sys.stderr,
-            )
-        else:
-            mapper_dict = gen_mappers_pack.load_mapper_dict(repo)
-            pruned_mapper_pack = build_dir / "mappers.pak"
-            n_blobs, n_pop = gen_mappers_pack.build_pack(
-                nes_bins_dir, mapper_dict, pruned_mapper_pack, allowed_stems=stems
-            )
-            print(
-                f"LittleFS /cores: NES mapper prune enabled "
-                f"({n_blobs} mapper blob(s), {n_pop} mapper number(s) in mappers.pak)"
             )
 
     build_dir.mkdir(parents=True, exist_ok=True)

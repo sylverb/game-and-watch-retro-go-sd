@@ -3,7 +3,7 @@
  *
  * INCLUDEd by both the main firmware linker script (STM32H7B0VBTx_SDCARD.ld)
  * and any standalone core's linker script that opts into placing CPU-hot
- * code in ITCM (see cores/pce/pce_core.ld) — same reasoning as
+ * code in ITCM — same reasoning as
  * ld/gnw_ram_emu.ld: a fixed address shared between both sides so a core
  * can never link at a VMA the firmware won't actually load it at (see
  * run_dynamic_core() in rg_emulators.c).

@@ -295,21 +295,6 @@ renders it with the PICO-8 palette, and saves as a JPEG cover.
 
 ## Notes for specific systems
 
-### Game Boy Advance
-
-GBA support is currently **experimental** and available on **SD-card builds only**. It has choppy sound randomly and every 15s.
-
-- Put GBA ROMs in: `/roms/gba/`
-
-By default, the firmware uses the bundled open-source BIOS.
-If you provide the official BIOS file on SD, it will be used automatically:
-
-- Path: `/bios/gba/gba_bios.bin`
-- Required size: exactly `16 KiB` (`16384` bytes)
-
-If the file is missing or has the wrong size, the emulator falls back to the bundled open BIOS.
-(The open BIOS works for many titles, but some games are more reliable with the official one.)
-
 ### PC Engine CD / TurboGrafx-CD
 
 PC Engine CD support is currently **beta** and available on **SD-card builds only** (not on flash-only builds).
@@ -673,7 +658,7 @@ make flash create_sd_data GNW_TARGET=mario
 `create_sd_data` writes the SD files under `sd_content/`. Push only the ones you changed instead of re-sending every core, e.g.:
 
 ```bash
-gnwmanager sdpush --file sd_content/cores/nes.bin --dest-path /cores/
+gnwmanager sdpush --file sd_content/cores/wsv.bin --dest-path /cores/
 ```
 
 #### Common gotchas
