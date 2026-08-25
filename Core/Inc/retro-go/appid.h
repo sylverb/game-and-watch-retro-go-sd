@@ -7,6 +7,4 @@ typedef enum {
     APPID_LAUNCHER = 0,
     APPID_CORE     = 1,
     APPID_HOMEBREW = 2,
-
-    APPID_COUNT,
 } appid_t;
