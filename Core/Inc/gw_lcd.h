@@ -60,9 +60,15 @@ uint8_t lcd_backlight_get();
 void lcd_backlight_set(uint8_t brightness);
 void lcd_backlight_on();
 void lcd_backlight_off();
+/* Queue the current active buffer for display at the next VBLANK and flip
+ * the active index immediately (async). Do not cache the pointer from
+ * lcd_get_active_buffer() across a swap — re-fetch after swap (get_active
+ * waits out any pending reload before returning a writable back buffer). */
 void lcd_swap(void);
 void lcd_sync(void); // DEPRECATED
 void lcd_clone(void);
+/* Back buffer to draw into. Waits if a prior lcd_swap() has not yet landed
+ * at VBLANK, so the returned pointer is never the live LTDC front buffer. */
 void* lcd_get_active_buffer(void);
 void* lcd_get_inactive_buffer(void);
 void lcd_set_buffers(uint16_t *buf1, uint16_t *buf2);

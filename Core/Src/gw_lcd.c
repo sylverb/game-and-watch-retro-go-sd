@@ -241,7 +241,13 @@ void lcd_swap(void)
   /* Program the just-drawn buffer into the shadow CFBAR, then reload at
    * vblank. HAL_LTDC_SetAddress() would SRCR-IMR from the reload ISR a
    * few lines into the next frame (horizontal bar at the top of the
-   * panel). NoReload + VBR applies at the actual start of blanking. */
+   * panel). NoReload + VBR applies at the actual start of blanking.
+   *
+   * Flip active_framebuffer immediately so the next draw targets the
+   * other buffer, but that buffer is still scanned by LTDC until VBR
+   * clears — lcd_get_active_buffer() waits out the pending reload so
+   * callers never paint into the live front buffer. Emulation can still
+   * run between swap and the next get_active (async swap preserved). */
   HAL_LTDC_SetAddress_NoReload(&hltdc, (uint32_t)lcd_get_active_buffer(), 0);
   HAL_LTDC_Reload(&hltdc, LTDC_RELOAD_VERTICAL_BLANKING);
   active_framebuffer = active_framebuffer ? 0 : 1;
@@ -269,6 +275,13 @@ void lcd_clone(void)
 
 void* lcd_get_active_buffer(void)
 {
+  /* lcd_swap() flips active_framebuffer before the VBLANK reload lands,
+   * so the "active" index briefly names the buffer LTDC is still scanning.
+   * Writing RGB565 into that front buffer mid-scan tears pixel words and
+   * shows up as brief coloured flashes (often green). Block here so every
+   * core/UI path that draws via get_active is safe without an explicit
+   * lcd_sleep_while_swap_pending() — which many ports forgot. */
+  lcd_sleep_while_swap_pending();
   return active_framebuffer ? framebuffer2 : framebuffer1;
 }
 

@@ -57,7 +57,7 @@ void odroid_audio_mute(bool mute)
 
 common_emu_state_t common_emu_state = {
     .frame_time_10us = (uint16_t)(100000 / 60 + 0.5f),  // Reasonable default of 60FPS if not explicitly configured.
-    .clear_frames = 1, // Both FBs cleared once on first input_loop (see handler)
+    .clear_frames = 2, // Clear each write FB once on first input_loop ticks
 };
 
 static int32_t frame_integrator = 0;
@@ -457,14 +457,16 @@ void common_emu_input_loop(odroid_gamepad_state_t *joystick, odroid_dialog_choic
     }
 
     if (ingame_overlay_loop()) {
-        common_emu_state.clear_frames = 1;
+        /* Two ticks: clear only the write buffer each time so the next
+         * emu paint+swap wipes HUD leftovers from both FBs. Clearing the
+         * currently displayed buffer (lcd_clear_buffers) flashes black. */
+        common_emu_state.clear_frames = 2;
     }
 
     if (common_emu_state.clear_frames) {
-        common_emu_state.clear_frames = 0;
+        common_emu_state.clear_frames--;
         lcd_sleep_while_swap_pending();
-        /* Both buffers — see open_pause_menu() comment. Caller repaints. */
-        lcd_clear_buffers();
+        lcd_clear_active_buffer();
     }
 
     if (joystick->values[ODROID_INPUT_POWER]) {
