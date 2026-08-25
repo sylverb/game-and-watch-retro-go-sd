@@ -214,8 +214,6 @@ static void open_pause_menu(odroid_dialog_choice_t *game_options, void_callback_
          * showed menu leftovers on the unreblitted sides ~50% of the time. */
         lcd_sleep_while_swap_pending();
         lcd_clear_buffers();
-        /* DRAW_ONLY → sleep may have left overlay CLUT nests open. */
-        lcd_overlay_clut_end_all();
         common_emu_state.clear_frames = 0;
         common_emu_state.skip_frames = 0;
         common_emu_state.pause_frames = 0;
@@ -829,25 +827,11 @@ void common_ingame_overlay(void) {
 
     odroid_battery_state_t battery_state = odroid_input_read_battery();
     uint16_t percentage = battery_state.percentage;
-    bool battery_blink = (percentage <= 15) &&
-                         ((get_elapsed_time() % 1000) < 300);
-    bool need_overlay_clut =
-        (common_emu_state.overlay != INGAME_OVERLAY_NONE) || battery_blink;
-
-    /* Hold overlay CLUT across chrome frames; release on the first frame
-     * without chrome so the last stamped frame still matches through swap. */
-    static bool ingame_clut_held = false;
-    if (need_overlay_clut && !ingame_clut_held) {
-        lcd_overlay_clut_begin();
-        ingame_clut_held = true;
-    } else if (!need_overlay_clut && ingame_clut_held) {
-        lcd_overlay_clut_end();
-        ingame_clut_held = false;
+    if (percentage <= 15) {
+        if ((get_elapsed_time() % 1000) < 300)
+            odroid_overlay_draw_battery(battery_state, 150, 90); 
     }
-
-    if (battery_blink)
-        odroid_overlay_draw_battery(battery_state, 150, 90);
-
+    
     switch(common_emu_state.overlay)
     {
         case INGAME_OVERLAY_NONE:

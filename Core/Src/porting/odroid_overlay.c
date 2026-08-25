@@ -398,6 +398,8 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     bool any_key_debounce = false;
     uint32_t start_time = get_elapsed_time();
 
+    lcd_overlay_clut_begin();
+
     void _draw_banner(bool draw_only)
     {
         const int message_blink_rate = 750;
@@ -458,6 +460,7 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     if (flags & ODROID_MENU_FLAG_DRAW_ONLY)
     {
         _repaint(true);
+        /* Leave overlay CLUT live across sleep → game menu. */
         return;
     }
 
@@ -514,6 +517,11 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     }
 
     odroid_audio_mute(false);
+    if (lcd_overlay_clut_end_will_restore()) {
+        lcd_sleep_while_swap_pending();
+        lcd_clear_active_buffer();
+    }
+    lcd_overlay_clut_end();
 }
 
 static int get_dialog_items_count(odroid_dialog_choice_t *options)
@@ -890,6 +898,9 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     bool power_key_debounce = false;
     odroid_gamepad_state_t joystick;
 
+    /* Full 256-colour carts: stamp theme CLUT only while the dialog is up. */
+    lcd_overlay_clut_begin();
+
     /* Snapshot header + labels (+ values that may point into lang
      * strings). i18n_load_language() keeps only one non-en_us language
      * in RAM and frees the previous when browsing the language picker;
@@ -952,6 +963,7 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     {
         _repaint();
         if (flags & ODROID_MENU_FLAG_DRAW_ONLY) {
+            /* Leave overlay CLUT live for a follow-up sleep/menu paint. */
             return sel;
         }
 
@@ -1093,6 +1105,14 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     } while (joystick.values[last_key] == 1);
     sel = tmp_sel;
 
+    /* Drop chrome before restoring cart CLUT — otherwise the still-visible
+     * menu frame flashes PLAYPAL colours into theme slots for one vblank.
+     * Nested dialogs (depth>1) skip clear/restore. */
+    if (lcd_overlay_clut_end_will_restore()) {
+        lcd_sleep_while_swap_pending();
+        lcd_clear_active_buffer();
+    }
+    lcd_overlay_clut_end();
     return sel < 0 ? sel : options[sel].id;
 }
 
