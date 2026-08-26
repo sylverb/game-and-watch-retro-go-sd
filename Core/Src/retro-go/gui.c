@@ -6,7 +6,6 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "lupng.h"
 #include "gui.h"
 #include "gw_lcd.h"
 #include "gw_ofw.h"

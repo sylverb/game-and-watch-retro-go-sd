@@ -1,6 +1,3 @@
-[submodule "retro-go-stm32"]
-	path = retro-go-stm32
-	url = https://github.com/sylverb/retro-go-stm32
 [submodule "LCD-Game-Emulator"]
 	path = external/LCD-Game-Emulator
 	url = https://github.com/sylverb/LCD-Game-Emulator.git

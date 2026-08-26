@@ -50,8 +50,8 @@ Adding a new emulator means: add its sources to `Makefile`, give it a `.overlay_
 - `Core/Src/main.c`, `Core/Src/gw_*.c` — STM32 HAL bring-up, LCD, audio (SAI), buttons, SD driver, RTC, battery (BQ24072), flash chip access, low-level memory allocator. Headers in `Core/Inc/`.
 - `Core/Src/porting/<system>/main_<system>.c` — the per-emulator porting layer. This is where most emulator-specific Game & Watch work happens: input mapping, video scaling, audio bridging, savestate hooks, ROM loading, options menus.
 - `Core/Src/porting/lib/` — shared helpers used by porting code: FatFs vendor copy, LZ4/LZMA decompressors, HW JPEG decoder, HW SHA1, softspi.
-- `Core/Src/porting/odroid_*.c` — the retro-go shell's portability glue (input, display, audio, overlay, sdcard, system). Names come from the original Odroid-GO Retro-Go.
-- `retro-go-stm32/` — vendored snapshot of upstream retro-go (launcher UI, settings, common emulator-side helpers in `components/odroid/`, plus engines still used by in-tree cores such as `gnuboy-go`). Some older engines (`nofrendo-go`, `pce-go`, `smsplusgx-go`) remain in the tree but their G&W ports live in separate core projects.
+- `Core/Src/porting/odroid_*.c` / `Core/Inc/porting/odroid_*.h` — the retro-go shell's portability glue (input, display, audio, overlay, sdcard, system). Names come from the original Odroid-GO Retro-Go; headers live in-tree under `Core/Inc/porting/`.
+- `Core/Src/retro-go/` — launcher UI, settings, emulator discovery (`rg_emulators.c`), logos, i18n.
 - `external/` — git submodules for emulator engines used by in-tree or drop-in cores (`blueMSX-go`, `caprice32-go`, `gwenesis`, `LCD-Game-Emulator`, `stella2014-go`, `prosystem-go`, `PokeMini-go`, `potator`, `tamalib`, `tgbdual-go`, `ccleste-go`, `zelda3`, `smw`, `o2em-go`, `firmware_update`, …). Each is a third-party emulator/port with its own license; we patch them via `genpatch.py`-managed `.patch` files where present.
 - `tools/` — Python utilities. The user-facing ones (per README):
   - `gencovers.py` — generate `.img` cover thumbnails for ROMs (uses `requirements.txt`).
@@ -63,7 +63,7 @@ Adding a new emulator means: add its sources to `Makefile`, give it a `.overlay_
 
 Emulator main loop happens in `Core/Src/porting/<system>/`, a loop iteration should run the generation of a frame and to write it in the framebuffer, and to generate the audio samples for the frame. The submodule under `external/<system>` contains machine emulation logic.
 
-The `retro-go-stm32/components/odroid/` API (`odroid_system`, `odroid_overlay`, `odroid_display`, `odroid_input`, `odroid_audio`, `odroid_sdcard`, `odroid_netplay`) is the contract between the launcher and an emulator core. New cores implement against it.
+The `Core/Inc/porting/odroid_*.h` API (`odroid_system`, `odroid_overlay`, `odroid_display`, `odroid_input`, `odroid_audio`, `odroid_sdcard`, `odroid_netplay`) is the contract between the launcher and an emulator core. New cores implement against it.
 
 ## Things that are easy to get wrong
 

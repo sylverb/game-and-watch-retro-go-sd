@@ -88,7 +88,6 @@ C_INCLUDES +=  \
 -ICore/Src/porting/lib \
 -ICore/Src/porting/lib/lzma \
 -ICore/Src/porting/lib/FatFs \
--Iretro-go-stm32/components/odroid \
 -I./
 
 FATFS_INCLUDES += \

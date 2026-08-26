@@ -426,7 +426,7 @@ endif
 
 # Common C sources
 C_SOURCES +=  \
-retro-go-stm32/retro-go/main/gui.c \
+Core/Src/retro-go/gui.c \
 Core/Src/porting/gw_alloc.c \
 Core/Src/porting/gw_sleep.c \
 Core/Src/retro-go/rg_main.c \
@@ -708,7 +708,6 @@ C_INCLUDES +=  \
 -IDrivers/STM32H7xx_HAL_Driver/Inc/Legacy \
 -IDrivers/CMSIS/Device/ST/STM32H7xx/Include \
 -IDrivers/CMSIS/Include \
--Iretro-go-stm32/components/lupng \
 
 CXX_INCLUDES += \
 

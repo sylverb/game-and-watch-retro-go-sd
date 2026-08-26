@@ -44,7 +44,7 @@ uint8_t *store_file_in_flash_relocate(const char *file_path, uint32_t *file_size
 
 /* odroid_overlay_cache_file_in_flash() with a relocation pass. Lives in
  * Core/Src/porting/odroid_overlay.c next to its sibling (it draws the "Caching
- * game" bar), but is declared here rather than in the retro-go-stm32 submodule's
- * odroid_overlay.h so that adding it costs no submodule bump. */
+ * game" bar), but is declared here rather than in odroid_overlay.h so the
+ * flash-allocator API stays next to the rest of the flash helpers. */
 uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
                                                      bool byte_swap, flash_relocate_cb_t relocate_cb);
