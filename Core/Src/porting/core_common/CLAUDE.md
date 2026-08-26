@@ -10,7 +10,7 @@ so read that doc first if something here is under-explained.
 ## Model
 
 Every classic core (Watara Supervision, and any future migration — gb/gbc,
-nes, sms/gg/sg/col, msx, pce, md, a2600, lynx, a7800, amstrad, tama, pkmini,
+nes, sms/gg/sg/col, msx, pce, md, a2600, a7800, amstrad, tama, pkmini,
 gw, videopac, ...) used to be linked straight into `gw_retro_go.elf` via a
 `.overlay_<system>` section with a compile-time dispatch table
 (`emu_dispatch_t` / `run_internal_emu`, removed — see

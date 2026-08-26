@@ -125,10 +125,6 @@ MEMORY
   /* PICO-8 code (sentinel address, patched to QSPI XIP at runtime) */
   PICO8_CODE (x) : ORIGIN = 0xBEEF0000,   LENGTH = 512K
 
-  /* GBA: gpSP's scanline renderer plus the 16 KB BIOS image. Same sentinel trick
-   * as PICO8_CODE — see .xip_gba below. */
-  GBA_CODE   (x) : ORIGIN = 0xDEC00000,   LENGTH = 512K
-
   /* External flash (QSPI XIP) — for ITCM hot code LMA */
   EXTFLASH   (xr) : ORIGIN = __EXTFLASH_START__, LENGTH = 32M
 }
@@ -256,7 +252,7 @@ SECTIONS
 
   /* Every classic emulator's .overlay_<system>/.overlay_<system>_bss RAM
    * overlay (nes_fceu, tgb, sms/coleco, pce[+itc], msx, wsv, gw, md,
-   * a2600, lynx, a7800, amstrad, zelda3/rodata_zelda3, smw, plus the whole
+   * a2600, a7800, amstrad, zelda3/rodata_zelda3, smw, plus the whole
    * GBA split-layout block below) has been removed while migrating those
    * systems to standalone cores/<system>/ builds loaded from /cores/*.bin
    * at runtime (see "Cores externes avec ABI" plan). They all shared the
