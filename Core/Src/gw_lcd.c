@@ -275,13 +275,6 @@ void lcd_clone(void)
 
 void* lcd_get_active_buffer(void)
 {
-  /* lcd_swap() flips active_framebuffer before the VBLANK reload lands,
-   * so the "active" index briefly names the buffer LTDC is still scanning.
-   * Writing RGB565 into that front buffer mid-scan tears pixel words and
-   * shows up as brief coloured flashes (often green). Block here so every
-   * core/UI path that draws via get_active is safe without an explicit
-   * lcd_sleep_while_swap_pending() — which many ports forgot. */
-  lcd_sleep_while_swap_pending();
   return active_framebuffer ? framebuffer2 : framebuffer1;
 }
 
