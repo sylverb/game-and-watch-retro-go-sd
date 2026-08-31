@@ -362,28 +362,6 @@ SECTIONS
   }
   _OVERLAY_GW_BSS_SIZE = SIZEOF(.overlay_gw_bss);
 
-  .overlay_md __RAM_EMU_START__ : {
-    . = ALIGN(4);
-    __ram_emu_md_start__ = .;
-    build/md/*.o (.data .data* .text .text* .rodata .rodata*)
-    . = ALIGN(4);
-    _OVERLAY_MD_LOAD_END = .;
-  } AT > CORES
-  _OVERLAY_MD_LOAD_START = LOADADDR(.overlay_md);
-  _OVERLAY_MD_SIZE = SIZEOF(.overlay_md);
-
-  .overlay_md_bss _OVERLAY_MD_LOAD_END : {
-    . = ALIGN(4);
-    _OVERLAY_MD_BSS_START = .;
-    build/md/*.o (.bss .bss*)
-    . = ALIGN(4);
-    build/md/*.o (COMMON)
-    __ram_emu_md_end__ = .;
-    _OVERLAY_MD_BSS_END = .;
-    ASSERT(ABSOLUTE(_OVERLAY_MD_BSS_END) < __RAM_EMU_END__, "Error: MD BSS overflow");
-  }
-  _OVERLAY_MD_BSS_SIZE = SIZEOF(.overlay_md_bss);
-
 .overlay_a2600 __RAM_EMU_START__ : {
     . = ALIGN(4);
     __ram_emu_a2600_start__ = .;
@@ -595,11 +573,6 @@ SECTIONS
     ASSERT(ABSOLUTE(_OVERLAY_PKMINI_BSS_END) < __RAM_EMU_END__, "Error: PKMINI BSS overflow");
   }
   _OVERLAY_PKMINI_BSS_SIZE = SIZEOF(.overlay_pkmini_bss);
-
-  ._ram_space_check_md : {
-    . = . + SIZEOF(.overlay_md);
-    . = . + SIZEOF(.overlay_md_bss);
-  } >RAM_EMU
 
   ._ram (NOLOAD) :
   {

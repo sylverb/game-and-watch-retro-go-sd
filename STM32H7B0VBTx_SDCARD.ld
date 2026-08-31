@@ -251,7 +251,7 @@ SECTIONS
   } > CORES
 
   /* Every classic emulator's .overlay_<system>/.overlay_<system>_bss RAM
-   * overlay (nes_fceu, tgb, sms/coleco, pce[+itc], msx, wsv, gw, md,
+   * overlay (nes_fceu, tgb, sms/coleco, pce[+itc], msx, wsv, gw,
    * a2600, a7800, amstrad, zelda3/rodata_zelda3, smw, plus the whole
    * GBA split-layout block below) has been removed while migrating those
    * systems to standalone cores/<system>/ builds loaded from /cores/*.bin

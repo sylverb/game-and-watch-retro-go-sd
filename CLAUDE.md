@@ -52,7 +52,7 @@ Adding a new emulator means: add its sources to `Makefile`, give it a `.overlay_
 - `Core/Src/porting/lib/` — shared helpers used by porting code: FatFs vendor copy, LZ4/LZMA decompressors, HW JPEG decoder, HW SHA1, softspi.
 - `Core/Src/porting/odroid_*.c` / `Core/Inc/porting/odroid_*.h` — the retro-go shell's portability glue (input, display, audio, overlay, sdcard, system). Names come from the original Odroid-GO Retro-Go; headers live in-tree under `Core/Inc/porting/`.
 - `Core/Src/retro-go/` — launcher UI, settings, emulator discovery (`rg_emulators.c`), logos, i18n.
-- `external/` — git submodules for emulator engines used by in-tree or drop-in cores (`blueMSX-go`, `caprice32-go`, `gwenesis`, `LCD-Game-Emulator`, `stella2014-go`, `prosystem-go`, `PokeMini-go`, `potator`, `tamalib`, `tgbdual-go`, `ccleste-go`, `zelda3`, `smw`, `o2em-go`, `firmware_update`, …). Each is a third-party emulator/port with its own license; we patch them via `genpatch.py`-managed `.patch` files where present.
+- `external/` — git submodules for emulator engines used by in-tree or drop-in cores (`blueMSX-go`, `caprice32-go`, `LCD-Game-Emulator`, `stella2014-go`, `prosystem-go`, `PokeMini-go`, `potator`, `tamalib`, `tgbdual-go`, `ccleste-go`, `zelda3`, `smw`, `o2em-go`, `firmware_update`, …). Each is a third-party emulator/port with its own license; we patch them via `genpatch.py`-managed `.patch` files where present.
 - `tools/` — Python utilities. The user-facing ones (per README):
   - `gencovers.py` — generate `.img` cover thumbnails for ROMs (uses `requirements.txt`).
   - `fonttool/`, `png_to_logo.py`, `img2bin.py`, `pllgen.py` — asset converters used by the build.

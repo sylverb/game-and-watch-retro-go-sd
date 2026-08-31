@@ -413,7 +413,7 @@ typedef struct {
     /* ================================================================
      * v1 append: surface required to port the Mega Drive / Genesis
      * (gwenesis) core to the external-core model. Identified by porting
-     * Core/Src/porting/gwenesis/main_gwenesis.c against this ABI.
+     * Mega Drive (gwenesis) external core against this ABI.
      * DWT cycle helpers are implemented locally in the bridge via CMSIS
      * MMIO — no ABI slots.
      * ================================================================ */

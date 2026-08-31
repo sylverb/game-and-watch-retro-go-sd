@@ -7,9 +7,6 @@
 [submodule "potator"]
 	path = external/potator
 	url = https://github.com/sylverb/potator.git
-[submodule "gwenesis"]
-	path = external/gwenesis
-	url = https://github.com/sylverb/gwenesis
 [submodule "prosystem-go"]
 	path = external/prosystem-go
 	url = https://github.com/sylverb/prosystem-go.git
@@ -48,9 +45,6 @@
 [submodule "external/PokeMini-go"]
 	path = external/PokeMini-go
 	url = https://github.com/sylverb/PokeMini-go.git
-[submodule "external/oswan-go"]
-	path = external/oswan-go
-	url = https://github.com/sylverb/oswan-go.git
 [submodule "Core/Src/porting/lib/frogfs"]
 	path = Core/Src/porting/lib/frogfs
 	url = https://github.com/jkent/frogfs.git

@@ -77,7 +77,7 @@ static void __attribute__((constructor)) gw_core_impure_ptr_init(void)
     _impure_ptr = *(struct _reent **)(gw_firmware_abi()->impure_ptr_ptr);
 }
 
-/* libm (linked directly via CORE_LDLIBS=-lm, see cores/md/Makefile) expects
+/* libm (linked directly via CORE_LDLIBS=-lm on external cores such as md) expects
  * newlib's non-reentrant `errno` macro, `#define errno (*__errno())`. Its
  * .a member (math_err.o) is prebuilt and never passes through this build's
  * --redefine-syms pass (that only touches OUR object files, see
