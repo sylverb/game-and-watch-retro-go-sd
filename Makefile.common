@@ -20,6 +20,10 @@ LARGE_FLASH ?= 0
 # Set to 0 to disable sd card support
 SD_CARD ?= 1
 
+# SD SPI data CRC-16 (CMD59). Default 0: skip verification (cheap/old cards).
+# Set to 1 to try CRC on at init; cards that reject CMD59 or fail CRC fall back.
+SD_SPI_CHECK_DATA_CRC ?= 0
+
 # Docker image for reproducible ARM builds (see targets docker, docker_build).
 RELEASE_VERSION ?= v1.5
 CONTAINER_NAME ?= retro-go-sd
@@ -671,6 +675,7 @@ C_DEFS +=  \
 -DIS_LITTLE_ENDIAN \
 -DENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT) \
 -DSD_CARD=$(SD_CARD) \
+-DSD_SPI_CHECK_DATA_CRC=$(SD_SPI_CHECK_DATA_CRC) \
 -DCHEAT_CODES=$(CHEAT_CODES) \
 -DDISABLE_SPLASH_SCREEN=$(DISABLE_SPLASH_SCREEN) \
 -DENABLE_BOOT_OC=$(ENABLE_BOOT_OC) \
@@ -1761,6 +1766,7 @@ help:
 	@echo "  SD_CARD             - Use SD Card reader (default=0)"
 	@echo "                        set to 1 for auto detect between SD Card reader on spi1 (Design by Tim"
 	@echo "                        Schuerewegen) or on ospi1 (Design by *yota9* Vladislav Khmelevsky)"
+	@echo "  SD_SPI_CHECK_DATA_CRC - Set to 1 to enable SD data CRC-16 (CMD59) (default=0)"
 	@echo "  FILESYSTEM_SIZE     - Sets the littleFS partition flash size in bytes. Defaults to 10% of flash."
 	@echo "  FILESYSTEM_OFFSET   - Places the littleFS partition at a specified offset in the external flash. "
 	@echo "                        Defaults to placing the partition at the end of flash."
@@ -1816,6 +1822,7 @@ help:
 	@echo "  ENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT)"
 	@echo "  GNW_TARGET=$(GNW_TARGET)"
 	@echo "  CHEAT_CODES=$(CHEAT_CODES)"
+	@echo "  SD_SPI_CHECK_DATA_CRC=$(SD_SPI_CHECK_DATA_CRC)"
 	@echo "  MSX_USE_BANK_2=$(MSX_USE_BANK_2)"
 	@echo "  GCC_PATH=$(GCC_PATH)"
 	@echo "  PREFIX=$(PREFIX)"
