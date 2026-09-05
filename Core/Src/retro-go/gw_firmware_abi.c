@@ -21,6 +21,7 @@
 #include "gw_audio.h"
 #include "gw_malloc.h"
 #include "gw_buttons.h"
+#include "bilinear.h"
 #include "main.h"
 #include "rg_i18n.h"
 #include "rg_rtc.h"
@@ -496,7 +497,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .rg_storage_copy_file_range_to_ram =
         (size_t (*)(char *, uint8_t *, uint32_t, uint32_t, gw_file_progress_cb_t))rg_storage_copy_file_range_to_ram,
 
-    /* v2 append: blueMSX (MSX) */
+    /* v2 append: MSX external core (SHA1 / path helpers) */
     .calculate_sha1_file       = calculate_sha1_file,
     .calculate_sha1_file_limit = calculate_sha1_file_limit,
     .calculate_sha1_hw         = calculate_sha1_hw,
@@ -554,4 +555,7 @@ const gw_firmware_abi_t g_firmware_abi = {
 
     /* v2 append: DMA2D M2M RGB565 with src/dst line offsets */
     .dma2d_m2m_rgb565_start_ex   = gw_abi_dma2d_m2m_rgb565_start_ex,
+
+    /* v2 append: soft bilinear blit (OpenMV imlib) */
+    .imlib_draw_image            = imlib_draw_image,
 };

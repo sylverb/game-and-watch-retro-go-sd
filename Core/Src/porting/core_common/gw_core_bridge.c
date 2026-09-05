@@ -67,7 +67,7 @@ void gw_core_bridge_init(void)
     /* Nothing to snapshot yet — see gw_core_bridge.h. */
 }
 
-/* Caprice (and other plain-C cores) call fputs(stderr, …) which expands to
+/* Plain-C cores call fputs(stderr, …) which expands to
  * _impure_ptr->_stderr. Alias the firmware's reent so stderr/stdout work.
  * Runs from .init_array before CORE_ENTRY (see gw_core_entry.S). */
 struct _reent;
@@ -1047,7 +1047,7 @@ size_t core_rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest
 }
 
 /* ====================================================================
- * blueMSX (MSX): SHA1 + RAM_EMU bump reset.
+ * MSX external core: SHA1 + RAM_EMU bump reset.
  * ==================================================================== */
 void core_ram_init(void)
 {
@@ -1068,9 +1068,8 @@ int8_t core_calculate_sha1_hw(const uint8_t *data, size_t len, uint8_t *output)
 
 /* libc localtime/gettimeofday — core_time (above) pairs with this one for
  * every "get now as calendar fields" need (time()+localtime(), see the RTC
- * block above). gettimeofday is real RTC access, kept for
- * archGetSystemUpTime (external/blueMSX-go/Src/Libretro/Timer.c) and the
- * Millis/SubSeconds composition above. mktime is not exported: convert
+ * block above). gettimeofday is real RTC access (e.g. MSX Timer / Millis
+ * composition above). mktime is not exported: convert
  * "now" with time(); convert an arbitrary time_t with localtime only. */
 struct tm *core_localtime(const time_t *timer) { return gw_firmware_abi()->localtime(timer); }
 int core_gettimeofday(struct timeval *tv, void *tz)
@@ -1275,6 +1274,24 @@ float core_sqrtf(float x)
 double core_log10(double x)
 {
     return gw_firmware_abi()->log10(x);
+}
+
+/* ====================================================================
+ * v2 append: soft bilinear blit (OpenMV imlib_draw_image)
+ * ==================================================================== */
+void core_imlib_draw_image(image_t *dst_img, image_t *src_img,
+                           int dst_x_start, int dst_y_start, int dst_stride,
+                           float x_scale, float y_scale, rectangle_t *roi,
+                           int rgb_channel, int alpha,
+                           const uint16_t *color_palette,
+                           const uint8_t *alpha_palette, image_hint_t hint,
+                           imlib_draw_row_callback_t callback,
+                           void *dst_row_override)
+{
+    gw_firmware_abi()->imlib_draw_image(dst_img, src_img,
+        dst_x_start, dst_y_start, dst_stride, x_scale, y_scale, roi,
+        rgb_channel, alpha, color_palette, alpha_palette, hint,
+        callback, dst_row_override);
 }
 
 /* ====================================================================

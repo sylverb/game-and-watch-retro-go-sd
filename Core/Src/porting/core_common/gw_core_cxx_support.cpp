@@ -39,7 +39,9 @@
 #include <cstddef>
 #include <cstring>
 #include <cstdio>
+#ifndef HOST_BUILD
 #include <sys/reent.h>
+#endif
 
 extern "C" {
 #include "gw_malloc.h"
@@ -56,6 +58,7 @@ extern "C" void heap_itc_alloc(bool itc)
     s_heap_itc_alloc = itc;
 }
 
+#ifdef GW_HEAP_TRACE
 static const char *heap_pool_name(const void *ptr)
 {
     uintptr_t p = (uintptr_t)ptr;
@@ -69,6 +72,7 @@ static const char *heap_pool_name(const void *ptr)
         return "AHB";
     return "?";
 }
+#endif
 
 extern "C" void *heap_alloc_mem(size_t s)
 {
@@ -102,8 +106,12 @@ extern "C" void *heap_alloc_mem(size_t s)
 
     if (ptr) {
         memset(ptr, 0, s);
+#ifdef GW_HEAP_TRACE
         printf("[heap] %u B -> %s @ %p (tag %s)\n",
                (unsigned)s, pool, ptr, heap_pool_name(ptr));
+#else
+        (void)pool;
+#endif
     } else {
         printf("[heap] %u B -> FAIL\n", (unsigned)s);
     }
@@ -148,6 +156,18 @@ extern "C" void cpp_heap_init(size_t bss_end)
 /* ====================================================================
  * operator new/delete
  * ==================================================================== */
+#ifdef HOST_BUILD
+/* Desktop build links real libc++/SDL: a freestanding no-free operator
+ * new would intercept every C++ allocation in the process (and leak).
+ * Explicit emulator buffers still go through heap_alloc_mem(). */
+#include <cstdlib>
+void *operator new(size_t s) { return std::malloc(s ? s : 1); }
+void *operator new[](size_t s) { return std::malloc(s ? s : 1); }
+void operator delete(void *p) noexcept { std::free(p); }
+void operator delete[](void *p) noexcept { std::free(p); }
+void operator delete(void *p, size_t) noexcept { std::free(p); }
+void operator delete[](void *p, size_t) noexcept { std::free(p); }
+#else
 void *operator new(size_t s) { return heap_alloc_mem(s); }
 void *operator new[](size_t s) { return heap_alloc_mem(s); }
 
@@ -162,6 +182,7 @@ void operator delete(void *p) { (void)p; }
 void operator delete[](void *p) { (void)p; }
 void operator delete(void *p, size_t s) { (void)p; (void)s; }
 void operator delete[](void *p, size_t s) { (void)p; (void)s; }
+#endif
 
 /* ====================================================================
  * Minimal C++ runtime symbols the compiler/linker require to exist even

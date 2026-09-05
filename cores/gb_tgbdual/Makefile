@@ -34,10 +34,9 @@ $(CORE_TGBDUAL)/tgbdual_sgb.cpp \
 $(CORE_PORTING_GB)/gw_renderer.cpp \
 $(CORE_PORTING_GB)/main_gb_tgbdual.cpp
 
-# bilinear.c: soft (bilinear-filtered) scaling mode, same as cores/wsv's use
-# of it — main_gb_tgbdual.cpp's screen_blit_bilinear() calls imlib_draw_image().
+# Soft scaling uses firmware ABI imlib_draw_image (bilinear.c stays in
+# the firmware ELF, not this core).
 CORE_C_SOURCES := \
-../../Core/Src/bilinear.c \
 $(CORE_PORTING_GB)/gb_i18n.c
 
 CORE_C_INCLUDES := \

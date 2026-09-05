@@ -197,7 +197,7 @@ getenv core_getenv
 strtoul core_strtoul
 # --- FCEUmm (NES): mappers.pak ranged SD→RAM copy ---
 rg_storage_copy_file_range_to_ram core_rg_storage_copy_file_range_to_ram
-# --- blueMSX (MSX) ---
+# --- MSX (external core) ---
 ram_init core_ram_init
 odroid_audio_volume_get core_odroid_audio_volume_get
 calculate_sha1_file core_calculate_sha1_file
@@ -260,3 +260,4 @@ i18n_get_text_height core_i18n_get_text_height
 odroid_overlay_get_font_size core_odroid_overlay_get_font_size
 odroid_overlay_get_font_width core_odroid_overlay_get_font_width
 odroid_overlay_draw_fill_rect core_odroid_overlay_draw_fill_rect
+imlib_draw_image core_imlib_draw_image

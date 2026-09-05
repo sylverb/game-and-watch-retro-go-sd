@@ -38,6 +38,7 @@
 #include "common.h"
 #include "ff.h"
 #include "rg_storage.h"
+#include "bilinear.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -483,8 +484,8 @@ typedef struct {
                                                   gw_file_progress_cb_t file_progress_cb);
 
     /* ================================================================
-     * v2 append: blueMSX (MSX) porting surface. Identified by porting
-     * Core/Src/porting/msx/main_msx.c (+ msx_database.c) against this ABI.
+     * v2 append: MSX external-core surface (SHA1 helpers used by
+     * msxromdb / disk identity; keep for ABI compatibility).
      * (ahb_* → mem_ctl. calculate_sha1_file is the whole-file form of
      * calculate_sha1_file_limit.)
      * ================================================================ */
@@ -493,7 +494,7 @@ typedef struct {
     int8_t   (*calculate_sha1_hw)(const uint8_t *data, size_t len, uint8_t *output);
 
     /* ================================================================
-     * v2 append: blueMSX extras (RTC init, disk-swap UI, ROM loader).
+     * v2 append: MSX extras (RTC init, disk-swap UI, path helpers).
      * ================================================================ */
     struct tm *(*localtime)(const time_t *timer);
     int      (*gettimeofday)(struct timeval *tv, void *tz);
@@ -606,6 +607,21 @@ typedef struct {
     uint32_t (*dma2d_m2m_rgb565_start_ex)(uint32_t src, uint32_t dst,
                                           uint16_t width, uint16_t height,
                                           uint16_t src_offset, uint16_t dst_offset);
+
+    /* ================================================================
+     * v2 append: soft bilinear blit (OpenMV imlib_draw_image). Used by
+     * GB/WSV/Celeste soft scaling filters. Types live in bilinear.h.
+     * Append-only — no version bump; required_abi_min_size grows for
+     * cores that link this slot.
+     * ================================================================ */
+    void (*imlib_draw_image)(image_t *dst_img, image_t *src_img,
+                             int dst_x_start, int dst_y_start, int dst_stride,
+                             float x_scale, float y_scale, rectangle_t *roi,
+                             int rgb_channel, int alpha,
+                             const uint16_t *color_palette,
+                             const uint8_t *alpha_palette, image_hint_t hint,
+                             imlib_draw_row_callback_t callback,
+                             void *dst_row_override);
 
 } gw_firmware_abi_t;
 
