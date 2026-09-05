@@ -29,19 +29,36 @@
 #include <setjmp.h>
 #include <locale.h>
 #include <time.h>
+#include <sys/time.h>
+#include <sys/types.h>
 
 #include "odroid_system.h"
 #include "odroid_input.h"
 #include "odroid_display.h"
 #include "common.h"
 #include "ff.h"
+#include "rg_storage.h"
+#include "bilinear.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Bump on any removal, reorder, or signature change. Append-only is safe. */
-#define GW_FIRMWARE_ABI_VERSION  1u
+/* Bump on any removal, reorder, or signature change. Append-only is safe
+ * within a released version. While external cores are still in active
+ * development (no released ABI compatibility window), fields may still
+ * be removed/reordered without bumping — see the odroid_system_emu_init
+ * comment further down. RTC read getters (GW_GetCurrent*, GW_GetUnixTM,
+ * mktime) were dropped in favor of time()+localtime(). */
+#define GW_FIRMWARE_ABI_VERSION  2u
+
+/* Progress callback for ranged SD→RAM copies (matches rg_storage.h). Declared
+ * here so gw_firmware_abi.h doesn't need to pull in rg_storage.h. */
+typedef void (*gw_file_progress_cb_t)(uint32_t total_size, uint32_t total_processed, uint8_t progress);
+
+/* Relocation pass while caching a file into QSPI (matches gw_flash_alloc.h). */
+typedef void (*gw_flash_relocate_cb_t)(uint8_t *buffer, uint32_t length, uint32_t offset_in_file,
+                                       uint8_t *file_address, uint32_t file_size);
 
 /* Offset within intflash where the .firmware_abi section is pinned by
  * the linker. Chosen to sit after the ISR vector table (684 bytes at
@@ -56,6 +73,23 @@ extern "C" {
  * the currently-active vector table; for this firmware that's always
  * __flash_start__ (first byte of intflash). */
 #define GW_VTOR_ADDRESS           0xE000ED08u
+
+/* Memory pool selector for mem_ctl() below. Replaces what used to be one
+ * ABI function pointer per pool (itc_malloc/itc_calloc, ram_malloc,
+ * ahb_malloc/ahb_calloc, dtc_malloc) plus separate itc_init / ram_init /
+ * ram_get_free_size slots — see mem_ctl's comment. */
+typedef enum {
+    GW_MEM_ITC  = 0,  /* 64KB ITCM bump pool */
+    GW_MEM_RAM  = 1,  /* RAM_EMU bump pool (this core's ram_start budget) */
+    GW_MEM_AHB  = 2,  /* AHB newlib heap (malloc/free via ahb_*) */
+    GW_MEM_DTC  = 3,  /* DTCM bump pool (dtc_*) */
+} gw_mem_pool_t;
+
+typedef enum {
+    GW_MEM_OP_ALLOC     = 0,  /* calloc from pool; count=1 → malloc(size)+zero */
+    GW_MEM_OP_INIT      = 1,  /* reset pool bump (ITC/RAM/DTCM only) */
+    GW_MEM_OP_FREE_SIZE = 2,  /* largest allocatable bytes in this pool */
+} gw_mem_op_t;
 
 typedef struct {
     /* Header — every plugin checks these before using the rest. */
@@ -138,12 +172,19 @@ typedef struct {
 
     /* ================================================================
      * libc: time.h / setjmp.h / locale.h / libm
+     *
+     * time() is the canonical wall-clock read for cores: pair with
+     * localtime() further down for calendar fields. Do not re-add
+     * per-field RTC getters.
      * ================================================================ */
     time_t         (*time)(time_t *);
     int            (*setjmp)(jmp_buf env);
     void           (*longjmp)(jmp_buf env, int val);  /* noreturn */
     struct lconv  *(*localeconv)(void);
     double         (*pow)(double x, double y);
+    float          (*cosf)(float x);
+    float          (*sqrtf)(float x);
+    double         (*log10)(double x);
 
     /* ================================================================
      * libc: assert
@@ -171,7 +212,7 @@ typedef struct {
     uint64_t (*uldivmod_rem)(uint64_t, uint64_t);
 
     /* ================================================================
-     * FatFs (ff.h)
+     * FatFs directory API (ff.h)
      * ================================================================ */
     FRESULT (*f_opendir)(DIR *dp, const TCHAR *path);
     FRESULT (*f_closedir)(DIR *dp);
@@ -179,39 +220,83 @@ typedef struct {
 
     /* ================================================================
      * G&W hardware: LCD
+     *
+     * lcd_setup_framebuffers takes lcd_mode_t (gw_lcd.h) exposed as int
+     * so this header does not pull in the LCD driver.
      * ================================================================ */
-    void  (*lcd_swap)(void);
-    void *(*lcd_get_active_buffer)(void);
-    void *(*lcd_get_inactive_buffer)(void);
-    void *(*lcd_clear_active_buffer)(void);
-    void *(*lcd_clear_inactive_buffer)(void);
+    void     (*lcd_swap)(void);
+    void    *(*lcd_get_active_buffer)(void);
+    void    *(*lcd_get_inactive_buffer)(void);
+    void    *(*lcd_clear_active_buffer)(void);
+    void    *(*lcd_clear_inactive_buffer)(void);
+    void     (*lcd_clear_buffers)(void);
+    void     (*lcd_sync)(void);
+    void     (*lcd_clone)(void);
+    void     (*lcd_wait_for_vblank)(void);
+    void     (*lcd_set_refresh_rate)(uint32_t frequency);
+    uint32_t (*lcd_get_pixel_position)(void);
+    uint32_t (*lcd_is_swap_pending)(void);
+    bool     (*lcd_sleep_while_swap_pending)(void);
+    void     (*lcd_backlight_set)(uint8_t brightness);
+    uint8_t  (*lcd_backlight_get)(void);
+    void     (*lcd_backlight_on)(void);
+    void     (*lcd_backlight_off)(void);
+    void     (*lcd_setup_framebuffers)(int lcd_mode);
+    void     (*lcd_get_bonus_pool)(uint8_t **out_ptr, size_t *out_size);
+    void     (*lcd_set_clut)(const uint32_t *clut, uint16_t count);
 
     /* ================================================================
      * G&W hardware: audio
+     *
+     * DMA start/stop, buffer get/clear, length queries, odroid mute/
+     * init/rate/volume, and the ISR-fed PCM ring for homebrews (Music /
+     * Video). Fill lives in firmware gw_audio.c so the SAI ISR never
+     * calls RAM_EMU code.
      * ================================================================ */
     void     (*audio_start_playing)(uint16_t length);
+    void     (*audio_start_playing_full_length)(uint16_t length);
+    void     (*audio_stop_playing)(void);
     int16_t *(*audio_get_active_buffer)(void);
     void     (*audio_clear_active_buffer)(void);
     void     (*audio_clear_inactive_buffer)(void);
+    void     (*audio_clear_buffers)(void);
+    uint16_t (*audio_get_buffer_length)(void);
+    uint16_t (*audio_get_buffer_full_length)(void);
+    uint16_t (*audio_get_buffer_size)(void);
+    void     (*odroid_audio_init)(int sample_rate);
+    int      (*odroid_audio_sample_rate_get)(void);
+    void     (*odroid_audio_mute)(bool mute);
+    int      (*odroid_audio_volume_get)(void);
+    void     (*odroid_audio_volume_set)(int level);
+    void     (*pcm_attach)(int16_t *ring, int size, volatile uint16_t *head, volatile uint16_t *tail);
+    void     (*pcm_audio_enable)(int on);
+    void     (*pcm_audio_set)(int vol, int play);
+    void     (*pcm_audio_setpos)(uint32_t samples);
+    uint32_t (*pcm_audio_pos)(void);
 
     /* ================================================================
      * G&W hardware: allocators
+     *
+     * mem_ctl() is the single entry for every pool-based allocator op
+     * (ALLOC / INIT / FREE_SIZE) across ITC / RAM_EMU / AHB / DTCM.
+     * ALLOC always zeroes (calloc semantics);
+     * pass count=1 for malloc(size)+zero. Replaces the former mem_alloc
+     * + itc_init + ram_get_free_size + ram_init slots.
+     * gw_core_bridge.c re-exposes the historical per-pool names as thin
+     * wrappers so core source is unaffected.
+     *
+     * Returns: ALLOC → (uintptr_t)ptr; INIT → 0; FREE_SIZE → largest
+     * allocatable bytes in that pool (bump remaining, or AHB wilderness /
+     * largest free chunk).
      * ================================================================ */
-    void  *(*itc_malloc)(size_t size);
-    void  *(*itc_calloc)(size_t count, size_t size);
-    void   (*itc_init)(void);
-    void  *(*ram_malloc)(size_t size);
-    size_t (*ram_get_free_size)(void);
+    uintptr_t (*mem_ctl)(gw_mem_op_t op, gw_mem_pool_t pool, size_t count, size_t size);
 
-    /* ================================================================
-     * G&W hardware: RTC
-     * ================================================================ */
-    uint8_t (*GW_GetCurrentYear)(void);
-    uint8_t (*GW_GetCurrentMonth)(void);
-    uint8_t (*GW_GetCurrentDay)(void);
-    uint8_t (*GW_GetCurrentHour)(void);
-    uint8_t (*GW_GetCurrentMinute)(void);
-    uint8_t (*GW_GetCurrentSecond)(void);
+    /* G&W hardware RTC getters (GW_GetCurrentYear/Month/Day/Hour/Minute/
+     * Second, GW_GetUnixTM, mktime) were removed during external-core
+     * development (still ABI v2 — no released compatibility window).
+     * Cores get wall-clock via time()+localtime() (and gettimeofday for
+     * sub-second). Firmware UI still calls the rg_rtc.c helpers directly.
+     * GW_SetUnixTM (write path) remains further down. */
 
     /* ================================================================
      * G&W hardware: watchdog + HAL
@@ -224,28 +309,54 @@ typedef struct {
      * retro-go: system
      * ================================================================ */
     void (*odroid_system_init)(int app_id, int sample_rate);
+    /* cheat_update_cb (7th arg) added for TGB Dual (Game Boy / Game Boy
+     * Color): every core in this repo is rebuilt from source alongside the
+     * firmware (the packaged core binaries under cores/ are gitignored,
+     * nothing is distributed as a prebuilt blob yet), so this branch has
+     * no released-ABI compatibility window to preserve — no
+     * GW_FIRMWARE_ABI_VERSION bump needed for this signature change (see
+     * that macro's comment above). */
     void (*odroid_system_emu_init)(state_handler_t load_cb,
                                    state_handler_t save_cb,
                                    screenshot_handler_t screenshot_cb,
                                    shutdown_handler_t shutdown_cb,
                                    sleep_post_wakeup_handler_t sleep_post_wakeup_cb,
-                                   sram_save_handler_t sram_save_cb);
+                                   sram_save_handler_t sram_save_cb,
+                                   cheat_update_handler_t cheat_update_cb);
     void (*odroid_system_switch_app)(int app);  /* noreturn */
 
     /* ================================================================
      * retro-go: input / display
      * ================================================================ */
     void                     (*odroid_input_read_gamepad)(odroid_gamepad_state_t *out_state);
+    odroid_battery_state_t   (*odroid_input_read_battery)(void);
     odroid_display_scaling_t (*odroid_display_get_scaling_mode)(void);
     void                     (*odroid_display_set_scaling_mode)(odroid_display_scaling_t mode);
+    /* Real return type is odroid_display_filter_t; forwarded as int so
+     * callers that don't include the enum still compile. */
+    int                      (*odroid_display_get_filter_mode)(void);
+    odroid_display_backlight_t (*odroid_display_get_backlight)(void);
+    void                     (*odroid_display_set_backlight)(odroid_display_backlight_t level);
 
     /* ================================================================
      * retro-go: overlay / SD / settings
      * ================================================================ */
     int      (*odroid_overlay_draw_text)(uint16_t x, uint16_t y, uint16_t width,
                                          const char *text, uint16_t color, uint16_t color_bg);
-    uint8_t *(*odroid_overlay_cache_file_in_flash)(const char *file_path,
-                                                   uint32_t *file_size_p, bool byte_swap);
+    int      (*odroid_overlay_dialog)(const char *header, odroid_dialog_choice_t *options,
+                                      int selected, void_callback_t repaint,
+                                      odroid_menu_flags_t flags);
+    void     (*odroid_overlay_draw_logo)(uint16_t x_pos, uint16_t y_pos, int16_t logo_idx,
+                                         uint16_t color);
+    void     (*odroid_overlay_draw_battery)(odroid_battery_state_t battery, int x, int y);
+    void     (*odroid_overlay_clock)(int x_pos, int y_pos);
+    size_t   (*odroid_overlay_cache_file_in_ram)(const char *file_path, uint8_t *dest_address);
+    uint8_t *(*odroid_overlay_cache_file_in_flash)(const char *file_path, uint32_t *file_size_p,
+                                                   bool byte_swap);
+    uint8_t *(*odroid_overlay_cache_file_in_flash_relocate)(const char *file_path,
+                                                           uint32_t *file_size_p, bool byte_swap,
+                                                           gw_flash_relocate_cb_t relocate_cb);
+    void     (*draw_error_screen)(const char *main_line, const char *line_1, const char *line_2);
     int      (*odroid_sdcard_mkdir)(const char *path);
     int32_t  (*odroid_settings_app_int32_get)(const char *key, int32_t default_value);
     void     (*odroid_settings_app_int32_set)(const char *key, int32_t value);
@@ -281,18 +392,10 @@ typedef struct {
     void                       **ROM_DATA_ptr;        /* &ROM_DATA */
     unsigned                    *ROM_DATA_LENGTH_ptr;  /* &ROM_DATA_LENGTH */
     void                       **ACTIVE_FILE_ptr;     /* &ACTIVE_FILE */
-    uint8_t                    **pico8_code_flash_addr_ptr;
-    uint32_t                    *pico8_code_flash_size_ptr;
     uint32_t                    *ram_start_ptr;        /* &ram_start */
     void                       **impure_ptr_ptr;      /* &_impure_ptr */
-    void                        *dtcm_p8ram_start;    /* &__dtcm_p8ram_start__ (NULL when heap-allocated) */
 
     /* =====[ APPEND-ONLY FROM HERE — bump version on any change above ]===== */
-
-    /* v1 append: DTCM heap allocator — engine calls this to get 64KB p8ram
-     * at runtime instead of relying on a fixed linker section.
-     * Freed implicitly by heap watermark reset between emulator launches. */
-    void                       *(*dtcm_malloc)(size_t size);
 
     /* v1 append: deferred state load. Engine calls this from main loop AFTER
      * the first frame body so cart_co is in a stable post-init state. Routed
@@ -300,19 +403,225 @@ typedef struct {
      * savestate-path/handler logic without an engine rebuild. */
     bool                        (*odroid_system_emu_load_state)(int slot);
 
-    /* v1 append: audio mute toggle. Engine calls this when entering
-     * start_paused state. Routed through ABI for the same reason. */
-    void                        (*odroid_audio_mute)(bool mute);
+    /* ================================================================
+     * v1 append: surface required to port a "classic" emulator core
+     * (e.g. Watara Supervision) to the external-core model. Identified
+     * by porting Core/Src/porting/wsv/main_wsv.c against this ABI.
+     * ================================================================ */
+    char    *(*strcpy)(char *, const char *);
+    void    *(*malloc)(size_t size);
 
-    /* v1 append: LCD pixel-format / framebuffer-layout switch. PICO-8 and
-     * NES use this to flip into 8-bit indexed mode (LUT8), halving the
-     * LCD memory footprint and freeing 154K of bonus pool for the engine.
-     * The lcd_mode argument is an int matching lcd_mode_t. */
-    void                        (*lcd_setup_framebuffers)(int lcd_mode);
-    void                        (*lcd_get_bonus_pool)(uint8_t **out_ptr,
-                                                      size_t *out_size);
-    void                        (*lcd_set_clut)(const uint32_t *clut,
-                                                uint16_t count);
+    /* ================================================================
+     * v1 append: surface required to port the Mega Drive / Genesis
+     * (gwenesis) core to the external-core model. Identified by porting
+     * Mega Drive (gwenesis) external core against this ABI.
+     * DWT cycle helpers are implemented locally in the bridge via CMSIS
+     * MMIO — no ABI slots.
+     * ================================================================ */
+    uint8_t  (*odroid_settings_cpu_oc_level_get)(void);
+    /* SystemClock_Config's argument is the CPU overclock level (0 = stock);
+     * see Core/Src/main.c. On OSPI1 SD hardware any non-zero request is
+     * forced back to stock inside SystemClock_Config. */
+    void     (*SystemClock_Config)(uint8_t new_oc_level);
+
+    bool     (*get_ofw_is_mario)(void);
+
+    /* odroid_system_get_path's `type` is emu_path_type_t (odroid_system.h),
+     * exposed as `int` for the same reason as lcd_setup_framebuffers.
+     * Returns a strdup'd string the caller must free(). */
+    char    *(*odroid_system_get_path)(int type, const char *romPath);
+
+    /* frame_counter (gw_lcd.h): incremented by the LCD vsync ISR. Engine
+     * reads the live value through frame_counter_ptr instead of linking
+     * against the firmware's global directly. */
+    uint32_t                    *frame_counter_ptr;
+
+    /* ================================================================
+     * v2 append: surface required to port PC Engine / PC Engine CD
+     * (multi-system, multi-segment core) to the external-core model.
+     * Required by the external PC Engine / PCE CD core. Pure append —
+     * no version bump needed.
+     * ================================================================ */
+    /* Matches Core/Inc/porting/crc32.h's exact declared signature
+     * (`unsigned int`/`unsigned char const *`, not uint32_t/uint8_t*) —
+     * some arm-none-eabi/newlib configurations typedef uint32_t as `long
+     * unsigned int` rather than `unsigned int`, and initializing this
+     * pointer field from the real crc32_le function is then an
+     * incompatible-pointer-types error despite both being 32-bit. */
+    unsigned int (*crc32_le)(unsigned int crc, const unsigned char *buf, unsigned int len);
+    void     (*cpumon_sleep)(void);
+    int      (*vsscanf)(const char *str, const char *format, va_list ap);
+    char    *(*strncat)(char *dest, const char *src, size_t n);
+    bool     (*odroid_settings_ActiveGameGenieCodes_is_enabled)(char *game_path, int code_index);
+
+    /* dma_counter (gw_audio.h) / common_emu_sound_dma_marker (common.h):
+     * both incremented/compared by the audio DMA ISR + common_emu_sound_sync
+     * to pace emulation to real playback time. PCE's CD-DA prefetch loop
+     * (pce_sound_sync_with_prefetch) needs to observe/advance the same
+     * counters common_emu_sound_sync() uses internally, so it can spend the
+     * pacer wait prefetching CD sectors instead of just sleeping — exposed
+     * as data pointers, same pattern as frame_counter_ptr. */
+    uint32_t                    *dma_counter_ptr;
+    uint32_t                    *common_emu_sound_dma_marker_ptr;
+
+    /* ================================================================
+     * v2 append: surface required to port TGB Dual (Game Boy / Game Boy
+     * Color, C++) to the external-core model. Identified by porting
+     * Core/Src/porting/gb_tgbdual/main_gb_tgbdual.cpp (+ gw_renderer.cpp)
+     * against this ABI. (GW_GetUnixTM/mktime were dropped during
+     * external-core development — use time()+localtime() instead.)
+     * ================================================================ */
+    int32_t  (*odroid_settings_Palette_get)(void);
+    void     (*odroid_settings_Palette_set)(int32_t value);
+
+    /* ================================================================
+     * v2 append: FCEUmm (NES) — ranged SD→RAM copy for mappers.pak blobs
+     * (nes_fceu_mappers.c). Same append-only / no version bump policy as
+     * the other v2 fields above.
+     * ================================================================ */
+    size_t   (*rg_storage_copy_file_range_to_ram)(char *file_path, uint8_t *ram_dest,
+                                                  uint32_t offset, uint32_t length,
+                                                  gw_file_progress_cb_t file_progress_cb);
+
+    /* ================================================================
+     * v2 append: MSX external-core surface (SHA1 helpers used by
+     * msxromdb / disk identity; keep for ABI compatibility).
+     * (ahb_* → mem_ctl. calculate_sha1_file is the whole-file form of
+     * calculate_sha1_file_limit.)
+     * ================================================================ */
+    int8_t   (*calculate_sha1_file)(const char *file_path, uint8_t *output);
+    int8_t   (*calculate_sha1_file_limit)(const char *file_path, ssize_t max_bytes, uint8_t *output);
+    int8_t   (*calculate_sha1_hw)(const uint8_t *data, size_t len, uint8_t *output);
+
+    /* ================================================================
+     * v2 append: MSX extras (RTC init, disk-swap UI, path helpers).
+     * ================================================================ */
+    struct tm *(*localtime)(const time_t *timer);
+    int      (*gettimeofday)(struct timeval *tv, void *tz);
+    rg_stat_t (*rg_storage_stat)(const char *path);
+    bool     (*rg_storage_get_adjacent_files)(const char *path, char *prev_path,
+                                              char *next_path);
+    const char *(*rg_basename)(const char *path);
+
+    /* ================================================================
+     * v2 append: LCD-Game-Emulator (Game & Watch handhelds).
+     * GW_SetUnixTM is the only RTC write entry left after the read-side
+     * getters were dropped (no portable libc setter on this firmware).
+     * ================================================================ */
+    void     (*GW_SetUnixTM)(struct tm *tm);
+    uint32_t (*JPEG_DecodeToFrameInit)(uint32_t JPEG_Buffer, uint32_t JPEG_Buffer_Size);
+    uint32_t (*JPEG_DecodeToFrame)(uint32_t SrcAddress, uint32_t DestAddress,
+                                   uint16_t x, uint16_t y, uint8_t luma_alpha);
+    uint32_t (*JPEG_DecodeGetSize)(uint32_t SrcAddress, uint32_t *width, uint32_t *height);
+    uint32_t (*JPEG_DecodeDeInit)(void);
+    size_t   (*lzma_inflate)(uint8_t *dst, size_t dst_size, const uint8_t *src, size_t src_size);
+    unsigned int (*lz4_uncompress)(const void *src, void *dst);
+    unsigned int (*lz4_get_file_size)(const void *src);
+
+    /* ================================================================
+     * v2 append: Tamagotchi P1 (tamalib) — frame-pacing reset after
+     * save-state catch-up fast-forward (static frame_integrator lives
+     * in firmware common.c).
+     * ================================================================ */
+    void     (*common_emu_frame_loop_reset)(void);
+
+    /* ================================================================
+     * v2 append: GBA (gpSP) — host CPU clock after SystemClock_Config
+     * overclock (CMSIS SystemCoreClock is a firmware global; cores must
+     * not take its address across the ABI boundary).
+     * ================================================================ */
+    uint32_t (*get_SystemCoreClock)(void);
+
+    /* ================================================================
+     * v2 append: per-core option i18n. Cores look up their own string
+     * tables via gw_i18n() (core_common) with English fallback —
+     * curr_lang / lang_t stay firmware-private.
+     * ================================================================ */
+    int         (*i18n_get_text_width)(const char *text);
+    int         (*i18n_draw_text_line)(uint16_t x_pos, uint16_t y_pos, uint16_t width,
+                                       const char *text, uint16_t color, uint16_t color_bg,
+                                       char transparent);
+    const char *(*i18n_lang_code)(void);
+
+    /* ================================================================
+     * v2 append: live app descriptor (speedupEnabled, handlers, …).
+     * Needed by cores that pace audio off DMA only at 1x (WonderSwan).
+     * Append-only while ABI v2 is unpublished — no version bump;
+     * required_abi_min_size grows for cores that link this slot.
+     * ================================================================ */
+    rg_app_desc_t *(*odroid_system_get_app)(void);
+
+    /* ================================================================
+     * v2 append: DMA2D M2M RGB565 for external cores (SNES present_frame).
+     * Firmware owns the HAL handle; cores must not link stm32h7xx_hal_dma2d.
+     * Reconfigure+start every frame so a prior JPEG/cover path that left
+     * different Mode/offsets cannot poison the next blit.
+     * Start returns 0 on success, ≠0 on HAL failure. Poll returns
+     * HAL_StatusTypeDef (HAL_OK=0, HAL_TIMEOUT, …).
+     * ================================================================ */
+    uint32_t (*dma2d_m2m_rgb565_start)(uint32_t src, uint32_t dst, uint16_t width, uint16_t height);
+    uint32_t (*dma2d_poll)(uint32_t timeout_ms);
+
+    /* ================================================================
+     * v2 append: live launcher theme. Bridge macros as colors_t *.
+     * ================================================================ */
+    void **curr_colors_ptr;
+
+    /* ================================================================
+     * v2 append: HW-SPI SD DMA wait hook. Soft-SPI ignores it. Video
+     * (and similar) register a callback that demuxes/feeds PCM so the
+     * SAI ring does not underrun while FatFs blocks on a sector.
+     * ================================================================ */
+    void (*sd_io_set_poll)(void (*fn)(void));
+
+    /* ================================================================
+     * v2 append: file-manager homebrew — SD listing/delete and Simple
+     * List chrome (gui.c / rg_storage.c).
+     * ================================================================ */
+    bool     (*rg_storage_scandir)(const char *path, rg_scandir_cb_t *callback,
+                                   void *arg, uint32_t flags);
+    bool     (*rg_storage_delete)(const char *path);
+    uint16_t (*get_darken_pixel_d)(uint16_t color, uint16_t color1, uint16_t darken);
+    int      (*i18n_get_text_height)(void);
+    int      (*odroid_overlay_get_font_size)(void);
+    int      (*odroid_overlay_get_font_width)(void);
+    void     (*odroid_overlay_draw_fill_rect)(int x, int y, int width, int height,
+                                              uint16_t color);
+
+    /* ================================================================
+     * v2 append: DMA2D R2M solid RGB565 fill for homebrews/cores.
+     * Same HAL handle as dma2d_m2m_rgb565_start (re-Init every start).
+     * color = RGB565; dst_offset = output line offset in pixels (OOR),
+     * i.e. pitch_in_pixels - width (0 for a tightly packed rectangle).
+     * Start returns 0 on success; poll via dma2d_poll().
+     * ================================================================ */
+    uint32_t (*dma2d_r2m_rgb565_start)(uint32_t color, uint32_t dst,
+                                       uint16_t width, uint16_t height,
+                                       uint16_t dst_offset);
+
+    /* ================================================================
+     * v2 append: DMA2D M2M RGB565 with line offsets (pitch - width).
+     * src_offset / dst_offset are in pixels (FGOR / OOR). The legacy
+     * dma2d_m2m_rgb565_start is equivalent to offsets of 0.
+     * ================================================================ */
+    uint32_t (*dma2d_m2m_rgb565_start_ex)(uint32_t src, uint32_t dst,
+                                          uint16_t width, uint16_t height,
+                                          uint16_t src_offset, uint16_t dst_offset);
+
+    /* ================================================================
+     * v2 append: soft bilinear blit (OpenMV imlib_draw_image). Used by
+     * GB/WSV/Celeste soft scaling filters. Types live in bilinear.h.
+     * Append-only — no version bump; required_abi_min_size grows for
+     * cores that link this slot.
+     * ================================================================ */
+    void (*imlib_draw_image)(image_t *dst_img, image_t *src_img,
+                             int dst_x_start, int dst_y_start, int dst_stride,
+                             float x_scale, float y_scale, rectangle_t *roi,
+                             int rgb_channel, int alpha,
+                             const uint16_t *color_palette,
+                             const uint8_t *alpha_palette, image_hint_t hint,
+                             imlib_draw_row_callback_t callback,
+                             void *dst_row_override);
 
 } gw_firmware_abi_t;
 

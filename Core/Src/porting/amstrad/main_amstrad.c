@@ -1,18 +1,23 @@
+/* This core is built standalone (see cores/amstrad/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their `extern` declarations of common_emu_state/
+ * ACTIVE_FILE are parsed first. */
 #include <odroid_system.h>
 
 #include <assert.h>
 #include "gw_lcd.h"
-#include "gw_linker.h"
 #include "gw_buttons.h"
 #include "gw_ofw.h"
 #include "rom_manager.h"
 #include "common.h"
 #include "appid.h"
-#include "bilinear.h"
-#include "rg_i18n.h"
 #include "cap32.h"
 #include "main_amstrad.h"
 #include "amstrad_loader.h"
+
+#include "gw_core_bridge.h"
+#include "amstrad_i18n.h"
 
 #define AMSTRAD_FPS 50
 #define AMSTRAD_SAMPLE_RATE 22050
@@ -188,10 +193,10 @@ typedef enum
     CAP32_SCREEN,
 } CPC_KEYS;
 
-static char palette_name[7];
+static char palette_name[16];
 static int selected_palette_index = 0;
 
-static char controls_name[10];
+static char controls_name[24];
 static int selected_controls_index = 0;
 
 static char disk_name[128];
@@ -214,12 +219,12 @@ int amstrad_button_time_key = CPC_RETURN;
 int amstrad_button_start_key = CPC_SPACE;
 int amstrad_button_select_key = CPC_RETURN;
 
-static char game_button_name[10];
-static char time_button_name[10];
-static char start_button_name[10];
-static char select_button_name[10];
-static char a_button_name[10];
-static char b_button_name[10];
+static char game_button_name[16];
+static char time_button_name[16];
+static char start_button_name[16];
+static char select_button_name[16];
+static char a_button_name[16];
+static char b_button_name[16];
 
 #define RELEASE_KEY_DELAY 5
 static int selected_key_index = 0;
@@ -621,7 +626,7 @@ static bool update_disk_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t
 static bool update_palette_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     const char *palette_names[] = {
-        curr_lang->s_amd_palette_Color,curr_lang->s_amd_palette_Green, curr_lang->s_amd_palette_Grey};
+        gw_i18n(amstrad_i18n_palette_color), gw_i18n(amstrad_i18n_palette_green), gw_i18n(amstrad_i18n_palette_grey)};
 
     int max = 2;
 
@@ -640,7 +645,7 @@ static bool update_palette_cb(odroid_dialog_choice_t *option, odroid_dialog_even
 static bool update_controls_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     const char *controls_names[] = {
-        curr_lang->s_amd_Controls_Joystick, curr_lang->s_amd_Controls_Keyboard};
+        gw_i18n(amstrad_i18n_controls_joystick), gw_i18n(amstrad_i18n_controls_keyboard)};
     int max = 1;
 
     if (event == ODROID_DIALOG_PREV) selected_controls_index = selected_controls_index > 0 ? selected_controls_index - 1 : max;
@@ -685,69 +690,68 @@ static void createOptionMenu(odroid_dialog_choice_t *options)
 {
     int index = 0;
     options[index].id = 100;
-    options[index].label = curr_lang->s_Palette;
+    options[index].label = gw_i18n(amstrad_i18n_palette);
     options[index].value = palette_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_palette_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_Change_Dsk;
+    options[index].label = gw_i18n(amstrad_i18n_change_dsk);
     options[index].value = disk_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_disk_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_Controls;
+    options[index].label = gw_i18n(amstrad_i18n_controls);
     options[index].value = controls_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_controls_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_game_Button;
+    options[index].label = gw_i18n(amstrad_i18n_game_button);
     options[index].value = game_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_game_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_time_Button;
+    options[index].label = gw_i18n(amstrad_i18n_time_button);
     options[index].value = time_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_time_button_cb;
     index++;
     if (!get_ofw_is_mario()) {
         options[index].id = 100;
-        options[index].label = curr_lang->s_amd_start_Button;
+        options[index].label = gw_i18n(amstrad_i18n_start_button);
         options[index].value = start_button_name;
         options[index].enabled = 1;
         options[index].update_cb = &update_start_button_cb;
         index++;
         options[index].id = 100;
-        options[index].label = curr_lang->s_amd_select_Button;
+        options[index].label = gw_i18n(amstrad_i18n_select_button);
         options[index].value = select_button_name;
         options[index].enabled = 1;
         options[index].update_cb = &update_select_button_cb;
         index++;
     }
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_A_Button;
+    options[index].label = gw_i18n(amstrad_i18n_a_button);
     options[index].value = a_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_a_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_B_Button;
+    options[index].label = gw_i18n(amstrad_i18n_b_button);
     options[index].value = b_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_b_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_amd_Press_Key;
+    options[index].label = gw_i18n(amstrad_i18n_press_key);
     options[index].value = key_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_keyboard_cb;
     index++;
-    options[index].id = 0x0F0F0F0F;
-    options[index].label = "LAST";
+    options[index].id = 0x0F0F0F0F;    options[index].label = "LAST";
     options[index].value = "LAST";
     options[index].enabled = 0xFFFF;
     options[index].update_cb = NULL;
@@ -1084,7 +1088,7 @@ void app_main_amstrad(uint8_t load_state, uint8_t start_paused, int8_t save_slot
     common_emu_state.frame_time_10us = (uint16_t)(100000 / AMSTRAD_FPS + 0.5f);
     lcd_set_refresh_rate(AMSTRAD_FPS);
 
-    odroid_system_init(APPID_AMSTRAD, AMSTRAD_SAMPLE_RATE);
+    odroid_system_init(APPID_CORE, AMSTRAD_SAMPLE_RATE);
     odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, &amstrad_sleep_wake_up, NULL, NULL);
 
     // Init Sound

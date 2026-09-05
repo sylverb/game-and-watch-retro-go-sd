@@ -22,125 +22,10 @@ const lang_t lang_ja_jp LANG_DATA = {
     .codepage = 932,
     .s_LangUI = "言語",
     .s_LangName = "Japanese",
-    // Core\Src\porting\gb\main_gb.c =======================================
+    // Shared (firmware overlays); core-specific strings are in *_i18n.c
+    .s_Reset = "リセット",
     .s_Palette = "パレット",
-    .s_System = "システム",
-    .s_SGB_Border = "SGBボーダー",
-    //=====================================================================
-
-    // Core\Src\porting\nes-fceu\main_nes_fceu.c ===========================
-    .s_Crop_Vertical_Overscan = "縦のオーバースキャン削除",
-    .s_Crop_Horizontal_Overscan = "横のオーバースキャン削除",
-    .s_Disable_Sprite_Limit = "スプライトリミット無し",
-    .s_Reset = "Reset",
-    .s_NES_CPU_OC = "NES CPUのオーバークロック",
-    .s_NES_Eject_Insert_FDS = "ディスクの取り出し・挿入",
-    .s_NES_Eject_FDS = "ディスク取り出し",
-    .s_NES_Insert_FDS = "ディスク挿入",
-    .s_NES_Swap_Side_FDS = "ディスクサイド交換",
-    .s_NES_FDS_Side_Format = "ディスク %d - %s 面",
-    //=====================================================================
-
-    // Core\Src\porting\nes\main_nes.c =====================================
-    //.s_Palette = "パレット" dul
     .s_Default = "標準",
-    //=====================================================================
-
-    // Core\Src\porting\pkmini\main_pkmini.c ==============================
-    .s_pkmini_LCD_Filter = "LCD フィルター",
-    .s_pkmini_LCD_Mode = "LCD モード",
-    .s_pkmini_Piezo_Filter = "ピエゾフィルター",
-    .s_pkmini_Low_Pass_Filter = "ローパスフィルター",
-    // PokeMini palette names
-    .s_pkmini_palette_Default = "デフォルト",
-    .s_pkmini_palette_Old = "旧式",
-    .s_pkmini_palette_BlackWhite = "白黒",
-    .s_pkmini_palette_Green = "緑",
-    .s_pkmini_palette_InvertedGreen = "反転緑",
-    .s_pkmini_palette_Red = "赤",
-    .s_pkmini_palette_InvertedRed = "反転赤",
-    .s_pkmini_palette_BlueLCD = "ブルー LCD",
-    .s_pkmini_palette_LEDBacklight = "LED バックライト",
-    .s_pkmini_palette_GirlPower = "Girl Power",
-    .s_pkmini_palette_Blue = "青",
-    .s_pkmini_palette_InvertedBlue = "反転青",
-    .s_pkmini_palette_Sepia = "セピア",
-    .s_pkmini_palette_InvertedBlackWhite = "反転白黒",
-    // PokeMini LCD filter names
-    .s_pkmini_lcd_filter_None = "なし",
-    .s_pkmini_lcd_filter_DotMatrix = "ドットマトリックス",
-    .s_pkmini_lcd_filter_Scanlines = "スキャンライン",
-    // PokeMini LCD mode names
-    .s_pkmini_lcd_mode_Analog = "アナログ",
-    .s_pkmini_lcd_mode_3Shades = "3 階調",
-    .s_pkmini_lcd_mode_2Shades = "2 階調",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_gwenesis.c ================================
-    .s_md_keydefine = "keys: A-B-C",
-    .s_md_Synchro = "シンクロ",
-    .s_md_Synchro_Audio = "オーディオ",
-    .s_md_Synchro_Vsync = "VSYNC",
-    .s_md_Dithering = "ディザリング",
-    .s_md_Debug_bar = "デバッグバー",
-    .s_md_AudioFilter = "オーディオフィルター",
-    .s_md_VideoUpscaler = "ビデオアップスケール",
-    .s_md_Region = "地域",
-    //=====================================================================
-    
-    // Core\Src\porting\md\main_wsv.c ================================
-    .s_wsv_palette_Default = "標準",
-    .s_wsv_palette_Amber = "琥珀",
-    .s_wsv_palette_Green = "緑",
-    .s_wsv_palette_Blue = "青",
-    .s_wsv_palette_BGB = "BGB",
-    .s_wsv_palette_Wataroo = "パレット",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_msx.c ================================
-    .s_msx_Change_Dsk = "Dsk交換",
-    .s_msx_Select_MSX = "MSX選択",
-    .s_msx_MSX1_EUR = "MSX1(EUR)",
-    .s_msx_MSX2_EUR = "MSX2(EUR)",
-    .s_msx_MSX2_JP = "MSX2+(日本)",
-    .s_msx_Frequency = "周波数",
-    .s_msx_Freq_Auto = "自動",
-    .s_msx_Freq_50 = "50Hz",
-    .s_msx_Freq_60 = "60Hz",
-    .s_msx_A_Button = "A ボタン",
-    .s_msx_B_Button = "B ボタン",
-    .s_msx_Press_Key = "キーを押す",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_amstrad.c ================================
-    .s_amd_Change_Dsk = "Dsk交換",
-    .s_amd_Controls = "コントロール",
-    .s_amd_Controls_Joystick = "ジョイスティック",
-    .s_amd_Controls_Keyboard = "キーボード",
-    .s_amd_palette_Color = "色",
-    .s_amd_palette_Green = "緑",
-    .s_amd_palette_Grey = "灰色",
-    .s_amd_game_Button = "Game ボタン",
-    .s_amd_time_Button = "Time ボタン",
-    .s_amd_start_Button = "Start ボタン",
-    .s_amd_select_Button = "Select ボタン",
-    .s_amd_A_Button = "A ボタン",
-    .s_amd_B_Button = "B ボタン",
-    .s_amd_Press_Key = "キーを押す",
-    //=====================================================================
-
-    // Core\Src\porting\gw\main_gw.c =======================================
-    .s_copy_RTC_to_GW_time = "RTCをG&W時刻にコピー",
-    .s_copy_GW_time_to_RTC = "G&W時刻をRTCにコピー",
-    .s_LCD_filter = "LCDフィルター",
-    .s_Display_RAM = "RAMを表示",
-    .s_Press_ACL = "ACLを押すかリセット",
-    .s_Press_TIME = "TIMEを押す [B+TIME]",
-    .s_Press_ALARM = "ALARMを押す [B+GAME]",
-    .s_filter_0_none = "0-なし",
-    .s_filter_1_medium = "1-中",
-    .s_filter_2_high = "2-高",
-    //=====================================================================
 
     // Core\Src\porting\odroid_overlay.c ===================================
     .s_Option_ON = "\x6",
@@ -300,6 +185,9 @@ const lang_t lang_ja_jp LANG_DATA = {
     .s_Time_Format = "%02d:%02d:%02d",
 
     .s_favorite = "お気に入り",
+    .s_Info = "情報",
+    .s_Name = "名前",
+    .s_Version = "バージョン",
     .fmt_Title_Date_Format = ja_jp_fmt_Title_Date_Format,
     .fmtDate = ja_jp_fmt_Date,
     .fmtTime = ja_jp_fmt_Time,

@@ -15,7 +15,7 @@ Two binary formats are used depending on the script:
       char_offset      = codepoint - BASE;
       char_data_offset = char_offset * FONT_HEIGHT * BYTES_PER_ROW;
 
-  VARIABLE-WIDTH (greek, math_operators, geometric, misc_symbols, fullwidth):
+  VARIABLE-WIDTH (greek, general_punct, math_operators, geometric, misc_symbols, fullwidth):
     Header followed by pixel data:
       [0      .. N-1  ] widths[N]    1 byte per glyph (0 = empty)
       [N      .. 3N-1 ] offsets[N]   2 bytes per glyph (uint16 LE),
@@ -33,6 +33,7 @@ Two binary formats are used depending on the script:
 
 Predefined scripts (--script):
   greek          U+0370-U+03FF   variable-width   Greek and Coptic (omega etc.)
+  general_punct  U+2000-U+206F   variable-width   General Punctuation (ellipsis etc.)
   math_operators U+2200-U+22FF   variable-width   Mathematical Operators (inf ~= etc.)
   geometric      U+25A0-U+25FF   variable-width   Geometric Shapes (square triangle etc.)
   misc_symbols   U+2600-U+26FF   variable-width   Miscellaneous Symbols (star etc.)
@@ -45,6 +46,7 @@ Predefined scripts (--script):
 
 Usage:
   python gen_unicode_bin.py NotoSansCJK-Regular.ttc --script greek          -o unicode_greek.bin
+  python gen_unicode_bin.py NotoSansCJK-Regular.ttc --script general_punct  -o unicode_general_punct.bin
   python gen_unicode_bin.py NotoSansCJK-Regular.ttc --script math_operators -o unicode_math_operators.bin
   python gen_unicode_bin.py NotoSansCJK-Regular.ttc --script geometric      -o unicode_geometric.bin
   python gen_unicode_bin.py NotoSansCJK-Regular.ttc --script misc_symbols   -o unicode_misc_symbols.bin
@@ -85,6 +87,7 @@ FIXED_BPG   = FONT_HEIGHT * FIXED_BPR  # bytes per glyph = 24
 
 SCRIPTS = {
     "greek"          : (0x0370, 0x03FF, "Greek and Coptic",              False),
+    "general_punct"  : (0x2000, 0x206F, "General Punctuation",           False),
     "math_operators" : (0x2200, 0x22FF, "Mathematical Operators",        False),
     "geometric"      : (0x25A0, 0x25FF, "Geometric Shapes",              False),
     "misc_symbols"   : (0x2600, 0x26FF, "Miscellaneous Symbols",         False),

@@ -174,6 +174,8 @@ const char *get_font_file(uint32_t codepoint) {
         return font_files_cp1251[curr_font];        // Cyrillic (CP1251)
     } else if (codepoint >= 0x0370 && codepoint <= 0x03FF) {
         return "fonts/unicode_greek.bin";           // Greek and Coptic
+    } else if (codepoint >= 0x2000 && codepoint <= 0x206F) {
+        return "fonts/unicode_general_punct.bin";   // General Punctuation (ellipsis etc.)
     } else if (codepoint >= 0x2200 && codepoint <= 0x22FF) {
         return "fonts/unicode_math_operators.bin";  // Mathematical Operators
     } else if (codepoint >= 0x25A0 && codepoint <= 0x25FF) {
@@ -224,8 +226,8 @@ static FontEntry *get_font_data(uint32_t codepoint) {
     FILE *file;
 
     if (font_cache == NULL) {
-        font_cache = (FontEntry *)dtcm_malloc(CACHE_SIZE * sizeof(FontEntry));
-        font_data_cache = (uint8_t *)dtcm_malloc(FONT_CACHE_SIZE * sizeof(uint8_t));
+        font_cache = (FontEntry *)ahb_malloc(CACHE_SIZE * sizeof(FontEntry));
+        font_data_cache = (uint8_t *)ahb_malloc(FONT_CACHE_SIZE * sizeof(uint8_t));
         init_font_cache();
     }
 
@@ -260,6 +262,10 @@ static FontEntry *get_font_data(uint32_t codepoint) {
         // Greek and Coptic: variable-width, N=144
         char_offset = codepoint - 0x0370;
         varwidth_N = 144;
+    } else if (codepoint >= 0x2000 && codepoint <= 0x206F) {
+        // General Punctuation: variable-width, N=112
+        char_offset = codepoint - 0x2000;
+        varwidth_N = 112;
     } else if (codepoint >= 0x2200 && codepoint <= 0x22FF) {
         // Mathematical Operators: variable-width, N=256
         char_offset = codepoint - 0x2200;
@@ -455,7 +461,8 @@ lang_t *curr_lang = &lang_en_us;
 
 typedef struct {
     uint32_t    codepage;
-    const char *bin_path;       /* e.g. "/lang/de_de.bin" */
+    const char *code;           /* "en_us", "fr_fr", ... — for core i18n */
+    const char *bin_path;       /* e.g. "/lang/de_de.bin"; NULL for baked en_us */
     const char *display_name;   /* shown in lang menu BEFORE .bin load */
     int (*fmt_Title_Date_Format)(char *outstr, const char *datefmt,
                                  uint16_t day, uint16_t month,
@@ -476,55 +483,55 @@ static const lang_metadata_t lang_metadata[] = {
      * rodata is always available; i18n_load_language() short-circuits
      * directly to it instead of doing a pointless SD read. The Makefile
      * also skips generating /lang/en_us.bin for the same reason. */
-    { 1252, NULL, "English",
+    { 1252, "en_us", NULL, "English",
       en_us_fmt_Title_Date_Format, en_us_fmt_Date, en_us_fmt_Time },
 #if INCLUDED_ES_ES == 1
-    { 1252, "/lang/es_es.bin", "Spanish",
+    { 1252, "es_es", "/lang/es_es.bin", "Spanish",
       es_es_fmt_Title_Date_Format, es_es_fmt_Date, es_es_fmt_Time },
 #endif
 #if INCLUDED_PT_PT == 1
-    { 1252, "/lang/pt_pt.bin", "Portuguese",
+    { 1252, "pt_pt", "/lang/pt_pt.bin", "Portuguese",
       pt_pt_fmt_Title_Date_Format, pt_pt_fmt_Date, pt_pt_fmt_Time },
 #endif
 #if INCLUDED_FR_FR == 1
-    { 1252, "/lang/fr_fr.bin", "French",
+    { 1252, "fr_fr", "/lang/fr_fr.bin", "French",
       fr_fr_fmt_Title_Date_Format, fr_fr_fmt_Date, fr_fr_fmt_Time },
 #endif
 #if INCLUDED_IT_IT == 1
-    { 1252, "/lang/it_it.bin", "Italian",
+    { 1252, "it_it", "/lang/it_it.bin", "Italian",
       it_it_fmt_Title_Date_Format, it_it_fmt_Date, it_it_fmt_Time },
 #endif
 #if INCLUDED_DE_DE == 1
-    { 1252, "/lang/de_de.bin", "Deutsch",
+    { 1252, "de_de", "/lang/de_de.bin", "Deutsch",
       de_de_fmt_Title_Date_Format, de_de_fmt_Date, de_de_fmt_Time },
 #endif
 #if INCLUDED_NO_NB == 1
-    { 1252, "/lang/no_nb.bin", "Norwegian",
+    { 1252, "no_nb", "/lang/no_nb.bin", "Norwegian",
       no_nb_fmt_Title_Date_Format, no_nb_fmt_Date, no_nb_fmt_Time },
 #endif
 #if INCLUDED_RU_RU == 1
-    { 1251, "/lang/ru_ru.bin", "Russian",
+    { 1251, "ru_ru", "/lang/ru_ru.bin", "Russian",
       ru_ru_fmt_Title_Date_Format, ru_ru_fmt_Date, ru_ru_fmt_Time },
 #endif
 #if INCLUDED_ZH_CN == 1
-    {  936, "/lang/zh_cn.bin", "Simplified Chinese",
+    {  936, "zh_cn", "/lang/zh_cn.bin", "Simplified Chinese",
       zh_cn_fmt_Title_Date_Format, zh_cn_fmt_Date, zh_cn_fmt_Time },
 #endif
 #if INCLUDED_ZH_TW == 1
-    {  950, "/lang/zh_tw.bin", "Traditional Chinese",
+    {  950, "zh_tw", "/lang/zh_tw.bin", "Traditional Chinese",
       zh_tw_fmt_Title_Date_Format, zh_tw_fmt_Date, zh_tw_fmt_Time },
 #endif
 #if INCLUDED_KO_KR == 1
-    {  949, "/lang/ko_kr.bin", "Korean",
+    {  949, "ko_kr", "/lang/ko_kr.bin", "Korean",
       ko_kr_fmt_Title_Date_Format, ko_kr_fmt_Date, ko_kr_fmt_Time },
 #endif
 #if INCLUDED_JA_JP == 1
-    {  932, "/lang/ja_jp.bin", "Japanese",
+    {  932, "ja_jp", "/lang/ja_jp.bin", "Japanese",
       ja_jp_fmt_Title_Date_Format, ja_jp_fmt_Date, ja_jp_fmt_Time },
 #endif
 };
 
-/* The 215 s_XXX fields in lang_t are contiguous `const char *` pointers
+/* The 129 s_XXX fields in lang_t are contiguous `const char *` pointers
  * starting at &lang_t.s_LangUI (codepage precedes them, fn pointers
  * follow). Treating that region as a flat const-char-pointer array lets
  * the loader assign by index without naming each field. */
@@ -552,7 +559,7 @@ static int     lang_failed_idx  = -1;
 static void i18n_free_active_strings(void)
 {
     if (lang_strings_buf) {
-        dtcm_free(lang_strings_buf);
+        free(lang_strings_buf);
         lang_strings_buf = NULL;
     }
 }
@@ -616,7 +623,7 @@ static bool i18n_load_from_sd(int idx)
     }
     fseek(f, header_end, SEEK_SET);
 
-    char *buf = (char *)dtcm_malloc((size_t)strings_size);
+    char *buf = (char *)malloc((size_t)strings_size);
     if (!buf) {
         fprintf(stderr, "i18n_load: '%s' OOM allocating %ld bytes — using en_us\n",
                 m->bin_path, strings_size);
@@ -626,7 +633,7 @@ static bool i18n_load_from_sd(int idx)
     if (fread(buf, 1, (size_t)strings_size, f) != (size_t)strings_size) {
         fprintf(stderr, "i18n_load: '%s' short read of strings — using en_us\n",
                 m->bin_path);
-        dtcm_free(buf);
+        free(buf);
         fclose(f);
         return false;
     }
@@ -708,6 +715,17 @@ const char *i18n_lang_display_name(int idx)
     if (idx < 0 || idx >= gui_lang_count)
         return "?";
     return lang_metadata[idx].display_name;
+}
+
+/* Active UI language code for standalone cores (see gw_i18n()). Always
+ * returns a stable non-NULL string; falls back to "en_us" on a corrupt
+ * settings index. */
+const char *i18n_lang_code(void)
+{
+    int idx = odroid_settings_lang_get();
+    if (idx < 0 || idx >= gui_lang_count)
+        return "en_us";
+    return lang_metadata[idx].code;
 }
 
 

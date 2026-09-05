@@ -1,21 +1,38 @@
-#if OFF_SAVESTATE == 1
-#include <gw_linker.h>
-#endif
+/* This core is built standalone (see cores/tama/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their `extern` declarations of common_emu_state/
+ * ACTIVE_FILE/ram_start are parsed first. */
 #include <odroid_system.h>
-#include <rg_i18n.h>
 #include <rom_manager.h>
-#include <sha256.h>
+#include <stdarg.h>
+#include <limits.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "appid.h"
 #include "common.h"
-#include "gui.h"
-#include "main.h"
+#include "gw_lcd.h"
 #include "rg_rtc.h"
 
 #include "icons_tama.h"
 #include "main_tama.h"
 #include "state_tama.h"
 #include "tamalib.h"
+
+#include "gw_core_bridge.h"
+#include "tama_i18n.h"
+
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
+
+/* i18n.h is not available to cores; same separator used by main_gw.c. */
+#define ODROID_DIALOG_CHOICE_SEPARATOR {0x0F0F0F0E, "-", "-", -1, NULL}
+
+/* Avoid sha256.h: its WORD typedef clashes with FatFs WORD via the ABI
+ * header. Declare only what we need (implemented in sha256.c). */
+void sha256_to_string(unsigned char hash_str[65], const unsigned char data[], size_t len);
 
 // TODO: Think about resetting the frame integrator after every menu enter->exit in every emulator
 
@@ -41,6 +58,10 @@
 #define TAMA_LOG_ENABLED false
 #define TAMA_ROM_SIZE_MAX 6144
 #define MAX_SAVE_AGE_IN_MILLIS (2 * 24 * 60 * 60 * 1000)
+
+/* Debug overlay colours (Mario default theme: dark red bg, gold fg). */
+#define TAMA_DBG_FG 0xD347
+#define TAMA_DBG_BG 0x6000
 
 static u12_t tama_rom[TAMA_ROM_SIZE_MAX] __attribute__((aligned(4)));
 static bool_t tama_lcd[LCD_WIDTH][LCD_HEIGHT] __attribute__((aligned(4)));
@@ -69,6 +90,19 @@ static u64_t frame_start_tick_counter = 0;
 
 static unsigned int emu_cycles, blit_cycles, audio_cycles, loop_cycles;
 
+/* Local copy of odroid_display_write_rect — not on the ABI. */
+static void tama_display_write_rect(short left, short top, short width, short height, short stride, const uint16_t *buffer)
+{
+    pixel_t *dest = lcd_get_active_buffer();
+
+    for (short y = 0; y < height; y++) {
+        if ((y + top) >= GW_LCD_WIDTH)
+            return;
+        pixel_t *dest_row = &dest[(y + top) * GW_LCD_WIDTH + left];
+        memcpy(dest_row, &buffer[y * stride], width * sizeof(pixel_t));
+    }
+}
+
 // ************* Tamagotchi debug *************
 
 static bool debug_display_ram = false;
@@ -76,7 +110,7 @@ static bool debug_display_ram_cb(odroid_dialog_choice_t *option, odroid_dialog_e
     if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT)
         debug_display_ram = !debug_display_ram;
 
-    strcpy(option->value, debug_display_ram ? curr_lang->s_Yes : curr_lang->s_No);
+    strcpy(option->value, debug_display_ram ? gw_i18n(tama_i18n_yes) : gw_i18n(tama_i18n_no));
 
     return event == ODROID_DIALOG_ENTER;
 }
@@ -84,9 +118,9 @@ static bool debug_display_ram_cb(odroid_dialog_choice_t *option, odroid_dialog_e
 static void display_ram_overlay() {
     char draw_line_content[80];
     sprintf(draw_line_content, "   00000000000000001111111111111111");
-    odroid_overlay_draw_text(10, 32, 300, draw_line_content, curr_colors->sel_c, curr_colors->main_c);
+    odroid_overlay_draw_text(10, 32, 300, draw_line_content, TAMA_DBG_FG, TAMA_DBG_BG);
     sprintf(draw_line_content, "   0123456789ABCDEF0123456789ABCDEF");
-    odroid_overlay_draw_text(10, 40, 300, draw_line_content, curr_colors->sel_c, curr_colors->main_c);
+    odroid_overlay_draw_text(10, 40, 300, draw_line_content, TAMA_DBG_FG, TAMA_DBG_BG);
     for (unsigned char i = 0; i < (MEM_RAM_SIZE / 32); i++) {
         sprintf(draw_line_content, "%2X %1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X%1X", i,
                 state->memory[(i * 16) + 0], state->memory[(i * 16) + 1], state->memory[(i * 16) + 2], state->memory[(i * 16) + 3],
@@ -97,7 +131,7 @@ static void display_ram_overlay() {
                 state->memory[(i * 16) + 20], state->memory[(i * 16) + 21], state->memory[(i * 16) + 22], state->memory[(i * 16) + 23],
                 state->memory[(i * 16) + 24], state->memory[(i * 16) + 25], state->memory[(i * 16) + 26], state->memory[(i * 16) + 27],
                 state->memory[(i * 16) + 28], state->memory[(i * 16) + 29], state->memory[(i * 16) + 30], state->memory[(i * 16) + 31]);
-        odroid_overlay_draw_text(10, 48 + 8 * i, 300, draw_line_content, curr_colors->sel_c, curr_colors->main_c);
+        odroid_overlay_draw_text(10, 48 + 8 * i, 300, draw_line_content, TAMA_DBG_FG, TAMA_DBG_BG);
     }
 }
 
@@ -182,13 +216,16 @@ static void *Screenshot()
 // ************* Tamalib HAL <-> GW HAL *************
 
 static bool_t hal_is_log_enabled(log_level_t level) {
+    (void)level;
     return TAMA_LOG_ENABLED;
 }
 
 static void hal_log(log_level_t level, char *buff, ...) {
-    va_list(args);
+    (void)level;
+    va_list args;
     va_start(args, buff);
-    printf(buff, args);
+    vprintf(buff, args);
+    va_end(args);
 }
 
 static void hal_set_lcd_matrix(u8_t x, u8_t y, uint8_t val) {
@@ -250,10 +287,10 @@ static void blit() {
 
     for (uint16_t i = 0; i < TAMA_ICONS_PER_ROW; i++) {
         if (tama_lcd_icons[i]) {
-            odroid_display_write_rect(icon_start_x + (i * icon_space_x), icon_start_y_top, TAMA_ICON_HEIGHT, TAMA_ICON_WIDTH, TAMA_ICON_WIDTH, tama_icons[i]);
+            tama_display_write_rect(icon_start_x + (i * icon_space_x), icon_start_y_top, TAMA_ICON_HEIGHT, TAMA_ICON_WIDTH, TAMA_ICON_WIDTH, tama_icons[i]);
         }
         if (tama_lcd_icons[i + TAMA_ICONS_PER_ROW]) {
-            odroid_display_write_rect(icon_start_x + (i * icon_space_x), icon_start_y_bottom, TAMA_ICON_HEIGHT, TAMA_ICON_WIDTH, TAMA_ICON_WIDTH, tama_icons[i + TAMA_ICONS_PER_ROW]);
+            tama_display_write_rect(icon_start_x + (i * icon_space_x), icon_start_y_bottom, TAMA_ICON_HEIGHT, TAMA_ICON_WIDTH, TAMA_ICON_WIDTH, tama_icons[i + TAMA_ICONS_PER_ROW]);
         }
     }
 
@@ -325,19 +362,18 @@ static void update_buttons(odroid_gamepad_state_t *joystick) {
 
 static void update_clock() {
     char sha256[65];
-    sha256_to_string((BYTE *) sha256, (const BYTE *) &tama_rom, sizeof(tama_rom));
+    sha256_to_string((unsigned char *) sha256, (const unsigned char *) &tama_rom, sizeof(tama_rom));
     // Test if this rom is the original P1 rom as it is the only one that I could find and verify the offsets
     // Note that this is NOT the file hash but the hash of the processed rom after load_rom()
     if (strncmp("48a716bbae6395ad8b5f43c1a6f57f84ce8abffcdfda0786007b75c2e3a35665", sha256, sizeof(sha256)) == 0) {
-        uint8_t ss = GW_GetCurrentSecond();
-        set_memory(0x10, ss % 10);
-        set_memory(0x11, ss / 10);
-        uint8_t mm = GW_GetCurrentMinute();
-        set_memory(0x12, mm % 10);
-        set_memory(0x13, mm / 10);
-        uint8_t hh = GW_GetCurrentHour();
-        set_memory(0x14, hh & 0x0F);
-        set_memory(0x15, hh >> 4);
+        time_t t = time(NULL);
+        struct tm *tm = localtime(&t);
+        set_memory(0x10, tm->tm_sec % 10);
+        set_memory(0x11, tm->tm_sec / 10);
+        set_memory(0x12, tm->tm_min % 10);
+        set_memory(0x13, tm->tm_min / 10);
+        set_memory(0x14, tm->tm_hour & 0x0F);
+        set_memory(0x15, tm->tm_hour >> 4);
     }
 }
 
@@ -419,10 +455,10 @@ static void main_tama(uint8_t start_paused) {
         LoadStateFromFile();
     }
 
-    char debug_display_ram_text[10];
+    char debug_display_ram_text[16];
     odroid_dialog_choice_t options[] = {
             ODROID_DIALOG_CHOICE_SEPARATOR,
-            {100, curr_lang->s_Display_RAM, debug_display_ram_text, 1, &debug_display_ram_cb},
+            {100, gw_i18n(tama_i18n_display_ram), debug_display_ram_text, 1, &debug_display_ram_cb},
             ODROID_DIALOG_CHOICE_LAST};
 
     /* Initialize audio */
@@ -514,7 +550,7 @@ static void main_tama(uint8_t start_paused) {
 }
 
 _Noreturn void app_main_tama(uint8_t load_state, uint8_t start_paused, int8_t save_slot) {
-    odroid_system_init(APPID_TAMA, TAMA_SAMPLE_RATE);
+    odroid_system_init(APPID_CORE, TAMA_SAMPLE_RATE);
     odroid_system_emu_init(&LoadState, &SaveState, &Screenshot, NULL, NULL, NULL, NULL);
 
     if (load_state) {

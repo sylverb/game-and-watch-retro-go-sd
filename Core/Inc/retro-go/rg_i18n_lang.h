@@ -7,123 +7,13 @@ typedef struct
     const uint32_t codepage;
     const char *s_LangUI;
     const char *s_LangName;  //used for English name
-    // Core\Src\porting\nes-fceu\main_nes_fceu.c ===========================
-    const char *s_Crop_Vertical_Overscan;
-    const char *s_Crop_Horizontal_Overscan;
-    const char *s_Disable_Sprite_Limit;
+    // Shared labels still used by firmware-resident overlays
+    // (zelda3/smw Reset; classic nofrendo Palette/Default). Per-core option
+    // strings for standalone cores live in Core/Src/porting/<sys>/<sys>_i18n.c.
     const char *s_Reset;
-    const char *s_NES_CPU_OC;
-    const char *s_NES_Eject_Insert_FDS;
-    const char *s_NES_Eject_FDS;
-    const char *s_NES_Insert_FDS;
-    const char *s_NES_Swap_Side_FDS;
-    const char *s_NES_FDS_Side_Format;
-    //=====================================================================
-    // Core\Src\porting\gb\main_gb.c =======================================
     const char *s_Palette;
-    const char *s_System;
-    const char *s_SGB_Border;
-    //=====================================================================
-    // Core\Src\porting\nes\main_nes.c =====================================
-    // const char *s_Palette "Palette" dul
     const char *s_Default;
-    //=====================================================================
 
-    // Core\Src\porting\pkmini\main_pkmini.c ==============================
-    const char *s_pkmini_LCD_Filter;
-    const char *s_pkmini_LCD_Mode;
-    const char *s_pkmini_Piezo_Filter;
-    const char *s_pkmini_Low_Pass_Filter;
-    // PokeMini palette names
-    const char *s_pkmini_palette_Default;
-    const char *s_pkmini_palette_Old;
-    const char *s_pkmini_palette_BlackWhite;
-    const char *s_pkmini_palette_Green;
-    const char *s_pkmini_palette_InvertedGreen;
-    const char *s_pkmini_palette_Red;
-    const char *s_pkmini_palette_InvertedRed;
-    const char *s_pkmini_palette_BlueLCD;
-    const char *s_pkmini_palette_LEDBacklight;
-    const char *s_pkmini_palette_GirlPower;
-    const char *s_pkmini_palette_Blue;
-    const char *s_pkmini_palette_InvertedBlue;
-    const char *s_pkmini_palette_Sepia;
-    const char *s_pkmini_palette_InvertedBlackWhite;
-    // PokeMini LCD filter names
-    const char *s_pkmini_lcd_filter_None;
-    const char *s_pkmini_lcd_filter_DotMatrix;
-    const char *s_pkmini_lcd_filter_Scanlines;
-    // PokeMini LCD mode names
-    const char *s_pkmini_lcd_mode_Analog;
-    const char *s_pkmini_lcd_mode_3Shades;
-    const char *s_pkmini_lcd_mode_2Shades;
-    //=====================================================================
-
-    // Core\Src\porting\md\main_gwenesis.c ================================
-    const char *s_md_keydefine;
-    const char *s_md_Synchro;
-    const char *s_md_Synchro_Audio;
-    const char *s_md_Synchro_Vsync;
-    const char *s_md_Dithering;
-    const char *s_md_Debug_bar;
-    const char *s_md_AudioFilter;
-    const char *s_md_VideoUpscaler;
-    const char *s_md_Region;
-    //=====================================================================
-
-    // Core\Src\porting\md\main_wsv.c ================================
-    const char *s_wsv_palette_Default;
-    const char *s_wsv_palette_Amber;
-    const char *s_wsv_palette_Green;
-    const char *s_wsv_palette_Blue;
-    const char *s_wsv_palette_BGB;
-    const char *s_wsv_palette_Wataroo;
-    //=====================================================================
-
-    // Core\Src\porting\md\main_msx.c ================================
-    const char *s_msx_Change_Dsk;
-    const char *s_msx_Select_MSX;
-    const char *s_msx_MSX1_EUR;
-    const char *s_msx_MSX2_EUR;
-    const char *s_msx_MSX2_JP;
-    const char *s_msx_Frequency;
-    const char *s_msx_Freq_Auto;
-    const char *s_msx_Freq_50;
-    const char *s_msx_Freq_60;
-    const char *s_msx_A_Button;
-    const char *s_msx_B_Button;
-    const char *s_msx_Press_Key;
-    //=====================================================================
-
-    // Core\Src\porting\md\main_amstrad.c ================================
-    const char *s_amd_Change_Dsk;
-    const char *s_amd_Controls;
-    const char *s_amd_Controls_Joystick;
-    const char *s_amd_Controls_Keyboard;
-    const char *s_amd_palette_Color;
-    const char *s_amd_palette_Green;
-    const char *s_amd_palette_Grey;
-    const char *s_amd_game_Button;
-    const char *s_amd_time_Button;
-    const char *s_amd_start_Button;
-    const char *s_amd_select_Button;
-    const char *s_amd_A_Button;
-    const char *s_amd_B_Button;
-    const char *s_amd_Press_Key;
-    //=====================================================================
-
-    // Core\Src\porting\gw\main_gw.c =======================================
-    const char *s_copy_RTC_to_GW_time;
-    const char *s_copy_GW_time_to_RTC;
-    const char *s_LCD_filter;
-    const char *s_Display_RAM;
-    const char *s_Press_ACL;
-    const char *s_Press_TIME;
-    const char *s_Press_ALARM;
-    const char *s_filter_0_none;
-    const char *s_filter_1_medium;
-    const char *s_filter_2_high;
-    //=====================================================================
     // Core\Src\porting\odroid_overlay.c ===================================
     const char *s_Option_ON;   /* toggle glyph \x6 */
     const char *s_Option_OFF;  /* toggle glyph \x5 */
@@ -259,6 +149,11 @@ typedef struct
 
     // Launcher favorites tab (appended for SD .bin index compatibility)
     const char *s_favorite;
+
+    // Pause menu → Info dialog (appended for SD .bin index compatibility)
+    const char *s_Info;
+    const char *s_Name;
+    const char *s_Version;
 
     const int (*fmt_Title_Date_Format)(char *outstr, const char *datefmt, uint16_t day, uint16_t month, const char *weekday, uint16_t hour, uint16_t minutes, uint16_t seconds);
     // const char *fmt_Title_Date_Format(outstr,datefmt,day,month,weekday,hour,minutes,seconds) sprintf(outstr,datefmt,day,month,weekday,hour,minutes,seconds)

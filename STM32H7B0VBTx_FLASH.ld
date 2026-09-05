@@ -55,11 +55,14 @@ ENTRY(Reset_Handler)
 /* Highest address of the user mode stack */
 _estack = _stack_top;    /* end of RAM */
 
-/* Stack is fixed at the top of DTCM; the stdlib heap (_heap_start.._heap_end)
- * automatically fills whatever remains after .data/.bss (no hardcoded size).
- * PICO-8 and other overlays allocate from this heap at runtime. */
-_Stack_Redzone_Size = 256;  /* size of stack overflow protection */
-_Min_Stack_Size = 20 * 1024; /* required amount of stack */
+/* Stack is fixed at the top of DTCM (fast). Firmware .persistent, .data,
+ * .bss and the stdlib heap live in AHB SRAM below the .audio DMA reserve
+ * (AHB SRAM clock enabled via DATA_IN_D2_SRAM in SystemInit). dtc_malloc
+ * bumps the free space between DTCM ORIGIN and the stack. */
+/* Stack + redzone occupy exactly 20 KiB at the top of DTCM. Redzone is the
+ * low 32 bytes of that window (overflow edge; stack grows downward). */
+_Stack_Redzone_Size = 32;
+_Min_Stack_Size = 20 * 1024 - _Stack_Redzone_Size;
 
 
 /* Useful for scripts */
@@ -67,12 +70,13 @@ _Min_Stack_Size = 20 * 1024; /* required amount of stack */
 __NULLPTR_LENGTH__  = 0x0;
 __ITCMRAM_LENGTH__  = 64K;
 __DTCMRAM_LENGTH__  = 128K;
-__REMOTE_INPUT_RESERVE__ = DEFINED(REMOTE_INPUT) ? REMOTE_INPUT * 12 : 0;
 __RAM_UC_LENGTH__   = 300K;
 __RAM_CORE_LENGTH__ = 0K;
 __RAM_EMU_LENGTH__  = 1024K - __RAM_UC_LENGTH__ - __RAM_CORE_LENGTH__;
 __RAM_FCEUMM_MAPPER_LENGTH__ = 48K; /* Current FCEUMM mapper code */
 __AHBRAM_LENGTH__   = 128K;
+__AHBRAM_PERSISTENT_RESERVE__ = 8K; /* MPU non-cacheable: boot_magic/logbuf + remote-input */
+__AHBRAM_REMOTE_INPUT_RESERVE__ = 12; /* last bytes of persistent pad; scripts/remote_input.py */
 __AHBRAM_AUDIO_RESERVE__ = 8K; /* MPU non-cacheable slot for .audio DMA buffer at end of AHB SRAM */
 __FLASH_LENGTH__    = DEFINED(__FLASH_LENGTH__) ? __FLASH_LENGTH__ : 128k;
 
@@ -88,6 +92,8 @@ __RAM_FCEUMM_START__ = __RAM_EMU_START__ + __RAM_FCEUMM_MAPPER_LENGTH__;
 
 __RAM_EMU_END__     = __RAM_EMU_START__ + __RAM_EMU_LENGTH__;
 __RAM_END__         = __RAM_START__ + 1024K;
+
+INCLUDE ld/gnw_ram_uc_core.ld
 
 /****
  * External Flash Layout
@@ -166,11 +172,11 @@ SECTIONS
     __itcram_end__ = .;
   } >ITCMRAM
 
-  /* Uncached and unbuffered LCD framebuffer pool. Sized for the largest
-   * supported mode (2x RGB565 framebuffers = 300K). lcd_setup_framebuffers()
-   * carves it up at boot via __lcd_pool_start__; in LUT8 mode the upper
-   * ~154K is freed as a "bonus pool" (lcd_get_bonus_pool()) that PICO-8
-   * folds into its TLSF allocator via g_platform.scratch_base/size. */
+  /* LCD framebuffer pool (300 KiB). RGB565 fills it with two 150 KiB
+   * framebuffers. LUT8 shrinks that footprint to 150 KiB; the upper
+   * 150 KiB is the cacheable GNW_CORE_REGION_RAM_UC window
+   * (__RAM_UC_CORE_START__, see ld/gnw_ram_uc_core.ld) plus leftover
+   * heap from lcd_get_bonus_pool(). */
   ._ram_uc (NOLOAD) :
   {
     __ram_uc_start__ = .;
@@ -180,6 +186,11 @@ SECTIONS
     __lcd_pool_end__ = .;
     __ram_uc_end__ = .;
   } > RAM_UC
+
+  ASSERT(__lcd_pool_start__ + __RAM_UC_FB_BYTES__ == __RAM_UC_CORE_START__,
+         "Error: LUT8 core window must start immediately after the LUT8 double framebuffer")
+  ASSERT(__RAM_UC_CORE_START__ + __RAM_UC_CORE_LENGTH__ == __RAM_EMU_START__,
+         "Error: LUT8 core window (ld/gnw_ram_uc_core.ld) must sit exactly between the LUT8 framebuffers and RAM_EMU")
 
   .sd_fonts_cp1251_greybeard : {
     . = ALIGN(4);
@@ -256,32 +267,7 @@ SECTIONS
     KEEP(*(.sdcard_logo))
   } > CORES
 
-INCLUDE build/fceumm_mappers.ld
 
-  .overlay_nes_fceu __RAM_FCEUMM_START__ : {
-    . = ALIGN(4);
-    __ram_emu_nes_fceu_start__ = .;
-    build/nes_fceu/*.o (.data .data* .text .text* .rodata .rodata*)
-    . = ALIGN(4);
-    _OVERLAY_NES_FCEU_LOAD_END = .;
-  } AT > CORES
-  _OVERLAY_NES_FCEU_LOAD_START = LOADADDR(.overlay_nes_fceu);
-  _OVERLAY_NES_FCEU_SIZE = SIZEOF(.overlay_nes_fceu);
-
-  .overlay_nes_fceu_bss _OVERLAY_NES_FCEU_LOAD_END : {
-    . = ALIGN(4);
-    _OVERLAY_NES_FCEU_BSS_START = .;
-    build/nes_fceu/*.o (.bss .bss*)
-    . = ALIGN(4);
-    build/nes_fceu/*.o (COMMON)
-    . = ALIGN(4);
-    _NES_FCEU_ROM_UNPACK_BUFFER = .;
-    _OVERLAY_NES_FCEU_BSS_END = .;
-    __ram_emu_nes_fceu_end__ = .;
-    ASSERT(ABSOLUTE(_OVERLAY_NES_FCEU_BSS_END) < __RAM_EMU_END__, "Error: NES_FCEU BSS overflow");
-  }
-  _OVERLAY_NES_FCEU_BSS_SIZE = SIZEOF(.overlay_nes_fceu_bss);
-  _NES_FCEU_ROM_UNPACK_BUFFER_SIZE = __RAM_EMU_START__ + __RAM_EMU_LENGTH__ - _NES_FCEU_ROM_UNPACK_BUFFER;
 
   .overlay_tgb __RAM_EMU_START__ : {
     . = ALIGN(4);
@@ -308,74 +294,7 @@ INCLUDE build/fceumm_mappers.ld
   }
   _OVERLAY_TGB_BSS_SIZE = SIZEOF(.overlay_tgb_bss);
 
-  .overlay_sms __RAM_EMU_START__ : {
-      . = ALIGN(4);
-    __ram_emu_sms_start__ = .;
-      build/smsplusgx/*.o (.data .data* .text .text* .rodata .rodata*)
-      . = ALIGN(4);
-      _OVERLAY_SMS_LOAD_END = .;
-  } AT > CORES
-  _OVERLAY_SMS_LOAD_START = LOADADDR(.overlay_sms);
-  _OVERLAY_SMS_SIZE = SIZEOF(.overlay_sms);
 
-  .overlay_sms_bss _OVERLAY_SMS_LOAD_END : {
-    . = ALIGN(4);
-    _OVERLAY_SMS_BSS_START = .;
-    build/smsplusgx/*.o (.bss .bss*)
-    . = ALIGN(4);
-    build/smsplusgx/*.o (COMMON)
-    __ram_emu_sms_end__ = .;
-    _OVERLAY_SMS_BSS_END = .;
-    ASSERT(ABSOLUTE(_OVERLAY_SMS_BSS_END) < __RAM_EMU_END__, "Error: SMS BSS overflow");
-  }
-  _OVERLAY_SMS_BSS_SIZE = SIZEOF(.overlay_sms_bss);
-
-   .overlay_pce __RAM_EMU_START__ : {
-      . = ALIGN(4);
-    __ram_emu_pce_start__ = .;
-      /* Data/rodata for all PCE objects; main_pce .text stays here — it calls
-       * launcher APIs (settings, overlay, audio) and ITCM→flash veneers fail on
-       * arm-none-eabi 15.x ("Unknown destination type ARM/Thumb"). */
-      build/pce/*.o (.data .data* .rodata .rodata*)
-      build/pce/main_pce.o (.text .text*)
-      . = ALIGN(4);
-      _OVERLAY_PCE_LOAD_END = .;
-  } AT > CORES
-  _OVERLAY_PCE_LOAD_START = LOADADDR(.overlay_pce);
-  _OVERLAY_PCE_SIZE = SIZEOF(.overlay_pce);
-
-  /* PCE hot code → ITCM (zero-wait-state, no I-cache miss). The LMA is appended
-     right after .overlay_pce in CORES so `objcopy --only-section` of both
-     sections yields one contiguous pce.bin. At load time the ITC image lands in
-     RAM_EMU at _OVERLAY_PCE_LOAD_END (overlapping the BSS VMA!) — the launcher
-     (run_internal_emu) memcpy's it to ITCM BEFORE zeroing BSS.
-     Base offset 0x4: keeps address 0 free so no function == NULL. */
-  .overlay_pce_itc (ORIGIN(ITCMRAM) + 0x4) : {
-    . = ALIGN(4);
-    __ram_itc_pce_start__ = .;
-    EXCLUDE_FILE(*/main_pce.o) build/pce/*.o (.text .text*)
-    . = ALIGN(4);
-    __ram_itc_pce_end__ = .;
-    ASSERT(ABSOLUTE(__ram_itc_pce_end__) <= ORIGIN(ITCMRAM) + LENGTH(ITCMRAM), "Error: PCE ITC overflow");
-  } AT > CORES
-  _OVERLAY_PCE_ITC_SIZE = SIZEOF(.overlay_pce_itc);
-  _OVERLAY_PCE_ITC_LMA_OFFSET = LOADADDR(.overlay_pce_itc) - LOADADDR(.overlay_pce);
-
-  .overlay_pce_bss _OVERLAY_PCE_LOAD_END : {
-    . = ALIGN(4);
-    _OVERLAY_PCE_BSS_START = .;
-    build/pce/*.o (.bss .bss*)
-    . = ALIGN(4);
-    build/pce/*.o (COMMON)
-    . = ALIGN(4);
-    _PCE_ROM_UNPACK_BUFFER = .;
-    _OVERLAY_PCE_BSS_END = .;
-    __ram_emu_pce_end__ = .;
-    _OVERLAY_PCE_BSS_END = .;
-    ASSERT(ABSOLUTE(_OVERLAY_PCE_BSS_END) < __RAM_EMU_END__, "Error: PCE BSS overflow");
-  }
-  _OVERLAY_PCE_BSS_SIZE = SIZEOF(.overlay_pce_bss);
-  _PCE_ROM_UNPACK_BUFFER_SIZE = __RAM_EMU_START__ + __RAM_EMU_LENGTH__ - _PCE_ROM_UNPACK_BUFFER;
 
   .overlay_msx __RAM_EMU_START__ : {
     . = ALIGN(4);
@@ -443,28 +362,6 @@ INCLUDE build/fceumm_mappers.ld
   }
   _OVERLAY_GW_BSS_SIZE = SIZEOF(.overlay_gw_bss);
 
-  .overlay_md __RAM_EMU_START__ : {
-    . = ALIGN(4);
-    __ram_emu_md_start__ = .;
-    build/md/*.o (.data .data* .text .text* .rodata .rodata*)
-    . = ALIGN(4);
-    _OVERLAY_MD_LOAD_END = .;
-  } AT > CORES
-  _OVERLAY_MD_LOAD_START = LOADADDR(.overlay_md);
-  _OVERLAY_MD_SIZE = SIZEOF(.overlay_md);
-
-  .overlay_md_bss _OVERLAY_MD_LOAD_END : {
-    . = ALIGN(4);
-    _OVERLAY_MD_BSS_START = .;
-    build/md/*.o (.bss .bss*)
-    . = ALIGN(4);
-    build/md/*.o (COMMON)
-    __ram_emu_md_end__ = .;
-    _OVERLAY_MD_BSS_END = .;
-    ASSERT(ABSOLUTE(_OVERLAY_MD_BSS_END) < __RAM_EMU_END__, "Error: MD BSS overflow");
-  }
-  _OVERLAY_MD_BSS_SIZE = SIZEOF(.overlay_md_bss);
-
 .overlay_a2600 __RAM_EMU_START__ : {
     . = ALIGN(4);
     __ram_emu_a2600_start__ = .;
@@ -511,31 +408,6 @@ INCLUDE build/fceumm_mappers.ld
     ASSERT(ABSOLUTE(_OVERLAY_A7800_BSS_END) < __RAM_EMU_END__, "Error: A7800 BSS overflow");
   }
   _OVERLAY_A7800_BSS_SIZE = SIZEOF(.overlay_a7800_bss);
-
-  .overlay_lynx __RAM_EMU_START__ : {
-    . = ALIGN(4);
-    __ram_emu_lynx_start__ = .;
-    __init_array_lynx_start__ = .;
-    KEEP(build/lynx/*.o(.init_array*))
-    __init_array_lynx_end__ = .;
-    build/lynx/*.o (.data .data* .text .text* .rodata .rodata* .ARM.extab.text.* .ARM.exidx.text.*)
-    . = ALIGN(4);
-    _OVERLAY_LYNX_LOAD_END = .;
-  } AT > CORES
-  _OVERLAY_LYNX_LOAD_START = LOADADDR(.overlay_lynx);
-  _OVERLAY_LYNX_SIZE = SIZEOF(.overlay_lynx);
-
-  .overlay_lynx_bss _OVERLAY_LYNX_LOAD_END : {
-    . = ALIGN(4);
-    _OVERLAY_LYNX_BSS_START = .;
-    build/lynx/*.o (.bss .bss*)
-    . = ALIGN(4);
-    build/lynx/*.o (COMMON)
-    __ram_emu_lynx_end__ = .;
-    _OVERLAY_LYNX_BSS_END = .;
-    ASSERT(ABSOLUTE(_OVERLAY_LYNX_BSS_END) < __RAM_EMU_END__, "Error: LYNX BSS overflow");
-  }
-  _OVERLAY_LYNX_BSS_SIZE = SIZEOF(.overlay_lynx_bss);
 
   .overlay_amstrad __RAM_EMU_START__ : {
     . = ALIGN(4);
@@ -658,41 +530,6 @@ INCLUDE build/fceumm_mappers.ld
   }
   _OVERLAY_CELESTE_BSS_SIZE = SIZEOF(.overlay_celeste_bss);
 
-  /* PICO-8 stub overlay → RAM, placed at the LOW end of the LCD bonus
-     area. Same VMA as the runtime-loaded pico8.bin so engine RAM refs
-     resolve. In SD_CARD=0 builds the SD-built pico8.bin/.ro/_itcm.bin
-     blobs are bundled into FrogFS/LittleFS and loaded at runtime to
-     this same address; firmware switches LCD to LUT8 before load.
-     Keep _PICO8_FB_OFFSET in sync with the SD repo's linker script. */
-  _PICO8_FB_OFFSET = 2 * 320 * 240;          /* LUT8 framebuffer = 154 KB */
-  __overlay_pico8_vma = __RAM_UC_START__ + _PICO8_FB_OFFSET;
-
-  .overlay_pico8 __overlay_pico8_vma : {
-    . = ALIGN(4);
-    __ram_emu_pico8_start__ = .;
-    KEEP(*(.pico8_entry))
-    _PICO8_MAIN_CODE_START = .;
-    build/pico8/main_pico8_stub.o (.text .text* .data .data* .rodata .rodata*)
-    _PICO8_MAIN_CODE_END = .;
-    . = ALIGN(4);
-    _OVERLAY_PICO8_LOAD_END = .;
-  }
-  _OVERLAY_PICO8_LOAD_START = LOADADDR(.overlay_pico8);
-  _OVERLAY_PICO8_SIZE = SIZEOF(.overlay_pico8);
-
-  .overlay_pico8_bss _OVERLAY_PICO8_LOAD_END : {
-    . = ALIGN(4);
-    _OVERLAY_PICO8_BSS_START = .;
-    build/pico8/*.o (.bss .bss*)
-    . = ALIGN(4);
-    build/pico8/*.o (COMMON)
-    __ram_emu_pico8_end__ = .;
-    _OVERLAY_PICO8_BSS_END = .;
-    ASSERT(ABSOLUTE(_OVERLAY_PICO8_BSS_END) <= __RAM_EMU_END__,
-           "Error: PICO8 engine + BSS would overflow RAM_EMU and leave no room for the TLSF pool");
-  }
-  _OVERLAY_PICO8_BSS_SIZE = SIZEOF(.overlay_pico8_bss);
-
   .overlay_tama __RAM_EMU_START__ : {
     . = ALIGN(4);
     __ram_emu_tama_start__ = .;
@@ -737,31 +574,12 @@ INCLUDE build/fceumm_mappers.ld
   }
   _OVERLAY_PKMINI_BSS_SIZE = SIZEOF(.overlay_pkmini_bss);
 
-  ._ram_space_check_md : {
-    . = . + SIZEOF(.overlay_md);
-    . = . + SIZEOF(.overlay_md_bss);
-  } >RAM_EMU
-
   ._ram (NOLOAD) :
   {
     . = ALIGN(4);
     *(.emulator_data)
     __ram_end__ = .;
   } > RAM
-
-  /* only use ahb_malloc/ahb_calloc to use ahb memory ! */
-  /* only audio buffer is statically allocated */
-  ._ahbram (NOLOAD) :
-  {
-    __ahbram_start__ = .;
-    . = ALIGN(4);
-    __ahbram_heap_start__ = .;
-    . = ORIGIN(AHBRAM) + LENGTH(AHBRAM) - __AHBRAM_AUDIO_RESERVE__;
-    __ahbram_audio_start__ = .;
-    *(.audio)
-    . = ALIGN(4);
-    __ahbram_end__ = .;
-  } > AHBRAM
 
   /* The startup code goes first into FLASH */
   .isr_vector :
@@ -839,32 +657,39 @@ INCLUDE build/fceumm_mappers.ld
     PROVIDE_HIDDEN (__fini_array_end = .);
   } >FLASH
 
-  /* Force some variables at fixed locations for easy OCD interactions without needing ELF file */
+  /* AHB SRAM: .persistent + .data/.bss + newlib heap + .audio.
+   * LMA for .data must follow FLASH sections above.
+   * Requires DATA_IN_D2_SRAM so SystemInit enables AHB SRAM before crt0.
+   * .persistent padded to 8K for an MPU non-cacheable region (OCD logbuf).
+   * Last 12 bytes hold the remote-input shadow word (was DTCM 0x2001FFF4). */
   ._persistent (NOLOAD) :
   {
+    __ahbram_start__ = .;
     . = ALIGN(4);
-    __dtcram_start__ = .;
     *(.persistent_boot_magic)
     *(.persistent_log_idx)
     *(.persistent_logbuf)
     . = ALIGN(4);
-  } >DTCMRAM
+    ASSERT(. <= ORIGIN(AHBRAM) + __AHBRAM_PERSISTENT_RESERVE__ - __AHBRAM_REMOTE_INPUT_RESERVE__,
+           "AHB .persistent overflows pad before remote-input reserve");
+    . = ORIGIN(AHBRAM) + __AHBRAM_PERSISTENT_RESERVE__ - __AHBRAM_REMOTE_INPUT_RESERVE__;
+    __remote_input__ = .;
+    . = ORIGIN(AHBRAM) + __AHBRAM_PERSISTENT_RESERVE__;
+  } > AHBRAM
 
-  /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 
-  /* Initialized data sections goes into RAM, load LMA copy after code */
   .data :
   {
     . = ALIGN(4);
-    _sdata = .;        /* create a global symbol at data start */
+    _sdata = .;
     *(.littlefs_cfg)
-    *(.data)           /* .data sections */
-    *(.data*)          /* .data* sections */
+    *(.data)
+    *(.data*)
 
     . = ALIGN(4);
-    _edata = .;        /* define a global symbol at data end */
-  } >DTCMRAM AT> FLASH
+    _edata = .;
+  } > AHBRAM AT> FLASH
 
   ._flash_end :
   {
@@ -872,43 +697,49 @@ INCLUDE build/fceumm_mappers.ld
     __flash_end__ = .;
   } >FLASH
 
-  /* Uninitialized data section */
-  . = ALIGN(4);
-  .bss :
+  .bss (NOLOAD) :
   {
-    /* This is used by the startup in order to initialize the .bss secion */
-    _sbss = .;         /* define a global symbol at bss start */
+    . = ALIGN(4);
+    _sbss = .;
     __bss_start__ = _sbss;
     *(.bss)
     *(.bss*)
     *(COMMON)
 
     . = ALIGN(4);
-    _ebss = .;         /* define a global symbol at bss end */
+    _ebss = .;
     __bss_end__ = _ebss;
-  } >DTCMRAM
+  } > AHBRAM
 
-  /* PICO-8 RAM removed — engine allocates 64KB from DTCM heap via dtcm_malloc.
-   *
-   * Heap fills all DTCM left after .data/.bss up to the fixed stack at the
-   * top (redzone + _Min_Stack_Size + optional remote-input reserve). */
   ._user_heap (NOLOAD) :
   {
     . = ALIGN(16);
+    __ahbram_heap_start__ = .;
     _heap_start = .;
-    /* Alias for scripts/size.sh — "padding" is now the whole flexible heap. */
+
+    _heap_end = ORIGIN(AHBRAM) + LENGTH(AHBRAM) - __AHBRAM_AUDIO_RESERVE__;
+    ASSERT(_heap_start < _heap_end,
+           "AHB overflow: .persistent/.data/.bss leave no room for malloc heap before .audio");
+    . = _heap_end;
+  } > AHBRAM
+
+  ._ahbram_audio (NOLOAD) :
+  {
+    __ahbram_audio_start__ = .;
+    *(.audio)
+    . = ALIGN(4);
+    __ahbram_end__ = .;
+  } > AHBRAM
+
+  /* DTCM: bump pool from ORIGIN up to the stack redzone. */
+  ._dtcm_free (NOLOAD) :
+  {
+    . = ALIGN(16);
+    __dtcram_start__ = .;
     __dtc_padding_start__ = .;
-
-    /* Align down so . = _heap_limit never steps into the stack. */
-    _heap_limit = (ORIGIN(DTCMRAM) + LENGTH(DTCMRAM)
-                - __REMOTE_INPUT_RESERVE__
-                - _Min_Stack_Size
-                - _Stack_Redzone_Size) & ~15;
-    ASSERT(_heap_start <= _heap_limit,
-           "DTCM overflow: .data/.bss leave no room for stack");
-
-    . = _heap_limit;
-    _heap_end = .;
+    . = ORIGIN(DTCMRAM) + __DTCMRAM_LENGTH__
+        - _Min_Stack_Size
+        - _Stack_Redzone_Size;
     __dtc_padding_end__ = .;
   } >DTCMRAM
 
@@ -919,7 +750,6 @@ INCLUDE build/fceumm_mappers.ld
     _stack_bottom = .;
     . = . + _Min_Stack_Size;
     _stack_top = .;
-    . = . + __REMOTE_INPUT_RESERVE__;
     __dtcram_end__ = .;
   } >DTCMRAM
 

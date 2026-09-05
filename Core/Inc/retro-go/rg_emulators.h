@@ -3,6 +3,7 @@
 #include <odroid_sdcard.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #if !defined(COVERFLOW)
 #define COVERFLOW 0
@@ -39,6 +40,11 @@ typedef struct {
 	#if COVERFLOW != 0
     const uint8_t *img_address;
     img_state_t img_state;
+    /* GWHB embedded JPEG: absolute offset/size in the .bin at path.
+     * Both 0 → fall back to /covers/<dirname>/<stem>.img.
+     * When set, /covers/<dirname>/<stem>.img still wins if present. */
+    uint32_t cover_bin_offset;
+    uint32_t cover_bin_size;
 	#endif
     rom_region_t region;
     const rom_system_t *system;
@@ -68,10 +74,32 @@ typedef struct {
     char browse_subpath[96];
     bool initialized;
     rom_system_t *system;
+
+    /* Non-empty for a dynamically-discovered external core (see
+     * emulators_scan_cores() / gnw_core_meta_t): path of the .bin on the
+     * SD card. Multiple tabs (systems) can share the same core_path (e.g.
+     * PC Engine + PC Engine CD from one pce.bin). Segment sizes are no
+     * longer cached here: run_dynamic_core() re-probes the file's
+     * gnw_core_meta_t at launch time instead, so this struct doesn't go
+     * stale if the file changes between scan and launch.
+     * Empty for the compile-time tabs (Homebrew, PICO-8). */
+    char core_path[64];
+
+    /* GNW_PARSE_ROM (plain per-file browse, scan_folder_cb) or
+     * GNW_PARSE_CDROM (.cue-based folder scan, emulator_scan_cdrom_folder)
+     * — see gnw_parse_type_t. Always GNW_PARSE_ROM for compile-time tabs. */
+    uint32_t parse_type;
+
+#if CHEAT_CODES == 1
+    /* From gnw_core_system_t.cheat_ext; empty = no cheat files for this tab. */
+    char cheat_ext[8];
+#endif
 } retro_emulator_t;
 
 
 void emulators_init();
+/* After launcher wake: reboot if /cores set changed; else refresh ROM list. */
+void emulators_resync_after_wake(void);
 void rg_emulators_restore_main_menu_browse_path(void);
 void emulator_init(retro_emulator_t *emu);
 void emulator_refresh_list(retro_emulator_t *emu);
@@ -84,3 +112,17 @@ const char *emu_get_file_path(retro_emulator_file_t *file);
 retro_emulator_t *file_to_emu(retro_emulator_file_t *file);
 bool emulator_is_file_valid(retro_emulator_file_t *file);
 retro_emulator_file_t *emulator_get_file(char *file_path);
+
+/* Version of the currently running dynamic core (from gnw_core_meta_t),
+ * set by run_dynamic_core() at launch. Returns false if no dynamic core
+ * is running, or if the packed version is all-zero (unset / old bin). */
+bool rg_emulators_get_running_core_version(uint8_t *major, uint8_t *minor, uint8_t *patch);
+
+/* Full Info dialog fields for the running dynamic core. Returns false if
+ * no dynamic core is active. `version` is formatted "vX.Y.Z" (or empty if
+ * unset). `date` is the core .bin's FatFs mtime "YYYY-MM-DD HH:MM", or
+ * "-" if unavailable. Any out_* pointer may be NULL to skip that field. */
+bool rg_emulators_get_running_core_info(char *name, size_t name_sz,
+                                        char *version, size_t version_sz,
+                                        char *path, size_t path_sz,
+                                        char *date, size_t date_sz);

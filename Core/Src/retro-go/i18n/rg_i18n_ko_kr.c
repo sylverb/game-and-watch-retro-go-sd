@@ -23,125 +23,10 @@ const lang_t lang_ko_kr LANG_DATA = {
     // If you can translate, please feed back the translation results to me, thank you
     // translate by  Augen(히힛마스터):
 
-    // Core\Src\porting\nes-fceu\main_nes_fceu.c ===========================
-    .s_Crop_Vertical_Overscan = "수직 오버스캔 자르기",
-    .s_Crop_Horizontal_Overscan = "수평 오버스캔 자르기",
-    .s_Disable_Sprite_Limit = "스프라이트 제한 해제",
+    // Shared (firmware overlays); core-specific strings are in *_i18n.c
     .s_Reset = "리셋",
-    .s_NES_CPU_OC = "NES CPU 오버클럭",
-    .s_NES_Eject_Insert_FDS = "디스크 꺼내기/넣기",
-    .s_NES_Eject_FDS = "디스크 꺼내기",
-    .s_NES_Insert_FDS = "디스크 넣기",
-    .s_NES_Swap_Side_FDS = "디스크 면 전환",
-    .s_NES_FDS_Side_Format = "디스크 %d %s면",
-    //=====================================================================
-
-    // Core\Src\porting\gb\main_gb.c =======================================
     .s_Palette = "팔레트",
-    .s_System = "시스템",
-    .s_SGB_Border = "SGB 테두리",
-    //=====================================================================
-
-    // Core\Src\porting\nes\main_nes.c =====================================
-    //.s_Palette= "Palette" dul
     .s_Default = "기본",
-    //=====================================================================
-
-    // Core\Src\porting\pkmini\main_pkmini.c ==============================
-    .s_pkmini_LCD_Filter = "LCD 필터",
-    .s_pkmini_LCD_Mode = "LCD 모드",
-    .s_pkmini_Piezo_Filter = "피에조 필터",
-    .s_pkmini_Low_Pass_Filter = "저역 통과 필터",
-    // PokeMini palette names
-    .s_pkmini_palette_Default = "기본",
-    .s_pkmini_palette_Old = "구식",
-    .s_pkmini_palette_BlackWhite = "흑백",
-    .s_pkmini_palette_Green = "녹색",
-    .s_pkmini_palette_InvertedGreen = "반전 녹색",
-    .s_pkmini_palette_Red = "빨간색",
-    .s_pkmini_palette_InvertedRed = "반전 빨간색",
-    .s_pkmini_palette_BlueLCD = "파란색 LCD",
-    .s_pkmini_palette_LEDBacklight = "LED 백라이트",
-    .s_pkmini_palette_GirlPower = "걸 파워",
-    .s_pkmini_palette_Blue = "파란색",
-    .s_pkmini_palette_InvertedBlue = "반전 파란색",
-    .s_pkmini_palette_Sepia = "세피아",
-    .s_pkmini_palette_InvertedBlackWhite = "반전 흑백",
-    // PokeMini LCD filter names
-    .s_pkmini_lcd_filter_None = "없음",
-    .s_pkmini_lcd_filter_DotMatrix = "도트 매트릭스",
-    .s_pkmini_lcd_filter_Scanlines = "스캔라인",
-    // PokeMini LCD mode names
-    .s_pkmini_lcd_mode_Analog = "아날로그",
-    .s_pkmini_lcd_mode_3Shades = "3단계",
-    .s_pkmini_lcd_mode_2Shades = "2단계",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_gwenesis.c ================================
-    .s_md_keydefine = "키: A-B-C",
-    .s_md_Synchro = "동기화",
-    .s_md_Synchro_Audio = "오디오",
-    .s_md_Synchro_Vsync = "수직동기",
-    .s_md_Dithering = "디더링",
-    .s_md_Debug_bar = "디버그 바",
-    .s_md_AudioFilter = "오디오 필터",
-    .s_md_VideoUpscaler = "비디오 업스케일러",
-    .s_md_Region = "지역",
-    //=====================================================================
-    
-    // Core\Src\porting\md\main_wsv.c ================================
-    .s_wsv_palette_Default = "기본",
-    .s_wsv_palette_Amber = "앰버",
-    .s_wsv_palette_Green = "녹색",
-    .s_wsv_palette_Blue = "파란색",
-    .s_wsv_palette_BGB = "BGB",
-    .s_wsv_palette_Wataroo = "Wataroo",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_msx.c ================================
-    .s_msx_Change_Dsk = "디스크 변경",
-    .s_msx_Select_MSX = "MSX 선택",
-    .s_msx_MSX1_EUR = "MSX1(EUR)",
-    .s_msx_MSX2_EUR = "MSX2(EUR)",
-    .s_msx_MSX2_JP = "MSX2+(JP)",
-    .s_msx_Frequency = "주파수",
-    .s_msx_Freq_Auto = "자동",
-    .s_msx_Freq_50 = "50Hz",
-    .s_msx_Freq_60 = "60Hz",
-    .s_msx_A_Button = "A 버튼",
-    .s_msx_B_Button = "B 버튼",
-    .s_msx_Press_Key = "키 입력",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_amstrad.c ================================
-    .s_amd_Change_Dsk = "디스크 변경",
-    .s_amd_Controls = "조작",
-    .s_amd_Controls_Joystick = "조이스틱",
-    .s_amd_Controls_Keyboard = "키보드",
-    .s_amd_palette_Color = "컬러",
-    .s_amd_palette_Green = "녹색",
-    .s_amd_palette_Grey = "회색",
-    .s_amd_game_Button = "게임 버튼",
-    .s_amd_time_Button = "시간 버튼",
-    .s_amd_start_Button = "시작 버튼",
-    .s_amd_select_Button = "선택 버튼",
-    .s_amd_A_Button = "A 버튼",
-    .s_amd_B_Button = "B 버튼",
-    .s_amd_Press_Key = "키 입력",
-    //=====================================================================
-
-    // Core\Src\porting\gw\main_gw.c =======================================
-    .s_copy_RTC_to_GW_time = "RTC → G&W 시간 복사",
-    .s_copy_GW_time_to_RTC = "G&W → RTC 시간 복사",
-    .s_LCD_filter = "LCD 필터",
-    .s_Display_RAM = "디스플레이 RAM",
-    .s_Press_ACL = "ACL 또는 리셋 누르기",
-    .s_Press_TIME = "TIME 누르기 [B+TIME]",
-    .s_Press_ALARM = "ALARM 누르기 [B+GAME]",
-    .s_filter_0_none = "0-없음",
-    .s_filter_1_medium = "1-중간",
-    .s_filter_2_high = "2-높음",
-    //=====================================================================
 
     // Core\Src\porting\odroid_overlay.c ===================================
     .s_Option_ON = "\x6",
@@ -291,6 +176,9 @@ const lang_t lang_ko_kr LANG_DATA = {
     .s_Date_Format = "%02d.%02d.20%02d %s",
     .s_Time_Format = "%02d:%02d:%02d",
     .s_favorite = "즐겨찾기",
+    .s_Info = "정보",
+    .s_Name = "이름",
+    .s_Version = "버전",
     .fmt_Title_Date_Format = ko_kr_fmt_Title_Date_Format,
     .fmtDate = ko_kr_fmt_Date,
     .fmtTime = ko_kr_fmt_Time,

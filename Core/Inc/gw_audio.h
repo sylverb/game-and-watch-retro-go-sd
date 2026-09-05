@@ -24,6 +24,15 @@ extern int16_t audiobuffer_dma[AUDIO_BUFFER_LENGTH * 2] __attribute__((section (
 extern dma_transfer_state_t dma_state;
 extern uint32_t dma_counter;
 
+/* ISR-fed PCM ring for out-of-tree homebrews (Music, Video, …). The fill
+ * routine lives in this firmware so the SAI ISR never jumps into RAM_EMU
+ * code; the homebrew owns the ring and registers it via pcm_attach(). */
+void     pcm_attach(int16_t *ring, int size, volatile uint16_t *head, volatile uint16_t *tail);
+void     pcm_audio_enable(int on);          /* 1 = homebrew owns the DMA half-fill */
+void     pcm_audio_set(int vol, int play);  /* play=0 -> ISR outputs silence; vol 0..255 */
+void     pcm_audio_setpos(uint32_t samples);
+uint32_t pcm_audio_pos(void);
+
 uint16_t audio_get_buffer_full_length(void);
 uint16_t audio_get_buffer_length(void);
 uint16_t audio_get_buffer_size(void);

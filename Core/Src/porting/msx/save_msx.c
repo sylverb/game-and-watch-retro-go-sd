@@ -4,8 +4,6 @@
 #include "appid.h"
 
 #include "common.h"
-#include "gw_linker.h"
-#include "gw_flash.h"
 #include "gw_lcd.h"
 #include "main_msx.h"
 #include "save_msx.h"
@@ -13,6 +11,8 @@
 #include <string.h>
 #include <stdio.h>
 #include "Board.h"
+
+#include "gw_core_bridge.h"
 
 static char *headerString  = "bMSX0000";
 

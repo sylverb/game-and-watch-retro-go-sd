@@ -4,8 +4,6 @@
 #include "stdint.h"
 #include "rg_i18n_lang.h"
 
-#define ODROID_DIALOG_CHOICE_SEPARATOR {0x0F0F0F0E, "-", "-", -1, NULL}
-
 #define FONT_COUNT 9
 
 extern const char* gui_fonts[];
@@ -32,6 +30,10 @@ lang_t *i18n_load_language(int idx);
  * "日本語", etc.). Safe to call before any SD i/o — used by the menu
  * to list available languages without loading their strings. */
 const char *i18n_lang_display_name(int idx);
+
+/* Active UI language code ("en_us", "fr_fr", ...). Used by standalone
+ * cores via gw_firmware_abi_t.i18n_lang_code / gw_i18n(). */
+const char *i18n_lang_code(void);
 
 int i18n_get_text_height();
 

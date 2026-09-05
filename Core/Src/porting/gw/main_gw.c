@@ -1,22 +1,22 @@
+/* This core is built standalone (see cores/gw/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their `extern` declarations of common_emu_state/
+ * ACTIVE_FILE/ram_start are parsed first. */
 #include <odroid_system.h>
 #include <string.h>
+#include <stdio.h>
 #include <assert.h>
 #include <time.h>
 
 #include "main.h"
 #include "gw_lcd.h"
-#include "gw_linker.h"
 #include "gw_buttons.h"
 #include "appid.h"
-
-/* TO move elsewhere */
-#include "stm32h7xx_hal.h"
-
 #include "common.h"
 #include "rom_manager.h"
-#include "rg_i18n.h"
-#include "gui.h"
 #include "rg_rtc.h"
+#include "gw_malloc.h"
 
 /* G&W system support */
 #include "gw_system.h"
@@ -25,11 +25,21 @@
 /* access to internals for debug purpose */
 #include "sm510.h"
 
+#include "gw_core_bridge.h"
+#include "gw_i18n.h"
+
+/* From rg_i18n.h — avoid pulling the full i18n table into the core. */
+#define ODROID_DIALOG_CHOICE_SEPARATOR {0x0F0F0F0E, "-", "-", -1, NULL}
+
 /* Uncomment to enable debug menu in overlay */
 //#define GW_EMU_DEBUG_OVERLAY
 
+const uint8_t *gw_rom_image = NULL;
+unsigned gw_rom_image_size = 0;
 
-#define ODROID_APPID_GW 6
+/* Debug overlay text colours (i18n curr_colors not exposed over the ABI). */
+#define GW_DBG_FG 0xFFFF
+#define GW_DBG_BG 0x0000
 
 /* keys inpus (hw & sw) */
 static odroid_gamepad_state_t joystick;
@@ -42,33 +52,34 @@ static unsigned int softkey_duration = 0;
 
 static void gw_set_time() {
 
-    struct tm tm;
-    GW_GetUnixTM(&tm);
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
 
-    gw_time_t time;
-    time.hours = tm.tm_hour;
-    time.minutes = tm.tm_min;
-    time.seconds = tm.tm_sec;
+    gw_time_t emu_time;
+    emu_time.hours = tm->tm_hour;
+    emu_time.minutes = tm->tm_min;
+    emu_time.seconds = tm->tm_sec;
 
     // set time of the emulated system
-    gw_system_set_time(time);
+    gw_system_set_time(emu_time);
     printf("Set time done!\n");
 }
 
 static void gw_get_time() {
 
-    gw_time_t time = {0};
+    gw_time_t emu_time = {0};
 
     // check if the system is able to get the time
-    time = gw_system_get_time();
-    if (time.hours > 24) return;
+    emu_time = gw_system_get_time();
+    if (emu_time.hours > 24) return;
 
-    // Set times
-    struct tm tm;
-    GW_GetUnixTM(&tm);
-    tm.tm_hour = time.hours;
-    tm.tm_min = time.minutes;
-    tm.tm_sec = time.seconds;
+    // Set times (read "now" via time()/localtime, write via GW_SetUnixTM —
+    // there is no portable libc setter wired into the ABI).
+    time_t now = time(NULL);
+    struct tm tm = *localtime(&now);
+    tm.tm_hour = emu_time.hours;
+    tm.tm_min = emu_time.minutes;
+    tm.tm_sec = emu_time.seconds;
     GW_SetUnixTM(&tm);
 }
 
@@ -76,19 +87,19 @@ static void gw_check_time() {
 
     static unsigned int is_gw_time_sync=0;
 
-    struct tm tm;
-    GW_GetUnixTM(&tm);
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
 
     // Set times
-    gw_time_t time;
-    time.hours = tm.tm_hour;
-    time.minutes = tm.tm_min;
-    time.seconds = tm.tm_sec;
+    gw_time_t emu_time;
+    emu_time.hours = tm->tm_hour;
+    emu_time.minutes = tm->tm_min;
+    emu_time.seconds = tm->tm_sec;
 
     // update time every 30s
-    if ( (time.seconds == 30) || (is_gw_time_sync==0) ) {
+    if ( (emu_time.seconds == 30) || (is_gw_time_sync==0) ) {
         is_gw_time_sync = 1;
-        gw_system_set_time(time);
+        gw_system_set_time(emu_time);
     }
 }
 static unsigned char state_save_buffer[sizeof(gw_state_t)];
@@ -265,7 +276,7 @@ static void gw_debug_bar()
     else
         sprintf(debugMsg, "%04dus EMU:%04dus FX:%04dus %d%%+%d", loop_duration_us, proc_duration_us, blit_duration_us, busy_percent, overflow_count);
 
-    odroid_overlay_draw_text(0, 0, GW_SCREEN_WIDTH, debugMsg, curr_colors->sel_c, curr_colors->main_c);
+    odroid_overlay_draw_text(0, 0, GW_SCREEN_WIDTH, debugMsg, GW_DBG_FG, GW_DBG_BG);
 
 #endif
 }
@@ -328,7 +339,7 @@ static bool gw_debug_submenu_press_alarm(odroid_dialog_choice_t *option, odroid_
 }
 
 
-static char LCD_deflicker_value[10];
+static char LCD_deflicker_value[16];
 static bool gw_debug_submenu_set_deflicker(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     /* LCD deflicker filter level */
@@ -345,16 +356,16 @@ static bool gw_debug_submenu_set_deflicker(odroid_dialog_choice_t *option, odroi
     if (event == ODROID_DIALOG_NEXT)
         flag_lcd_deflicker_level = flag_lcd_deflicker_level < max_flag_lcd_deflicker_level ? flag_lcd_deflicker_level + 1 : 0;
 
-    if (flag_lcd_deflicker_level == 0) strcpy(option->value, curr_lang->s_filter_0_none);
-    if (flag_lcd_deflicker_level == 1) strcpy(option->value, curr_lang->s_filter_1_medium);
-    if (flag_lcd_deflicker_level == 2) strcpy(option->value, curr_lang->s_filter_2_high);
+    if (flag_lcd_deflicker_level == 0) strcpy(option->value, gw_i18n(gw_i18n_filter_none));
+    if (flag_lcd_deflicker_level == 1) strcpy(option->value, gw_i18n(gw_i18n_filter_medium));
+    if (flag_lcd_deflicker_level == 2) strcpy(option->value, gw_i18n(gw_i18n_filter_high));
 
     return event == ODROID_DIALOG_ENTER;
 }
 
 // Debug menu strings
 
-static char display_ram_value[10];
+static char display_ram_value[16];
 
 // Display RAM bool
 static unsigned int debug_display_ram = 0;
@@ -363,8 +374,8 @@ static bool gw_debug_submenu_display_ram(odroid_dialog_choice_t *option, odroid_
     if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT)
         debug_display_ram = debug_display_ram == 0 ? 1 : 0;
 
-    if (debug_display_ram == 0) strcpy(option->value, curr_lang->s_No);
-    if (debug_display_ram == 1) strcpy(option->value, curr_lang->s_Yes);
+    if (debug_display_ram == 0) strcpy(option->value, gw_i18n(gw_i18n_no));
+    if (debug_display_ram == 1) strcpy(option->value, gw_i18n(gw_i18n_yes));
 
     return event == ODROID_DIALOG_ENTER;
 }
@@ -376,38 +387,69 @@ static void gw_display_ram_overlay(){
   //  char *p;
    // p = (char *)&draw_line_content[0];
     sprintf(draw_line_content, "   0 1 2 3 4 5 6 7 8 9 A B C D E F");
-    odroid_overlay_draw_text(10, 72, 300, draw_line_content, curr_colors->sel_c, curr_colors->main_c);
+    odroid_overlay_draw_text(10, 72, 300, draw_line_content, GW_DBG_FG, GW_DBG_BG);
 
     for (unsigned char i=0;i<8;i++) {
         sprintf(draw_line_content, "%2u%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x%2x",i, \
         gw_ram[i*16], gw_ram[(i*16)+1], gw_ram[(i*16)+2],gw_ram[(i*16)+3],gw_ram[(i*16)+4],gw_ram[(i*16)+5],gw_ram[(i*16)+6],gw_ram[(i*16)+7], \
         gw_ram[(i*16)+8], gw_ram[(i*16)+9], gw_ram[(i*16)+10],gw_ram[(i*16)+11],gw_ram[(i*16)+12],gw_ram[(i*16)+13],gw_ram[(i*16)+14],gw_ram[(i*16)+15]);
-    odroid_overlay_draw_text(10, 80+8*i, 300, draw_line_content, curr_colors->sel_c, curr_colors->main_c);
+    odroid_overlay_draw_text(10, 80+8*i, 300, draw_line_content, GW_DBG_FG, GW_DBG_BG);
     }
 }
 
 
-/* Main */
-int app_main_gw(uint8_t load_state, int8_t save_slot)
+/* Main — 3-arg signature matches run_dynamic_core / gw_core_entry.S
+ * (the classic 2-arg form silently took start_paused as save_slot). */
+void app_main_gw(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 {
-
     odroid_dialog_choice_t options[] = {
         ODROID_DIALOG_CHOICE_SEPARATOR,
-        {309, curr_lang->s_Press_ACL, "", 1, &gw_debug_submenu_autoclear},
-        {310, curr_lang->s_Press_TIME, "", 1, &gw_debug_submenu_press_time},
-        {320, curr_lang->s_Press_ALARM, "", 1, &gw_debug_submenu_press_alarm},
-        {330, curr_lang->s_copy_RTC_to_GW_time, "", 1, &gw_debug_submenu_autoset_time},
-        {331, curr_lang->s_copy_GW_time_to_RTC, "", 1, &gw_debug_submenu_autoget_time},
-        {360, curr_lang->s_LCD_filter, LCD_deflicker_value, 1, &gw_debug_submenu_set_deflicker},
-        {370, curr_lang->s_Display_RAM, display_ram_value, 1, &gw_debug_submenu_display_ram},
+        {309, gw_i18n(gw_i18n_press_acl), "", 1, &gw_debug_submenu_autoclear},
+        {310, gw_i18n(gw_i18n_press_time), "", 1, &gw_debug_submenu_press_time},
+        {320, gw_i18n(gw_i18n_press_alarm), "", 1, &gw_debug_submenu_press_alarm},
+        {330, gw_i18n(gw_i18n_copy_rtc_to_gw), "", 1, &gw_debug_submenu_autoset_time},
+        {331, gw_i18n(gw_i18n_copy_gw_to_rtc), "", 1, &gw_debug_submenu_autoget_time},
+        {360, gw_i18n(gw_i18n_lcd_filter), LCD_deflicker_value, 1, &gw_debug_submenu_set_deflicker},
+        {370, gw_i18n(gw_i18n_display_ram), display_ram_value, 1, &gw_debug_submenu_display_ram},
         ODROID_DIALOG_CHOICE_LAST};
 
-    odroid_system_init(ODROID_APPID_GW, GW_AUDIO_FREQ);
+    odroid_system_init(APPID_CORE, GW_AUDIO_FREQ);
     odroid_system_emu_init(&gw_system_LoadState, &gw_system_SaveState, &gw_system_Screenshot, NULL, NULL, NULL, NULL);
-    //rg_app_desc_t *app = odroid_system_get_app();
-    static unsigned previous_m_halt = 2;
+
+    if (start_paused) {
+        common_emu_state.pause_after_frames = 2;
+        odroid_audio_mute(true);
+    } else {
+        common_emu_state.pause_after_frames = 0;
+    }
 
     common_emu_state.frame_time_10us = (uint16_t)(100000 / GW_REFRESH_RATE + 0.5f);
+
+    /* Prefer RAM when the file fits; otherwise map into the flash cache. */
+    {
+        uint32_t size = 0;
+        FILE *f = fopen(ACTIVE_FILE->path, "rb");
+        if (f != NULL) {
+            fseek(f, 0, SEEK_END);
+            long sz = ftell(f);
+            fclose(f);
+            if (sz > 0)
+                size = (uint32_t)sz;
+        }
+        if (size == 0)
+            odroid_system_switch_app(0);
+
+        if (size > ram_get_free_size()) {
+            gw_rom_image = odroid_overlay_cache_file_in_flash(ACTIVE_FILE->path, &size, false);
+        } else {
+            uint8_t *dst = ram_malloc(size);
+            if (dst != NULL && odroid_overlay_cache_file_in_ram(ACTIVE_FILE->path, dst) == size)
+                gw_rom_image = dst;
+        }
+        if (gw_rom_image == NULL)
+            odroid_system_switch_app(0);
+        gw_rom_image_size = size;
+    }
 
     /*** load ROM  */
     bool rom_status = gw_system_romload();
@@ -424,9 +466,14 @@ int app_main_gw(uint8_t load_state, int8_t save_slot)
     softkey_alarm_pressed = 0;
     softkey_duration = 0;
 
-    /*** Configure the emulated system */
-    gw_system_config();
-    printf("G&W configured\n");
+    /*** Configure the emulated system (sets device_run/start/reset/blit).
+     * Ignoring a false return leaves those function pointers NULL and the
+     * first gw_system_run() hardfaults with PC=0 (Thumb LR in gw_system_run). */
+    if (!gw_system_config()) {
+        printf("G&W: unsupported CPU '%s'\n", gw_head.cpu_name);
+        odroid_system_switch_app(0);
+    }
+    printf("G&W configured (cpu=%s)\n", gw_head.cpu_name);
 
     /*** Start and Reset the emulated system */
     gw_system_start();
@@ -485,6 +532,8 @@ int app_main_gw(uint8_t load_state, int8_t save_slot)
 
     /*** Main emulator loop */
     printf("Main emulator loop start\n");
+
+    static unsigned previous_m_halt = 2;
 
     while (true)
     {
@@ -547,7 +596,6 @@ int app_main_gw(uint8_t load_state, int8_t save_slot)
         {
             gw_sound_submit();
         }
-
         /* get how many cycles have been spent to process everything */
         end_cycles = common_emu_get_dwt_cycles();
 
@@ -561,4 +609,3 @@ int app_main_gw(uint8_t load_state, int8_t save_slot)
 
     } // end of loop
 }
-

@@ -80,6 +80,8 @@ DMA_HandleTypeDef hdma_sai1_a;
 #if SD_CARD == 1
 sdcard_hw_type_t sdcard_hw_type = SDCARD_HW_UNDETECTED;
 SPI_HandleTypeDef hspi1;
+DMA_HandleTypeDef hdma_spi1_tx;
+DMA_HandleTypeDef hdma_spi1_rx;
 #endif
 SPI_HandleTypeDef hspi2;
 
@@ -416,6 +418,13 @@ int main(void)
   */
 void SystemClock_Config(uint8_t oc_level)
 {
+  /* Soft-SPI-over-OSPI SD (Yota9) is unstable when the core/OSPI PLL is
+   * boosted — refuse any OC request on that hardware and stay at stock. */
+#if SD_CARD == 1
+  if (oc_level != 0 && sdcard_hw_type == SDCARD_HW_OSPI1)
+    oc_level = 0;
+#endif
+
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
@@ -1137,9 +1146,16 @@ static void MX_DMA_Init(void)
   __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
-  /* DMA1_Stream0_IRQn interrupt configuration */
+  /* DMA1_Stream0_IRQn interrupt configuration (SAI) */
   HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+#if SD_CARD == 1
+  /* DMA1_Stream1/2: SPI1 TX/RX — below SAI so audio half-fills win */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+#endif
 
 }
 
@@ -1304,7 +1320,7 @@ __attribute__((optimize("-O0"))) static void MPU_Config(void)
     MPU_InitStruct.Enable = MPU_REGION_ENABLE;
     MPU_InitStruct.Number = MPU_REGION_NUMBER2;
     MPU_InitStruct.BaseAddress = (uint32_t) &_stack_redzone;
-    /* 128B --> 0x06, 256B --> 0x07, 512B --> 0x08, ... */
+    /* 32B --> 0x04, 128B --> 0x06, 256B --> 0x07, ... */
     MPU_InitStruct.Size = ffs((size_t)&_Stack_Redzone_Size) - 2;
     MPU_InitStruct.SubRegionDisable = 0x0;
     MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
@@ -1337,8 +1353,8 @@ __attribute__((optimize("-O0"))) static void MPU_Config(void)
  * RAM_EMU above it.
  *
  * Power-of-2 decomposition is hand-coded for the two sizes we use:
- *   300 KB (RGB565) → 256 + 32 + 8 + 4
- *   154 KB (LUT8  ) → 128 + 16 + 8 + 2
+ *   300 KiB (RGB565) → 256 + 32 + 8 + 4
+ *   150 KiB (LUT8  ) → 128 + 16 + 4 + 2
  * Both consume exactly 4 MPU regions (3..6), so the live count never
  * changes. Caller is responsible for HAL_MPU_Disable/Enable bracket.
  *
@@ -1367,12 +1383,12 @@ void mpu_set_lcd_pool_uncached_range(uint32_t framebuffer_bytes)
     r5_size_kb =   8; r5_enum = MPU_REGION_SIZE_8KB;
                       r6_enum = MPU_REGION_SIZE_4KB;
   } else {
-    /* LUT8 — exactly 154 KB framebuffer footprint, leaves the 146 KB
-     * bonus area cacheable by default (CPU sees engine-accessible
-     * memory as Normal Write-back). */
+    /* LUT8 — exactly 150 KiB framebuffer footprint, so the entire
+     * 150 KiB bonus (__RAM_UC_CORE_START__) is cacheable Normal
+     * Write-back (executable core code / leftover heap). */
     r3_size_kb = 128; r3_enum = MPU_REGION_SIZE_128KB;
     r4_size_kb =  16; r4_enum = MPU_REGION_SIZE_16KB;
-    r5_size_kb =   8; r5_enum = MPU_REGION_SIZE_8KB;
+    r5_size_kb =   4; r5_enum = MPU_REGION_SIZE_4KB;
                       r6_enum = MPU_REGION_SIZE_2KB;
   }
 

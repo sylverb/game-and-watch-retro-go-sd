@@ -20,6 +20,10 @@ LARGE_FLASH ?= 0
 # Set to 0 to disable sd card support
 SD_CARD ?= 1
 
+# SD SPI data CRC-16 (CMD59). Default 0: skip verification (cheap/old cards).
+# Set to 1 to try CRC on at init; cards that reject CMD59 or fail CRC fall back.
+SD_SPI_CHECK_DATA_CRC ?= 0
+
 # Docker image for reproducible ARM builds (see targets docker, docker_build).
 RELEASE_VERSION ?= v1.5
 CONTAINER_NAME ?= retro-go-sd
@@ -426,7 +430,7 @@ endif
 
 # Common C sources
 C_SOURCES +=  \
-retro-go-stm32/retro-go/main/gui.c \
+Core/Src/retro-go/gui.c \
 Core/Src/porting/gw_alloc.c \
 Core/Src/porting/gw_sleep.c \
 Core/Src/retro-go/rg_main.c \
@@ -671,6 +675,7 @@ C_DEFS +=  \
 -DIS_LITTLE_ENDIAN \
 -DENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT) \
 -DSD_CARD=$(SD_CARD) \
+-DSD_SPI_CHECK_DATA_CRC=$(SD_SPI_CHECK_DATA_CRC) \
 -DCHEAT_CODES=$(CHEAT_CODES) \
 -DDISABLE_SPLASH_SCREEN=$(DISABLE_SPLASH_SCREEN) \
 -DENABLE_BOOT_OC=$(ENABLE_BOOT_OC) \
@@ -684,9 +689,6 @@ C_DEFS +=  \
 -DMAX_VIDEO_WIDTH_320 \
 -DPIXEL_WIDTH=8 \
 -DMSX_NO_STEREO \
--DFCEU_VERSION_NUMERIC=9813 \
--DFCEU_LOW_RAM \
--DFCEU_NO_MALLOC \
 -DVIDEO_RGB565 \
 -DCELESTE_SLOW_CPU
 
@@ -706,34 +708,11 @@ AS_INCLUDES +=
 C_INCLUDES +=  \
 -ICore/Inc \
 -ICore/Inc/porting \
--ICore/Inc/porting/gb \
--ICore/Inc/porting/gb_tgbdual \
--ICore/Inc/porting/nes \
--ICore/Inc/porting/nes_fceu \
--ICore/Inc/porting/smsplusgx \
--ICore/Inc/porting/pce \
--ICore/Inc/porting/msx \
--ICore/Inc/porting/wsv \
--ICore/Inc/porting/gw \
--ICore/Inc/porting/gwenesis \
--ICore/Inc/porting/a2600 \
--ICore/Inc/porting/lynx \
--ICore/Inc/porting/a7800 \
--ICore/Inc/porting/amstrad \
--ICore/Inc/porting/zelda3 \
--ICore/Inc/porting/smw \
--ICore/Inc/porting/gba \
--ICore/Inc/porting/videopac \
--ICore/Inc/porting/celeste \
--ICore/Inc/porting/pico8 \
--ICore/Inc/porting/tama \
--ICore/Inc/porting/pkmini \
 -ICore/Inc/retro-go \
 -IDrivers/STM32H7xx_HAL_Driver/Inc \
 -IDrivers/STM32H7xx_HAL_Driver/Inc/Legacy \
 -IDrivers/CMSIS/Device/ST/STM32H7xx/Include \
 -IDrivers/CMSIS/Include \
--Iretro-go-stm32/components/lupng \
 
 CXX_INCLUDES += \
 
@@ -778,7 +757,6 @@ else
 endif
 
 LDFLAGS += -Wl,--defsym=__FLASH_LENGTH__=$(FLASH_LENGTH)
-LDFLAGS += -Wl,--defsym=REMOTE_INPUT=$(REMOTE_INPUT)
 
 #######################################
 # LDFLAGS
@@ -796,6 +774,14 @@ CXXLIBS = -lstdc++
 LIBDIR +=
 LDFLAGS += $(MCU) -specs=nano.specs -T$(LDSCRIPT) $(LIBDIR) $(LIBS) $(CXXLIBS) -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections
 LDFLAGS += -Wl,--wrap=fflush
+# __overlay_pico8_vma intentionally lives inside the ._ram_uc VMA range (the
+# LUT8 "bonus pool" carved out of the framebuffer at runtime — see the
+# comment above it in the linker script, and RAM_EMU/CORES section removal
+# while migrating emulators to standalone cores/<system>/ builds); ld's
+# overlap check flags by-design overlaps like this depending on what else
+# happens to sort next to it in its internal address ordering. Disable the
+# check rather than depend on incidental section ordering to keep it quiet.
+LDFLAGS += -Wl,--no-check-sections
 
 # default action: build all (FrogFS has no gw_*_extflash.bin payload — flash frogfs.bin instead)
 ifeq ($(DOCKER),1)
@@ -819,28 +805,14 @@ OBJECTS = $(addprefix $(BUILD_DIR)/core/,$(notdir $(C_SOURCES:.c=.o) $(SDK_C_SOU
 FATFS_OBJECTS = $(addprefix $(BUILD_DIR)/fatfs/,$(notdir $(FATFS_C_SOURCES:.c=.o)))
 TAMP_OBJECTS = $(addprefix $(BUILD_DIR)/tamp/,$(notdir $(TAMP_C_SOURCES:.c=.o)))
 TGBDUAL_OBJECTS = $(addprefix $(BUILD_DIR)/tgbdual/,$(notdir $(TGBDUAL_C_SOURCES:.c=.o)))
-NES_OBJECTS = $(addprefix $(BUILD_DIR)/nes/,$(notdir $(NES_C_SOURCES:.c=.o)))
-NES_FCEU_OBJECTS = $(addprefix $(BUILD_DIR)/nes_fceu/,$(notdir $(NES_FCEU_C_SOURCES:.c=.o)))
-SMSPLUSGX_OBJECTS = $(addprefix $(BUILD_DIR)/smsplusgx/,$(notdir $(SMSPLUSGX_C_SOURCES:.c=.o)))
-PCE_OBJECTS = $(addprefix $(BUILD_DIR)/pce/,$(notdir $(PCE_C_SOURCES:.c=.o)))
 GW_OBJECTS = $(addprefix $(BUILD_DIR)/gw/,$(notdir $(GW_C_SOURCES:.c=.o)))
 MSX_OBJECTS = $(addprefix $(BUILD_DIR)/msx/,$(notdir $(MSX_C_SOURCES:.c=.o)))
 WSV_OBJECTS = $(addprefix $(BUILD_DIR)/wsv/,$(notdir $(WSV_C_SOURCES:.c=.o)))
-MD_OBJECTS = $(addprefix $(BUILD_DIR)/md/,$(notdir $(MD_C_SOURCES:.c=.o)))
 A2600_OBJECTS = $(addprefix $(BUILD_DIR)/a2600/,$(notdir $(A2600_C_SOURCES:.c=.o)))
 A7800_OBJECTS = $(addprefix $(BUILD_DIR)/a7800/,$(notdir $(A7800_C_SOURCES:.c=.o)))
 AMSTRAD_OBJECTS = $(addprefix $(BUILD_DIR)/amstrad/,$(notdir $(AMSTRAD_C_SOURCES:.c=.o)))
 ZELDA3_OBJECTS = $(addprefix $(BUILD_DIR)/zelda3/,$(notdir $(ZELDA3_C_SOURCES:.c=.o)))
 SMW_OBJECTS = $(addprefix $(BUILD_DIR)/smw/,$(notdir $(SMW_C_SOURCES:.c=.o)))
-# GBA is SD-card only: a FrogFS build can neither cache and relocate gba.xip
-# nor hold the up-to-32 MB cart the core reads straight out of flash.
-ifeq ($(SD_CARD),1)
-GBA_OBJECTS = $(addprefix $(BUILD_DIR)/gba/,$(notdir $(GBA_C_SOURCES:.c=.o))) \
-              $(addprefix $(BUILD_DIR)/gba/,$(notdir $(GBA_CXX_SOURCES:.cc=.o))) \
-              $(addprefix $(BUILD_DIR)/gba/,$(notdir $(GBA_ASM_SOURCES:.S=.o)))
-else
-GBA_OBJECTS =
-endif
 VIDEOPAC_OBJECTS = $(addprefix $(BUILD_DIR)/videopac/,$(notdir $(VIDEOPAC_C_SOURCES:.c=.o)))
 CELESTE_OBJECTS = $(addprefix $(BUILD_DIR)/celeste/,$(notdir $(CELESTE_C_SOURCES:.c=.o)))
 PICO8_ALL_SOURCES = $(PICO8_C_SOURCES) $(PICO8_CXX_SOURCES) $(PICO8_CXX_STUBS)
@@ -848,7 +820,7 @@ PICO8_OBJECTS = $(addprefix $(BUILD_DIR)/pico8/,$(notdir $(patsubst %.cpp,%.o,$(
 TAMA_OBJECTS = $(addprefix $(BUILD_DIR)/tama/,$(notdir $(TAMA_C_SOURCES:.c=.o)))
 PKMINI_OBJECTS = $(addprefix $(BUILD_DIR)/pkmini/,$(notdir $(PKMINI_C_SOURCES:.c=.o)))
 
-vpath %.c $(sort $(dir $(C_SOURCES) $(FATFS_C_SOURCES) $(TAMP_C_SOURCES) $(NES_C_SOURCES) $(NES_FCEU_C_SOURCES) $(TGBDUAL_C_SOURCES) $(TGBDUAL_C_SOURCES) $(SMSPLUSGX_C_SOURCES) $(PCE_C_SOURCES) $(MSX_C_SOURCES) $(GW_C_SOURCES) $(WSV_C_SOURCES) $(MD_C_SOURCES) $(A2600_C_SOURCES) $(A7800_C_SOURCES) $(AMSTRAD_C_SOURCES) $(ZELDA3_C_SOURCES) $(SMW_C_SOURCES) $(VIDEOPAC_C_SOURCES) $(CELESTE_C_SOURCES) $(TAMA_C_SOURCES) $(PKMINI_C_SOURCES) $(PICO8_C_SOURCES) $(SDK_C_SOURCES)))
+vpath %.c $(sort $(dir $(C_SOURCES) $(FATFS_C_SOURCES) $(TAMP_C_SOURCES) $(TGBDUAL_C_SOURCES) $(TGBDUAL_C_SOURCES) $(MSX_C_SOURCES) $(GW_C_SOURCES) $(WSV_C_SOURCES) $(A2600_C_SOURCES) $(A7800_C_SOURCES) $(AMSTRAD_C_SOURCES) $(ZELDA3_C_SOURCES) $(SMW_C_SOURCES) $(VIDEOPAC_C_SOURCES) $(CELESTE_C_SOURCES) $(TAMA_C_SOURCES) $(PKMINI_C_SOURCES) $(PICO8_C_SOURCES) $(SDK_C_SOURCES)))
 # Guard empty lists: vpath with empty path resets the pattern's search path.
 # The GPL stub build has no PICO8_CXX_SOURCES, so only emit these when non-empty.
 ifneq ($(strip $(PICO8_CXX_SOURCES)),)
@@ -858,22 +830,12 @@ ifneq ($(strip $(PICO8_CXX_SOURCES) $(PICO8_CXX_STUBS)),)
 vpath %.cpp $(sort $(dir $(PICO8_CXX_SOURCES) $(PICO8_CXX_STUBS)))
 endif
 
-MAPPER_SRCS := $(wildcard external/fceumm-go/src/boards/*.c)
-MAPPER_SRCS := $(filter-out external/fceumm-go/src/boards/__%.c, $(MAPPER_SRCS))
-MAPPER_SRCS := $(filter-out external/fceumm-go/src/boards/fceu-emu2413.c, $(MAPPER_SRCS))
-MAPPER_SRCS := $(filter-out external/fceumm-go/src/boards/mmc3.c, $(MAPPER_SRCS))
-MAPPER_SRCS := $(filter-out external/fceumm-go/src/boards/latch.c, $(MAPPER_SRCS))
-MAPPER_SRCS := $(filter-out external/fceumm-go/src/boards/vrcirq.c, $(MAPPER_SRCS))
-MAPPER_SRCS := $(filter-out external/fceumm-go/src/boards/eeprom_93C66.c, $(MAPPER_SRCS))
-MAPPER_NAMES := $(notdir $(basename $(subst -,_,$(MAPPER_SRCS))))
-
 # CXX
 CXX_OBJECTS =          $(addprefix $(BUILD_DIR)/core/,$(notdir $(CXX_SOURCES:.cpp=.o) ))
 TGBDUAL_CXX_OBJECTS = $(addprefix $(BUILD_DIR)/tgbdual/,$(notdir $(TGBDUAL_CXX_SOURCES:.cpp=.o)))
 A2600_CXX_OBJECTS = $(addprefix $(BUILD_DIR)/a2600/,$(notdir $(A2600_CXX_SOURCES:.cxx=.o)))
-LYNX_CXX_OBJECTS = $(addprefix $(BUILD_DIR)/lynx/,$(notdir $(LYNX_CXX_SOURCES:.cpp=.o)))
 
-vpath %.cpp $(sort $(dir $(CXX_SOURCES) $(TGBDUAL_CXX_SOURCES) $(LYNX_CXX_SOURCES) ))
+vpath %.cpp $(sort $(dir $(CXX_SOURCES) $(TGBDUAL_CXX_SOURCES) ))
 vpath %.cxx $(sort $(dir $(A2600_CXX_SOURCES) ))
 
 # list of ASM program objects
@@ -915,15 +877,6 @@ else
 CheckDirtySubmodules:
 endif
 .PHONY: CheckDirtySubmodules
-
-# The fceumm mappers .ld file is INCLUDEd from $(LDSCRIPT). Generating it
-# as a real file target (rather than a recipe-with-no-output) means make
-# only regenerates it when the script or board sources actually change —
-# which in turn stops the ELF from relinking on every invocation.
-$(BUILD_DIR)/fceumm_mappers.ld: external/fceumm-go/gen_mappers_ld.py \
-                                $(wildcard external/fceumm-go/src/boards/*.c) \
-                                | $(BUILD_DIR)
-	$(V)$(PYTHON3) external/fceumm-go/gen_mappers_ld.py
 
 ifeq (${CHECK_TOOLS},1)
 CheckTools:
@@ -973,9 +926,9 @@ $(BUILD_DIR)/memcpy-armv7m.o: Core/Src/memcpy-armv7m.s Makefile.common Makefile 
 	$(V)$(ECHO) [ AS ] $(notdir $<)
 	$(V)$(AS) -c $(CFLAGS) $< -o $@
 
-$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(GBA_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
+$(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(TGBDUAL_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(LDSCRIPT)
 	$(V)$(ECHO) [ LD ] $(notdir $@)
-	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(LYNX_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(GBA_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
+	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(TGBDUAL_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
 
 $(BUILD_DIR)/core/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC core ] $(notdir $<)
@@ -993,25 +946,9 @@ $(TAMP_OBJECTS): $(BUILD_DIR)/tamp/%.o: $(TAMP_DIR)tamp/%.c Makefile.common Make
 	$(V)$(CC) -c $(CFLAGS) $(TAMP_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/tamp/$(notdir $(<:.c=.lst)) $< -o $@
 endif
 
-$(BUILD_DIR)/nes/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
-	$(V)$(ECHO) [ CC nes ] $(notdir $<)
-	$(V)$(CC) -c $(CFLAGS) $(NES_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/nes/$(notdir $(<:.c=.lst)) $< -o $@
-
-$(BUILD_DIR)/nes_fceu/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
-	$(V)$(ECHO) [ CC nes-fceu ] $(notdir $<)
-	$(V)$(CC) -c $(CFLAGS) $(NES_FCEU_C_INCLUDES) -Wno-sequence-point -Wno-parentheses -Wa,-a,-ad,-alms=$(BUILD_DIR)/nes_fceu/$(notdir $(<:.c=.lst)) $< -o $@
-
 $(BUILD_DIR)/tgbdual/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC GB TGB Dual ] $(notdir $<)
 	$(V)$(CC) -c $(CFLAGS) $(TGBDUAL_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/tgbdual/$(notdir $(<:.c=.lst)) $< -o $@
-
-$(BUILD_DIR)/smsplusgx/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
-	$(V)$(ECHO) [ CC sms ] $(notdir $<)
-	$(V)$(CC) -c $(CFLAGS) $(SMSPLUSGX_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/smsplusgx/$(notdir $(<:.c=.lst)) $< -o $@
-
-$(BUILD_DIR)/pce/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
-	$(V)$(ECHO) [ CC pce ] $(notdir $<)
-	$(V)$(CC) -c $(CFLAGS) $(PCE_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/pce/$(notdir $(<:.c=.lst)) $< -o $@
 
 $(BUILD_DIR)/msx/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC msx ] $(notdir $<)
@@ -1024,10 +961,6 @@ $(BUILD_DIR)/gw/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 $(BUILD_DIR)/wsv/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC wsv ] $(notdir $<)
 	$(V)$(CC) -c $(CFLAGS) $(WSV_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/wsv/$(notdir $(<:.c=.lst)) $< -o $@
-
-$(BUILD_DIR)/md/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
-	$(V)$(ECHO) [ CC md ] $(notdir $<)
-	$(V)$(CC) -c $(CFLAGS) $(MD_C_DEFS) $(MD_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/md/$(notdir $(<:.c=.lst)) $< -o $@
 
 $(BUILD_DIR)/a7800/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC a7800 ] $(notdir $<)
@@ -1087,10 +1020,6 @@ $(BUILD_DIR)/tgbdual/%.o: %.cpp Makefile Makefile.common $(SDK_HEADERS) | $(BUIL
 $(BUILD_DIR)/a2600/%.o: %.cxx Makefile Makefile.common $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CXX a2600 ] $(notdir $<)
 	$(V)$(CXX) -c $(CXXFLAGS) $(A2600_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/a2600/$(notdir $(<:.cxx=.lst)) $< -o $@
-
-$(BUILD_DIR)/lynx/%.o: %.cpp Makefile Makefile.common $(SDK_HEADERS) | $(BUILD_DIR)
-	$(V)$(ECHO) [ CXX lynx ] $(notdir $<)
-	$(V)$(CXX) -c $(CXXFLAGS) $(LYNX_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/lynx/$(notdir $(<:.cpp=.lst)) $< -o $@
 
 # Zelda3 configuration
 
@@ -1205,67 +1134,6 @@ endef
 # generate all smw object prerequisite rules
 $(eval $(foreach obj,$(SMW_C_SOURCES),$(call smw_obj_prereq_gen,$(obj))))
 
-# ------------------------------------------------------------------- GBA (gpSP)
-# ROM_BUFFER_SIZE=0    the cart is not buffered in RAM — XIP from QSPI flash.
-# OBJ_PER_LINE_MAX=32  gpSP default sizes for 128 sprites/line (153.6 KB BSS);
-#                      GBA hardware cannot fetch that many; 32 keeps games and
-#                      drops ~120 KB.
-# BUFFER_SIZE=4096     audio ring (gpSP default is 128 KB).
-# GBA_SOUND_FREQUENCY  matches the SAI rate — no resample.
-C_DEFS_GBA = \
--DROM_BUFFER_SIZE=0 \
--DOBJ_PER_LINE_MAX=32 \
--DBUFFER_SIZE=4096 \
--DGBA_SOUND_FREQUENCY=48000 \
--DGBA_M4A_HLE \
--DGBA_BIOS_HLE
-
-GBA_C_INCLUDES = $(C_INCLUDES) -Iexternal/gpsp -Iexternal/gpsp/libretro/libretro-common/include -Itools/gba_m4a -I./
-
-GBA_WARN_OFF = -Wno-parentheses -Wno-unknown-pragmas -Wno-strict-aliasing -Wno-comment \
-               -Wno-unused-function -Wno-stack-usage -Wno-unused-variable \
-               -Wno-unused-but-set-variable -Wno-sign-compare -Wno-format
-
-# gpSP filenames are generic (main.c, sound.c, input.c). Built by explicit rule
-# and kept OUT of vpath so they cannot shadow another core's same-named file.
-gba_is_hot = $(findstring gba_memory.c,$1)
-
-define gba_obj_prereq_gen
-$$(BUILD_DIR)/gba/$(patsubst %.c,%.o,$(notdir $1)): $1 Makefile.common Makefile $$(SDK_HEADERS) | $$(BUILD_DIR)/gba
-	$$(V)$$(ECHO) [ CC gba ] $$(notdir $$<)
-	$$(V)$$(CC) -c $(if $(call gba_is_hot,$1),$$(subst -O2,-O3,$$(CFLAGS)),$$(CFLAGS)) $$(C_DEFS_GBA) $$(GBA_C_INCLUDES) $$(GBA_WARN_OFF) $$< -o $$@
-	$$(V)$$(CP) --redefine-syms=gba_redefines $$@
-
-endef
-
-gba_is_interp = $(findstring cpu.cc,$1)
-
-define gba_cxx_obj_prereq_gen
-$$(BUILD_DIR)/gba/$(patsubst %.cc,%.o,$(notdir $1)): $1 Makefile.common Makefile $$(SDK_HEADERS) | $$(BUILD_DIR)/gba
-	$$(V)$$(ECHO) [ CXX gba ] $$(notdir $$<)
-	$$(V)$$(CXX) -c $(if $(call gba_is_interp,$1),$$(subst -O2,-O3,$$(CXXFLAGS)),$$(CXXFLAGS)) $$(C_DEFS_GBA) $$(GBA_C_INCLUDES) $$(GBA_WARN_OFF) -fno-rtti -fno-exceptions $$< -o $$@
-	$$(V)$$(CP) --redefine-syms=gba_redefines $$@
-
-endef
-
-define gba_asm_obj_prereq_gen
-$$(BUILD_DIR)/gba/$(patsubst %.S,%.o,$(notdir $1)): $1 Makefile.common Makefile | $$(BUILD_DIR)/gba
-	$$(V)$$(ECHO) [ AS gba ] $$(notdir $$<)
-	$$(V)$$(CC) -c $$(ASFLAGS) $$< -o $$@
-	$$(V)$$(CP) --redefine-syms=gba_redefines $$@
-
-endef
-
-# Separate from $(BUILD_DIR)'s mkdir list: GBA objects use an order-only dep on
-# this target, and a parallel -j build would race a plain `mkdir $@/gba` there.
-$(BUILD_DIR)/gba: | $(BUILD_DIR)
-	$(V)mkdir -p $@
-
-$(eval $(foreach obj,$(GBA_C_SOURCES),$(call gba_obj_prereq_gen,$(obj))))
-$(eval $(foreach obj,$(GBA_CXX_SOURCES),$(call gba_cxx_obj_prereq_gen,$(obj))))
-$(eval $(foreach obj,$(GBA_ASM_SOURCES),$(call gba_asm_obj_prereq_gen,$(obj))))
-
-
 external/smw/smw_assets.dat: roms/smw/smw.sfc | $(BUILD_DIR)
 	cp $< external/smw/assets/smw.sfc
 	$(MAKE) -C external/smw smw_assets.dat
@@ -1273,29 +1141,8 @@ external/smw/smw_assets.dat: roms/smw/smw.sfc | $(BUILD_DIR)
 $(BUILD_DIR):
 	$(V)mkdir $@
 	$(V)mkdir $@/core
-	$(V)mkdir $@/cores
 	$(V)mkdir $@/fatfs
 	$(V)mkdir $@/tamp
-	$(V)mkdir $@/nes
-	$(V)mkdir $@/nes_fceu
-	$(V)mkdir $@/tgbdual
-	$(V)mkdir $@/smsplusgx
-	$(V)mkdir $@/pce
-	$(V)mkdir $@/msx
-	$(V)mkdir $@/gw
-	$(V)mkdir $@/wsv
-	$(V)mkdir $@/md
-	$(V)mkdir $@/a2600
-	$(V)mkdir $@/lynx
-	$(V)mkdir $@/a7800
-	$(V)mkdir $@/amstrad
-	$(V)mkdir $@/zelda3
-	$(V)mkdir $@/smw
-	$(V)mkdir $@/videopac
-	$(V)mkdir $@/celeste
-	$(V)mkdir $@/pico8
-	$(V)mkdir $@/tama
-	$(V)mkdir $@/pkmini
 
 #######################################
 # Flashing
@@ -1387,11 +1234,10 @@ endif
 
 # Upload cores to sd card
 SD_FOLDER := sd_content
-CORES_DIR := $(SD_FOLDER)/cores
 FONTS_DIR := $(SD_FOLDER)/fonts
 UNICODE_FONT_SOURCE ?= assets/fonts/fusion-pixel-12px-monospaced-zh_hant.ttf
 # tools/gen_unicode_bin.py --script names → /fonts/unicode_<name>.bin (trimmed by active UI langs)
-UNICODE_FONT_SCRIPTS := greek math_operators geometric misc_symbols
+UNICODE_FONT_SCRIPTS := greek general_punct math_operators geometric misc_symbols
 ifneq ($(filter 1,$(ZH_CN) $(ZH_TW) $(JA_JP) $(KO_KR)),)
 # CJK Unified Ideographs (kanji / hanzi / hanja) + punctuation/fullwidth blocks
 UNICODE_FONT_SCRIPTS += cjk_punct fullwidth cjk
@@ -1449,71 +1295,25 @@ LANG_BIN_NAMES += ja_jp
 endif
 LANG_BINS := $(addprefix $(LANG_DIR)/, $(addsuffix .bin, $(LANG_BIN_NAMES)))
 
-MAPPERS_DIR := $(CORES_DIR)/mappers
-# Per-mapper blobs are build intermediates only: they get packed into a single
-# mappers.pak that ships on the SD / LittleFS, so sd_content/cores/mappers only
-# ever contains mappers.pak (+ ines_correct.bin).
-MAPPERS_BUILD_DIR := $(BUILD_DIR)/nes_mappers
+MAPPERS_DIR := $(CORES_DIR)/nes_fceumm_mappers
+# Drop-in NES FCEUmm mapper pack (built by the external NES core project).
+# SD / LittleFS ships mappers.pak (+ ines_correct.bin); individual
+# mapper_*.bin here are used only for LittleFS prune (--nes-mapper-bins-dir).
+MAPPERS_BUILD_DIR := cores/nes_fceumm_mappers
 MAPPERS_PACK := $(MAPPERS_DIR)/mappers.pak
-HOMEBREWS_FOLDER := $(SD_FOLDER)/roms/homebrew
+HOMEBREWS_FOLDER := $(SD_FOLDER)/homebrews
 RELEASE_FOLDER := release
 
-define EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER
-	@tmp_file="$2.tmp"; \
-	version_lo=$$(( $(INTERNAL_CORE_BIN_HEADER_VERSION) & 0xFF )); \
-	version_hi=$$(( ($(INTERNAL_CORE_BIN_HEADER_VERSION) >> 8) & 0xFF )); \
-	git_tag=$$(sed -n 's/^#define GIT_TAG "\(.*\)"/\1/p' Core/Inc/gittag.h); \
-	tag_len=$${#git_tag}; \
-	if [ $$tag_len -gt 255 ]; then echo "CORE: internal git tag too long ($$tag_len > 255)"; rm -f "$$tmp_file"; exit 1; fi; \
-	header_len=$$((1 + tag_len)); \
-	header_len_lo=$$(( header_len & 0xFF )); \
-	header_len_hi=$$(( (header_len >> 8) & 0xFF )); \
-	$(CP) -O binary --only-section=$1 $(BUILD_DIR)/$(TARGET).elf "$$tmp_file" && \
-	{ printf 'CORI'; \
-	  printf "\\x$$(printf '%02x' $$version_lo)\\x$$(printf '%02x' $$version_hi)\\x$$(printf '%02x' $$header_len_lo)\\x$$(printf '%02x' $$header_len_hi)"; \
-	  printf "\\x$$(printf '%02x' $$tag_len)"; \
-	  printf '%s' "$$git_tag"; \
-	  cat "$$tmp_file"; } > "$2" && \
-	rm -f "$$tmp_file"
-endef
-
-$(MAPPERS_BUILD_DIR)/mapper_%.bin: $(BUILD_DIR)/$(TARGET).elf | create_sd_folders
-	@$(CP) -O binary --only-section=.overlay_nes_fceu_$* $< $@
-
-MAPPER_BINS := $(addprefix $(MAPPERS_BUILD_DIR)/mapper_, $(addsuffix .bin, $(MAPPER_NAMES)))
-
-create_sd_folders:
+# | $(BUILD_DIR): order-only so parallel (-j) mkdir side-effects cannot
+# create build/ before the $(BUILD_DIR) rule's own recipe (see historical
+# note about MAPPERS_BUILD_DIR under build/).
+create_sd_folders: | $(BUILD_DIR)
 	$(V)mkdir -p $(SD_FOLDER)
-	$(V)mkdir -p $(CORES_DIR)
+	$(V)mkdir -p $(SD_FOLDER)/bios
+	$(V)mkdir -p $(HOMEBREWS_FOLDER)
 	$(V)mkdir -p $(FONTS_DIR)
 	$(V)mkdir -p $(LANG_DIR)
-	$(V)mkdir -p $(CORES_DIR)
-	$(V)mkdir -p $(MAPPERS_DIR)
-	$(V)mkdir -p $(MAPPERS_BUILD_DIR)
-	$(V)mkdir -p $(SD_FOLDER)/bios
-	$(V)mkdir -p $(SD_FOLDER)/bios/msx
-	$(V)mkdir -p $(SD_FOLDER)/bios/nes
-	$(V)mkdir -p $(SD_FOLDER)/bios/coleco
-	$(V)mkdir -p $(HOMEBREWS_FOLDER)
 	$(V)mkdir -p $(RELEASE_FOLDER)
-
-prepare_msx_bios_files: create_sd_folders
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2EXT.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2P.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2PEXT.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSX2PMUS.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/Nextor.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/MSXKANJI.rom" $(SD_FOLDER)/bios/msx/
-	@cp "external/blueMSX-go/system/bluemsx/Machines/Shared Roms/PANASONICDISK.rom" $(SD_FOLDER)/bios/msx/
-    # PANASONICDISK_.rom is a patched version of PANASONICDISK.rom to disable the 2nd FDD
-    # this is allowing to free some ram, which is needed for some games. It could be done by pressing
-    # ctrl key at boot using original bios, but using this patched version, the user will have nothing
-    # to do. Unfortunately this version can't be used in all cases because some games (from Micro Cabin)
-    # like Fray, XAK III, ... are expecting the 2nd FDD to be present.
-	@cp $(SD_FOLDER)/bios/msx/PANASONICDISK.rom $(SD_FOLDER)/bios/msx/PANASONICDISK_.rom
-	@printf '\x00' | dd of=$(SD_FOLDER)/bios/msx/PANASONICDISK_.rom bs=1 seek=6124 count=1 conv=notrunc status=none
 
 $(FONTS_DIR)/unicode_%.bin: $(UNICODE_FONT_SOURCE) tools/gen_unicode_bin.py | create_sd_folders
 	@echo "Generating $@ from $(UNICODE_FONT_SOURCE)"
@@ -1521,15 +1321,31 @@ $(FONTS_DIR)/unicode_%.bin: $(UNICODE_FONT_SOURCE) tools/gen_unicode_bin.py | cr
 
 # Per-language translation blob: rg_i18n_xx_xx.c (+ en_us fallback +
 # struct layout from rg_i18n_lang.h) → sd_content/lang/xx_xx.bin
+# Field order must match the firmware's compile-time lang_t, so pass the
+# same CHEAT_CODES / INTFLASH_BANK the C build uses (see gen_i18n_bin.py).
+#
+# The defines stamp lives under $(BUILD_DIR) and depends on it via
+# order-only — never `mkdir -p $(BUILD_DIR)` from $(shell ...), or Make
+# treats build/ as already up to date and skips creating build/core/
+# (breaks -fstack-usage *.su writes). See create_sd_folders comment.
+I18N_BIN_DEFINES_FILE := $(BUILD_DIR)/.i18n_bin_defines
+$(I18N_BIN_DEFINES_FILE): FORCE | $(BUILD_DIR)
+	@printf 'CHEAT_CODES=$(CHEAT_CODES)\nINTFLASH_BANK=$(INTFLASH_BANK)\n' > $@.tmp
+	@cmp -s $@ $@.tmp 2>/dev/null || mv $@.tmp $@
+	@rm -f $@.tmp
+
 $(LANG_DIR)/%.bin: Core/Src/retro-go/i18n/rg_i18n_%.c \
                    Core/Src/retro-go/i18n/rg_i18n_en_us.c \
                    Core/Inc/retro-go/rg_i18n_lang.h \
-                   tools/gen_i18n_bin.py | create_sd_folders
-	@echo "Generating $@"
+                   tools/gen_i18n_bin.py \
+                   $(I18N_BIN_DEFINES_FILE) | create_sd_folders
+	@echo "Generating $@ (CHEAT_CODES=$(CHEAT_CODES) INTFLASH_BANK=$(INTFLASH_BANK))"
 	@$(PYTHON3) tools/gen_i18n_bin.py \
 		--header Core/Inc/retro-go/rg_i18n_lang.h \
 		--en-us Core/Src/retro-go/i18n/rg_i18n_en_us.c \
 		--lang Core/Src/retro-go/i18n/rg_i18n_$*.c \
+		--define CHEAT_CODES=$(CHEAT_CODES) \
+		--define INTFLASH_BANK=$(INTFLASH_BANK) \
 		--output $@
 
 SD_CONTENT_STAMP := $(BUILD_DIR)/.sd_content.stamp
@@ -1539,52 +1355,16 @@ SD_CONTENT_STAMP := $(BUILD_DIR)/.sd_content.stamp
 # extractions and a handful of Python helpers even when the ELF hadn't
 # changed. The stamp file gates all of that work on the actual inputs:
 # the ELF, the per-mapper bins, and the Python scripts that generate
-# fixed tables. create_sd_folders and prepare_msx_bios_files stay
-# order-only — they're phony, so listing them as normal prereqs would
-# defeat the stamp.
+# fixed tables. create_sd_folders stay order-only — they're phony, so
+# listing them as normal prereqs would defeat the stamp.
 create_sd_data: $(SD_CONTENT_STAMP)
 .PHONY: create_sd_data
 
 $(SD_CONTENT_STAMP): $(BUILD_DIR)/$(TARGET).elf \
                      $(BUILD_DIR)/$(TARGET)_intflash.bin \
-                     $(MAPPER_BINS) \
-                     scripts/gen_mappers_pack.py \
-                     external/fceumm-go/gen_mappers_table.py \
-                     external/fceumm-go/gen_ines_database.py \
-                     tools/gen_fceu_palettes_table.py \
-                     external/stella2014-go/convert_defprops.py \
-                     external/blueMSX-go/create_compact_database_file.py \
                      Makefile.common Makefile \
                      $(if $(and $(filter 1,$(COVERFLOW)),$(filter 0,$(SD_CARD))),covers,) \
-                     | create_sd_folders prepare_msx_bios_files
-	@$(PYTHON3) scripts/gen_mappers_pack.py --bins-dir $(MAPPERS_BUILD_DIR) --output $(MAPPERS_PACK)
-	@$(PYTHON3) external/fceumm-go/gen_ines_database.py $(MAPPERS_DIR)/ines_correct.bin
-	@$(PYTHON3) tools/gen_fceu_palettes_table.py $(SD_FOLDER)/bios/nes/palettes.bin
-	@$(PYTHON3) external/stella2014-go/convert_defprops.py external/stella2014-go/stella/src/emucore/DefProps.hxx $(CORES_DIR)/a2600_defprops.bin
-	@$(PYTHON3) external/blueMSX-go/create_compact_database_file.py external/blueMSX-go/system/bluemsx/Databases/msxromdb.xml $(SD_FOLDER)/bios/msx/msxromdb.bin
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_nes_fceu,$(CORES_DIR)/nes_fceu.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_tgb,$(CORES_DIR)/tgb.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_sms,$(CORES_DIR)/sms.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_pce --only-section=.overlay_pce_itc,$(CORES_DIR)/pce.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_gba --only-section=.overlay_gba_itc,$(CORES_DIR)/gba.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_msx,$(CORES_DIR)/msx.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_wsv,$(CORES_DIR)/wsv.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_gw,$(CORES_DIR)/gw.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_md,$(CORES_DIR)/md.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_a2600,$(CORES_DIR)/a2600.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_lynx,$(CORES_DIR)/lynx.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_a7800,$(CORES_DIR)/a7800.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_amstrad,$(CORES_DIR)/amstrad.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_videopac,$(CORES_DIR)/videopac.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_tama,$(CORES_DIR)/tama.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_pkmini,$(CORES_DIR)/pkmini.bin)
-	$(call EXTRACT_INTERNAL_CORE_BIN_WITH_HEADER,.overlay_pico8,$(CORES_DIR)/pico8_stub.bin)
-	@$(CP) -O binary --only-section=.overlay_celeste $(BUILD_DIR)/$(TARGET).elf $(HOMEBREWS_FOLDER)/celeste.bin
-	@$(CP) -O binary --only-section=.overlay_zelda3 $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/Zelda 3.bin"
-	@$(CP) -O binary --only-section=.rodata_zelda3 $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/zelda3.ro"
-	@$(CP) -O binary --only-section=.overlay_smw $(BUILD_DIR)/$(TARGET).elf "$(HOMEBREWS_FOLDER)/Super Mario World.bin"
-	@$(CP) -O binary --only-section=.xip_gba --only-section=.rodata_gba $(BUILD_DIR)/$(TARGET).elf "$(CORES_DIR)/gba.xip"
-	@$(CP) -O binary --only-section=.coleco_bios_data $(BUILD_DIR)/$(TARGET).elf $(SD_FOLDER)/bios/coleco/coleco.bin
+                     | create_sd_folders
 	@$(CP) -O binary --only-section=.overlay_graphics $(BUILD_DIR)/$(TARGET).elf $(SD_FOLDER)/bios/logo.bin
 	@rm -f $(FONTS_DIR)/cp1251_*.bin $(FONTS_DIR)/cp1252_*.bin $(FONTS_DIR)/unicode_*.bin
 ifeq ($(RU_RU),1)
@@ -1657,34 +1437,7 @@ flash_sd: FORCE
 else
 flash_sd: CheckTools CheckDirtySubmodules $(BUILD_DIR)/$(TARGET)_intflash.bin create_sd_data
 	@$(GNWMANAGER) flash $(INTFLASH_ADDRESS) $(BUILD_DIR)/$(TARGET)_intflash.bin \
-		-- sdpush --file $(CORES_DIR)/nes_fceu.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/tgb.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/sms.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/pce.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/gba.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/msx.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/wsv.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/gw.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/md.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/a2600.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/a2600_defprops.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/lynx.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/a7800.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/amstrad.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/videopac.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/tama.bin --dest-path "/cores/" \
-		-- sdpush --file $(CORES_DIR)/pkmini.bin --dest-path "/cores/" \
 		-- sdpush --file $(SD_FOLDER)/bios/logo.bin --dest-path "/bios/" \
-		-- sdpush --file $(HOMEBREWS_FOLDER)/celeste.bin --dest-path "/roms/homebrew/" \
-		-- sdpush --file "$(HOMEBREWS_FOLDER)/Super Mario World.bin" --dest-path "/roms/homebrew/" \
-		-- sdpush --file "$(CORES_DIR)/gba.xip" --dest-path "/cores/" \
-		-- sdpush --file "$(HOMEBREWS_FOLDER)/Zelda 3.bin" --dest-path "/roms/homebrew/" \
-		-- sdpush --file "$(HOMEBREWS_FOLDER)/zelda3.ro" --dest-path "/roms/homebrew/" \
-		-- sdpush --file $(MAPPERS_PACK) --dest-path "/cores/mappers/" \
-		-- sdpush --file $(MAPPERS_DIR)/ines_correct.bin --dest-path "/cores/mappers/" \
-		-- sdpush --file $(SD_FOLDER)/bios/nes/palettes.bin --dest-path "/bios/nes/" \
-		-- sdpush --file $(SD_FOLDER)/bios/coleco/coleco.bin --dest-path "/bios/coleco/" \
-		-- sdpush --file $(SD_FOLDER)/bios/msx/msxromdb.bin --dest-path "/bios/msx/" \
 		-- start $(INTFLASH_ADDRESS) \
 		$(RESET_DBGMCU_CMD)
 endif
@@ -2013,6 +1766,7 @@ help:
 	@echo "  SD_CARD             - Use SD Card reader (default=0)"
 	@echo "                        set to 1 for auto detect between SD Card reader on spi1 (Design by Tim"
 	@echo "                        Schuerewegen) or on ospi1 (Design by *yota9* Vladislav Khmelevsky)"
+	@echo "  SD_SPI_CHECK_DATA_CRC - Set to 1 to enable SD data CRC-16 (CMD59) (default=0)"
 	@echo "  FILESYSTEM_SIZE     - Sets the littleFS partition flash size in bytes. Defaults to 10% of flash."
 	@echo "  FILESYSTEM_OFFSET   - Places the littleFS partition at a specified offset in the external flash. "
 	@echo "                        Defaults to placing the partition at the end of flash."
@@ -2068,6 +1822,7 @@ help:
 	@echo "  ENABLE_SCREENSHOT=$(ENABLE_SCREENSHOT)"
 	@echo "  GNW_TARGET=$(GNW_TARGET)"
 	@echo "  CHEAT_CODES=$(CHEAT_CODES)"
+	@echo "  SD_SPI_CHECK_DATA_CRC=$(SD_SPI_CHECK_DATA_CRC)"
 	@echo "  MSX_USE_BANK_2=$(MSX_USE_BANK_2)"
 	@echo "  GCC_PATH=$(GCC_PATH)"
 	@echo "  PREFIX=$(PREFIX)"
@@ -2140,9 +1895,6 @@ clean:
 	$(V)-rm -fR $(BUILD_DIR)
 	$(V)-rm -fR $(SD_FOLDER)
 	$(V)-rm -fR $(RELEASE_FOLDER)
-	$(V)$(MAKE) -C external/zelda3 clean
-	$(V)$(MAKE) -C external/smw clean
-	$(V)@$(MAKE) -C external/firmware_update clean
 
 distclean: clean
 	$(V)$(ECHO) [ RM ] $(SDK_DIR)

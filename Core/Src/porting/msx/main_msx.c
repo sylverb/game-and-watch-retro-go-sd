@@ -1,25 +1,23 @@
+/* This core is built standalone (see cores/msx/) and talks to the
+ * firmware only through gw_firmware_abi_t — see Core/Src/porting/
+ * core_common/. gw_core_bridge.h must come after the normal firmware
+ * headers below so their `extern` declarations of common_emu_state/
+ * ACTIVE_FILE/ram_start are parsed first. */
 #include <odroid_system.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <unistd.h>
-#include <time.h>
-
+#include <assert.h>
 
 #include "main.h"
 #include "appid.h"
-
-#include "stm32h7xx_hal.h"
-
 #include "common.h"
 #include "rom_manager.h"
 #include "odroid_overlay.h"
 #include "gw_lcd.h"
 #include "gw_ofw.h"
-#include "rg_i18n.h"
-
-#include <assert.h>
+#include "gw_malloc.h"
 #ifndef GNW_DISABLE_COMPRESSION
 #include "lzma.h"
 #endif
@@ -50,10 +48,18 @@
 #include "R800.h"
 #include "VDP_MSX.h"
 #include "save_msx.h"
-#include "gw_malloc.h"
-#include "gw_linker.h"
 #include "main_msx.h"
 #include "msx_database.h"
+
+#include "gw_core_bridge.h"
+#include "msx_i18n.h"
+
+/* Unpack window = free RAM after this core's BSS (same role as the old
+ * overlay's _MSX_ROM_UNPACK_BUFFER). Kept for the #ifndef
+ * GNW_DISABLE_COMPRESSION paths even though SD builds define that. */
+extern uint32_t __RAM_EMU_END__;
+#define MSX_ROM_UNPACK_BUF   ((uint8_t *)&__CORE_BSS_END__)
+#define MSX_ROM_UNPACK_SIZE  (((uint32_t)&__RAM_EMU_END__) - ((uint32_t)&__CORE_BSS_END__))
 
 extern BoardInfo boardInfo;
 static Properties* properties;
@@ -99,13 +105,13 @@ static char current_disk_path[PROP_MAXPATH] = {0};
 
 static int selected_key_index = 0;
 
-/* strings for options */
+/* strings for options (sized for UTF-8 i18n values) */
 static char disk_name[128];
-static char msx_name[11];
+static char msx_name[24];
 static char key_name[10];
-static char frequency_name[10];
-static char a_button_name[10];
-static char b_button_name[10];
+static char frequency_name[16];
+static char a_button_name[16];
+static char b_button_name[16];
 
 /* Volume management */
 static int8_t currentVolume = -1;
@@ -289,6 +295,14 @@ void videoUpdateAll(Video* video, Properties* properties){}
 
 /* framebuffer */
 
+/* Skip-frame render skip (same idea as PCE s_skip_render): when the pacer
+ * decides this frame won't be shown, frameBufferGetDrawFrame() returns NULL
+ * so VDP_MSX early-outs before RefreshLine. That drops palette + YJK/RGB
+ * pixel work and — critically — stops modes 10/11/12 writing into the LCD
+ * back buffer. Combined with skipping lcd_swap() on undrawn frames, this
+ * prevents the double-buffer flicker of flipping to a stale/partial buffer. */
+static bool s_skip_render;
+
 static void update_fb_info() {
     width  = use_overscan ? 272 : (272 - 16);
     height = use_overscan ? 240 : (240 - 48 + (msx2_dif * 2));
@@ -306,12 +320,12 @@ Pixel16* frameBufferGetLine16(FrameBuffer* frameBuffer, int y)
 
 FrameBuffer* frameBufferGetDrawFrame(void)
 {
-   return (void*)msx_framebuffer;
+   return s_skip_render ? NULL : (void*)msx_framebuffer;
 }
 
 FrameBuffer* frameBufferFlipDrawFrame(void)
 {
-   return (void*)msx_framebuffer;
+   return s_skip_render ? NULL : (void*)msx_framebuffer;
 }
 
 static int fbScanLine = 0;
@@ -509,13 +523,13 @@ static bool update_frequency_cb(odroid_dialog_choice_t *option, odroid_dialog_ev
 
     switch (selected_frequency_index) {
         case FREQUENCY_VDP_AUTO:
-            strcpy(option->value, curr_lang->s_msx_Freq_Auto);
+            strcpy(option->value, gw_i18n(msx_i18n_freq_auto));
             break;
         case FREQUENCY_VDP_50HZ: // Force 50Hz
-            strcpy(option->value, curr_lang->s_msx_Freq_50);
+            strcpy(option->value, gw_i18n(msx_i18n_freq_50));
             break;
         case FREQUENCY_VDP_60HZ: // Force 60Hz
-            strcpy(option->value, curr_lang->s_msx_Freq_60);
+            strcpy(option->value, gw_i18n(msx_i18n_freq_60));
             break;
     }
 
@@ -558,22 +572,21 @@ static bool update_msx_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t 
     switch (selected_msx_index) {
         case 0: // MSX1;
             msx2_dif = 0;
-            strcpy(option->value, curr_lang->s_msx_MSX1_EUR);
+            strcpy(option->value, gw_i18n(msx_i18n_msx1_eur));
             break;
         case 1: // MSX2;
             msx2_dif = 10;
-            strcpy(option->value, curr_lang->s_msx_MSX2_EUR);
+            strcpy(option->value, gw_i18n(msx_i18n_msx2_eur));
             break;
         case 2: // MSX2+;
             msx2_dif = 10;
-            strcpy(option->value, curr_lang->s_msx_MSX2_JP);
+            strcpy(option->value, gw_i18n(msx_i18n_msx2_jp));
             break;
     }
 
     if (event == ODROID_DIALOG_ENTER) {
         boardInfo.destroy();
         boardDestroy();
-        ahb_init();
         itc_init();
         setupEmulatorRessources(selected_msx_index);
     }
@@ -839,38 +852,38 @@ static void createOptionMenu(odroid_dialog_choice_t *options) {
     int index=0;
     if (msx_game_type == MSX_GAME_DISK) {
         options[index].id = 100;
-        options[index].label = curr_lang->s_msx_Change_Dsk;
+        options[index].label = gw_i18n(msx_i18n_change_dsk);
         options[index].value = disk_name;
         options[index].enabled = 1;
         options[index].update_cb = &update_disk_cb;
         index++;
     }
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_Select_MSX;
+    options[index].label = gw_i18n(msx_i18n_select_msx);
     options[index].value = msx_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_msx_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_Frequency;
+    options[index].label = gw_i18n(msx_i18n_frequency);
     options[index].value = frequency_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_frequency_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_A_Button;
+    options[index].label = gw_i18n(msx_i18n_a_button);
     options[index].value = a_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_a_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_B_Button;
+    options[index].label = gw_i18n(msx_i18n_b_button);
     options[index].value = b_button_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_b_button_cb;
     index++;
     options[index].id = 100;
-    options[index].label = curr_lang->s_msx_Press_Key;
+    options[index].label = gw_i18n(msx_i18n_press_key);
     options[index].value = key_name;
     options[index].enabled = 1;
     options[index].update_cb = &update_keyboard_cb;
@@ -1742,7 +1755,7 @@ static void insertGame() {
             if (mapper == ROM_UNKNOWN) {
 #ifndef GNW_DISABLE_COMPRESSION
                 if(strcmp(ACTIVE_FILE->ext, "lzma") == 0) {
-                    mapper = GuessROM((unsigned char *)&_MSX_ROM_UNPACK_BUFFER,msx_rom_decompress_size);
+                    mapper = GuessROM(MSX_ROM_UNPACK_BUF, msx_rom_decompress_size);
                 }
                 else
 #endif
@@ -1820,8 +1833,26 @@ static void insertGame() {
                     break;
             }
             if (!controls_found) {
-                // If game name contains konami, we setup a Konami key mapping
-                if (strcasestr(ACTIVE_FILE->name,"konami")) {
+                /* Case-insensitive "konami" substring (strcasestr is GNU-only). */
+                const char *n = ACTIVE_FILE->name;
+                int found = 0;
+                for (; n && *n; n++) {
+                    const char *a = n;
+                    const char *b = "konami";
+                    while (*a && *b) {
+                        char ca = *a;
+                        char cb = *b;
+                        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca - 'A' + 'a');
+                        if (ca != cb) break;
+                        a++;
+                        b++;
+                    }
+                    if (*b == '\0') {
+                        found = 1;
+                        break;
+                    }
+                }
+                if (found) {
                     msx_button_a_key = EC_SPACE;
                     msx_button_b_key = EC_N;
                     msx_button_game_key = EC_F4;
@@ -1878,12 +1909,16 @@ static void createProperties() {
 static void setupEmulatorRessources(int msxType)
 {
     int i;
+    wdog_refresh();
     msxYjkColorInit();
+    wdog_refresh();
     mixer = mixerCreate();
     createProperties();
     createMsxMachine(msxType);
+    wdog_refresh();
     emulatorInit(properties, mixer);
     insertGame();
+    wdog_refresh();
     emulatorRestartSound();
 
     for (i = 0; i < MIXER_CHANNEL_TYPE_COUNT; i++)
@@ -1903,6 +1938,7 @@ static void setupEmulatorRessources(int msxType)
     boardSetVideoAutodetect(1/*properties->video.detectActiveMonitor*/);
 
     emulatorStartMachine(NULL, msxMachine);
+    wdog_refresh();
     // Enable SCC and disable MSX-MUSIC as G&W is not powerfull enough to handle both at same time
     // If a game wants to play MSX-MUSIC sound, the mapper will detect it and it will disable SCC
     // and enable MSX-MUSIC
@@ -2019,8 +2055,8 @@ size_t msx_getromdata(uint8_t **data, uint8_t *src_data, size_t src_size, const 
 {
     /* src pointer to the ROM data in the external flash (raw or LZ4) */
 #ifndef GNW_DISABLE_COMPRESSION
-    unsigned char *dest = (unsigned char *)&_MSX_ROM_UNPACK_BUFFER;
-    uint32_t available_size = (uint32_t)&_MSX_ROM_UNPACK_BUFFER_SIZE;
+    unsigned char *dest = MSX_ROM_UNPACK_BUF;
+    uint32_t available_size = MSX_ROM_UNPACK_SIZE;
     wdog_refresh();
     if(strcmp(ext, "lzma") == 0){
         size_t n_decomp_bytes;
@@ -2064,7 +2100,7 @@ void app_main_msx(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
     }
     common_emu_state.frame_time_10us = (uint16_t)(100000 / msx_fps + 0.5f);
 
-    odroid_system_init(APPID_MSX, AUDIO_MSX_SAMPLE_RATE);
+    odroid_system_init(APPID_CORE, AUDIO_MSX_SAMPLE_RATE);
 #if CHEAT_CODES == 1
     odroid_system_emu_init(&msx_system_LoadState, &msx_system_SaveState, &msx_screenshot, NULL, &msx_sleep_wake_up, &msx_sram_save_cb, &update_cheats_msx);
 #else
@@ -2153,22 +2189,21 @@ void app_main_msx(uint8_t load_state, uint8_t start_paused, int8_t save_slot)
 
         msxInputUpdate(&joystick);
 
-        // Render 1 frame
+        // Render 1 frame (VDP RefreshLine skipped when s_skip_render)
+        s_skip_render = !drawFrame;
         ((R800*)boardInfo.cpuRef)->terminate = 0;
         boardInfo.run(boardInfo.cpuRef);
+        s_skip_render = false;
 
-        /* Modes 10/11/12 render RGB565 straight into the LCD back buffer
-         * (frameBufferGetLine16). Gwenesis always lcd_swap() even when skipping
-         * line render; MSX must do the same or the panel stays on a stale front
-         * buffer while emulation keeps updating the back buffer. */
-        if (drawFrame)
+        /* Only present a fully rendered frame. Swapping on a skip left the
+         * other LCD buffer on screen (stale / partial modes 10–12) → flicker. */
+        if (drawFrame) {
             _blit_frame();
-        /* Overlay after emulation: run() overwrites any HUD drawn in input_loop,
-         * and _blit_frame() is skipped on frameskip — still show volume/brightness. */
-        if (common_emu_state.overlay != INGAME_OVERLAY_NONE)
-            common_ingame_overlay();
-        draw_disk_icon();
-        lcd_swap();
+            if (common_emu_state.overlay != INGAME_OVERLAY_NONE)
+                common_ingame_overlay();
+            draw_disk_icon();
+            lcd_swap();
+        }
 
         // Render audio
         mixerSyncGNW(mixer,(AUDIO_MSX_SAMPLE_RATE/msx_fps));

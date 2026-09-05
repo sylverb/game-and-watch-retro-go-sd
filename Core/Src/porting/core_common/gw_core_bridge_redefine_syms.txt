@@ -1,0 +1,263 @@
+# core_common symbol renaming (objcopy --redefine-syms), shared by every
+# standalone core built from cores/_template/. Applied to every object file
+# that makes up a core EXCEPT gw_core_bridge.o itself (which defines the
+# core_<name> targets below) — see cores/_template/Makefile.
+#
+# Format: OLD_NAME NEW_NAME (one per line). NOTE: objcopy's parser does not
+# tolerate blank lines in this file (fails with "missing new symbol name"),
+# only '#' comment lines and NAME NEW_NAME lines — keep it that way.
+#
+# Add a line here + a trampoline in gw_core_bridge.c whenever a core's link
+# fails with "undefined reference to <libc/firmware function>". See
+# Core/Src/porting/core_common/gw_core_bridge.c header comment for what is
+# intentionally NOT covered yet (setjmp/longjmp, __aeabi_ldivmod/uldivmod).
+# --- libc: string.h ---
+# NOTE: memcpy/memmove/memset are intentionally NOT here — gw_core_bridge.c
+# defines real, local implementations of those (and the whole __aeabi_mem*
+# family below) instead of routing them through the ABI, because they are
+# by far the hottest calls a classic core makes (scanline blits, CD sector
+# reads, audio buffer fills, ...) and the extra ABI indirection was
+# measurably causing frameskip/audio glitches (see gw_core_bridge.c). Only
+# rename memcpy/memmove/memset here if you deliberately want to go back to
+# routing them through the firmware instead.
+memchr core_memchr
+memcmp core_memcmp
+strchr core_strchr
+strcmp core_strcmp
+strlen core_strlen
+strncmp core_strncmp
+strncpy core_strncpy
+strrchr core_strrchr
+strstr core_strstr
+strcpy core_strcpy
+strcat core_strcat
+strtol core_strtol
+strtod core_strtod
+# --- libc: ctype.h ---
+isalnum core_isalnum
+isalpha core_isalpha
+isspace core_isspace
+isupper core_isupper
+islower core_islower
+isxdigit core_isxdigit
+tolower core_tolower
+toupper core_toupper
+# --- libc: stdlib.h ---
+abort core_abort
+qsort core_qsort
+pow core_pow
+malloc core_malloc
+free core_free
+realloc core_realloc
+rand core_rand
+# --- libc: stdio.h ---
+fopen core_fopen
+fclose core_fclose
+fread core_fread
+fwrite core_fwrite
+fseek core_fseek
+ftell core_ftell
+feof core_feof
+ferror core_ferror
+fgetc core_fgetc
+fgets core_fgets
+remove core_remove
+puts core_puts
+printf core_printf
+fprintf core_fprintf
+vprintf core_vprintf
+vfprintf core_vfprintf
+sprintf core_sprintf
+vsprintf core_vsprintf
+snprintf core_snprintf
+vsnprintf core_vsnprintf
+exit core_exit
+# --- libc: assert.h ---
+__assert_func core_assert_func
+# --- libc: setjmp.h (naked asm trampolines, see gw_core_bridge.c) ---
+setjmp core_setjmp
+longjmp core_longjmp
+# --- FatFs (ff.h) ---
+f_opendir core_f_opendir
+f_closedir core_f_closedir
+f_readdir core_f_readdir
+# --- G&W hardware: LCD ---
+lcd_swap core_lcd_swap
+lcd_get_active_buffer core_lcd_get_active_buffer
+lcd_get_inactive_buffer core_lcd_get_inactive_buffer
+lcd_clear_active_buffer core_lcd_clear_active_buffer
+lcd_clear_inactive_buffer core_lcd_clear_inactive_buffer
+lcd_wait_for_vblank core_lcd_wait_for_vblank
+lcd_set_refresh_rate core_lcd_set_refresh_rate
+lcd_clear_buffers core_lcd_clear_buffers
+lcd_sync core_lcd_sync
+lcd_clone core_lcd_clone
+lcd_sleep_while_swap_pending core_lcd_sleep_while_swap_pending
+lcd_setup_framebuffers core_lcd_setup_framebuffers
+lcd_get_bonus_pool core_lcd_get_bonus_pool
+lcd_set_clut core_lcd_set_clut
+# --- G&W hardware: audio ---
+audio_start_playing core_audio_start_playing
+audio_get_active_buffer core_audio_get_active_buffer
+audio_clear_active_buffer core_audio_clear_active_buffer
+audio_clear_inactive_buffer core_audio_clear_inactive_buffer
+audio_get_buffer_length core_audio_get_buffer_length
+# --- G&W hardware: allocators ---
+itc_malloc core_itc_malloc
+itc_calloc core_itc_calloc
+itc_init core_itc_init
+itc_get_free_size core_itc_get_free_size
+ram_malloc core_ram_malloc
+ram_calloc core_ram_calloc
+ram_get_free_size core_ram_get_free_size
+dtc_malloc core_dtc_malloc
+dtc_calloc core_dtc_calloc
+dtc_init core_dtc_init
+dtc_get_free_size core_dtc_get_free_size
+# --- G&W hardware: RTC ---
+# NOTE: per-field RTC getters and GW_GetUnixTM/mktime were dropped from
+# the firmware table. Cores read "now" via time()+localtime() only.
+time core_time
+GW_GetCurrentMillis core_GW_GetCurrentMillis
+GW_GetCurrentSubSeconds core_GW_GetCurrentSubSeconds
+# --- G&W hardware: watchdog + HAL ---
+wdog_refresh core_wdog_refresh
+HAL_Delay core_HAL_Delay
+HAL_GetTick core_HAL_GetTick
+# --- retro-go: system ---
+odroid_system_init core_odroid_system_init
+odroid_system_emu_init core_odroid_system_emu_init
+odroid_system_emu_load_state core_odroid_system_emu_load_state
+odroid_system_get_app core_odroid_system_get_app
+dma2d_m2m_rgb565_start core_dma2d_m2m_rgb565_start
+dma2d_m2m_rgb565_start_ex core_dma2d_m2m_rgb565_start_ex
+dma2d_r2m_rgb565_start core_dma2d_r2m_rgb565_start
+dma2d_poll core_dma2d_poll
+odroid_audio_mute core_odroid_audio_mute
+# --- retro-go: input / display ---
+odroid_input_read_gamepad core_odroid_input_read_gamepad
+odroid_display_get_scaling_mode core_odroid_display_get_scaling_mode
+odroid_display_set_scaling_mode core_odroid_display_set_scaling_mode
+odroid_display_get_filter_mode core_odroid_display_get_filter_mode
+# --- retro-go: overlay / SD / settings ---
+odroid_overlay_draw_text core_odroid_overlay_draw_text
+odroid_overlay_cache_file_in_flash core_odroid_overlay_cache_file_in_flash
+odroid_overlay_cache_file_in_ram core_odroid_overlay_cache_file_in_ram
+odroid_sdcard_mkdir core_odroid_sdcard_mkdir
+odroid_settings_app_int32_get core_odroid_settings_app_int32_get
+odroid_settings_app_int32_set core_odroid_settings_app_int32_set
+# --- retro-go: common emulator loop ---
+common_emu_frame_loop core_common_emu_frame_loop
+common_emu_input_loop core_common_emu_input_loop
+common_emu_input_loop_handle_turbo core_common_emu_input_loop_handle_turbo
+common_emu_sound_get_volume core_common_emu_sound_get_volume
+common_emu_sound_loop_is_muted core_common_emu_sound_loop_is_muted
+common_emu_sound_sync core_common_emu_sound_sync
+common_ingame_overlay core_common_ingame_overlay
+common_emu_enable_dwt_cycles core_common_emu_enable_dwt_cycles
+common_emu_get_dwt_cycles core_common_emu_get_dwt_cycles
+common_emu_clear_dwt_cycles core_common_emu_clear_dwt_cycles
+# --- v1 append: Mega Drive / gwenesis porting surface ---
+ahb_malloc core_ahb_malloc
+ahb_calloc core_ahb_calloc
+ahb_get_free_size core_ahb_get_free_size
+odroid_audio_init core_odroid_audio_init
+odroid_audio_sample_rate_get core_odroid_audio_sample_rate_get
+audio_start_playing_full_length core_audio_start_playing_full_length
+audio_get_buffer_full_length core_audio_get_buffer_full_length
+odroid_settings_cpu_oc_level_get core_odroid_settings_cpu_oc_level_get
+SystemClock_Config core_SystemClock_Config
+get_ofw_is_mario core_get_ofw_is_mario
+odroid_system_get_path core_odroid_system_get_path
+lcd_get_pixel_position core_lcd_get_pixel_position
+# --- v2 append: PC Engine / PC Engine CD porting surface ---
+crc32_le core_crc32_le
+cpumon_sleep core_cpumon_sleep
+strncat core_strncat
+sscanf core_sscanf
+odroid_settings_ActiveGameGenieCodes_is_enabled core_odroid_settings_ActiveGameGenieCodes_is_enabled
+# --- v2 append: TGB Dual (Game Boy / Game Boy Color, C++) porting surface ---
+# NOTE: strtok is intentionally NOT here — gw_core_bridge.c defines a real
+# local implementation (static per-core state), same reasoning as
+# memcpy/memset/memmove above. NOTE: GW_GetUnixTM/mktime were dropped —
+# use time()+localtime() (see "time core_time" above).
+odroid_settings_Palette_get core_odroid_settings_Palette_get
+odroid_settings_Palette_set core_odroid_settings_Palette_set
+# --- Lynx (handy-go): fputs via fwrite/strlen; calloc via AHB (freeable) ---
+fputs core_fputs
+calloc core_calloc
+# --- Atari 2600 (Stella): atoi/strcasecmp composed from strtol/tolower ---
+atoi core_atoi
+strcasecmp core_strcasecmp
+strncasecmp core_strncasecmp
+# --- libstdc++ support (cores/a2600): helpers also exported un-renamed ---
+fputc core_fputc
+rewind core_rewind
+getenv core_getenv
+strtoul core_strtoul
+# --- FCEUmm (NES): mappers.pak ranged SD→RAM copy ---
+rg_storage_copy_file_range_to_ram core_rg_storage_copy_file_range_to_ram
+# --- MSX (external core) ---
+ram_init core_ram_init
+odroid_audio_volume_get core_odroid_audio_volume_get
+calculate_sha1_file core_calculate_sha1_file
+calculate_sha1_file_limit core_calculate_sha1_file_limit
+calculate_sha1_hw core_calculate_sha1_hw
+audio_clear_buffers core_audio_clear_buffers
+audio_get_buffer_size core_audio_get_buffer_size
+localtime core_localtime
+gettimeofday core_gettimeofday
+rg_storage_stat core_rg_storage_stat
+rg_storage_exists core_rg_storage_exists
+rg_storage_get_adjacent_files core_rg_storage_get_adjacent_files
+rg_basename core_rg_basename
+audio_stop_playing core_audio_stop_playing
+# --- LCD-Game-Emulator (Game & Watch) ---
+GW_SetUnixTM core_GW_SetUnixTM
+lcd_is_swap_pending core_lcd_is_swap_pending
+JPEG_DecodeToFrameInit core_JPEG_DecodeToFrameInit
+JPEG_DecodeToFrame core_JPEG_DecodeToFrame
+JPEG_DecodeGetSize core_JPEG_DecodeGetSize
+JPEG_DecodeDeInit core_JPEG_DecodeDeInit
+lzma_inflate core_lzma_inflate
+lz4_uncompress core_lz4_uncompress
+lz4_get_file_size core_lz4_get_file_size
+odroid_system_switch_app core_odroid_system_switch_app
+# --- Tamagotchi P1 ---
+common_emu_frame_loop_reset core_common_emu_frame_loop_reset
+# --- GBA (gpSP) ---
+get_SystemCoreClock core_get_SystemCoreClock
+odroid_overlay_cache_file_in_flash_relocate core_odroid_overlay_cache_file_in_flash_relocate
+lcd_backlight_set core_lcd_backlight_set
+# --- Battery (BQ24072 via odroid_input) ---
+odroid_input_read_battery core_odroid_input_read_battery
+# --- Music / media homebrew (PCM ISR + UI chrome) ---
+pcm_attach core_pcm_attach
+pcm_audio_enable core_pcm_audio_enable
+pcm_audio_set core_pcm_audio_set
+pcm_audio_setpos core_pcm_audio_setpos
+pcm_audio_pos core_pcm_audio_pos
+odroid_audio_volume_set core_odroid_audio_volume_set
+lcd_backlight_get core_lcd_backlight_get
+lcd_backlight_on core_lcd_backlight_on
+lcd_backlight_off core_lcd_backlight_off
+i18n_get_text_width core_i18n_get_text_width
+i18n_draw_text_line core_i18n_draw_text_line
+odroid_overlay_dialog core_odroid_overlay_dialog
+odroid_overlay_draw_logo core_odroid_overlay_draw_logo
+odroid_overlay_draw_battery core_odroid_overlay_draw_battery
+odroid_overlay_clock core_odroid_overlay_clock
+sd_io_set_poll core_sd_io_set_poll
+odroid_display_get_backlight core_odroid_display_get_backlight
+odroid_display_set_backlight core_odroid_display_set_backlight
+cosf core_cosf
+sqrtf core_sqrtf
+log10 core_log10
+rg_storage_scandir core_rg_storage_scandir
+rg_storage_delete core_rg_storage_delete
+get_darken_pixel_d core_get_darken_pixel_d
+i18n_get_text_height core_i18n_get_text_height
+odroid_overlay_get_font_size core_odroid_overlay_get_font_size
+odroid_overlay_get_font_width core_odroid_overlay_get_font_width
+odroid_overlay_draw_fill_rect core_odroid_overlay_draw_fill_rect
+imlib_draw_image core_imlib_draw_image

@@ -18,6 +18,10 @@ extern uint8_t _stack_redzone;
 extern uint8_t _heap_start;
 extern uint8_t _heap_end;
 
+/* DTCM free region for dtc_malloc bump (below stack). */
+extern uint8_t __dtc_padding_start__;
+extern uint8_t __dtc_padding_end__;
+
 
 extern uint32_t _siramdata;
 extern uint32_t __ram_exec_start__;
@@ -31,17 +35,20 @@ extern uint32_t __itcram_hot_end__;
 // If this is not an array the compiler might put in a memory_chk with dest_size 1...
 extern void * __RAM_EMU_START__[];
 extern uint32_t __RAM_EMU_END__;
-extern void * _OVERLAY_NES_LOAD_START[];
-extern uint8_t _OVERLAY_NES_SIZE;
-extern void * _OVERLAY_NES_BSS_START[];
-extern uint8_t _OVERLAY_NES_BSS_SIZE;
+
+/* From ld/gnw_itcm_core.ld / ld/gnw_ram_uc_core.ld — fixed base+length a
+ * dynamic core's non-RAM_EMU segments (see gnw_core_region_t) may target.
+ * Plain linker-script constants, not section symbols: read as
+ * (uint32_t)&__ITCM_CORE_START__ etc., same convention as __RAM_EMU_START__.
+ * AHB/DTCM are firmware heaps (ahb_malloc / dtc_*), not load regions. */
+extern void * __ITCM_CORE_START__[];
+extern uint32_t __ITCM_CORE_LENGTH__;
+extern void * __RAM_UC_CORE_START__[];
+extern uint32_t __RAM_UC_CORE_LENGTH__;
+/* 48K mapper window reserved at the front of RAM_EMU for the external
+ * NES FCEUmm core (/cores/nes_fceu.bin + nes_fceumm_mappers/). */
 extern uint8_t __RAM_FCEUMM_MAPPER_LENGTH__;
 extern void * __RAM_FCEUMM_START__[];
-extern void * _OVERLAY_NES_FCEU_LOAD_START[];
-extern uint8_t _OVERLAY_NES_FCEU_SIZE;
-extern void * _OVERLAY_NES_FCEU_BSS_START[];
-extern void * _OVERLAY_NES_FCEU_BSS_END[];
-extern uint8_t _OVERLAY_NES_FCEU_BSS_SIZE;
 extern void * _OVERLAY_GB_LOAD_START[];
 extern uint8_t _OVERLAY_GB_SIZE;
 extern void * _OVERLAY_GB_BSS_START[];
@@ -52,16 +59,6 @@ extern uint8_t _OVERLAY_TGB_SIZE;
 extern void * _OVERLAY_TGB_BSS_START[];
 extern void * _OVERLAY_TGB_BSS_END[];
 extern uint8_t _OVERLAY_TGB_BSS_SIZE;
-extern void * _OVERLAY_SMS_LOAD_START[];
-extern uint8_t _OVERLAY_SMS_SIZE;
-extern void * _OVERLAY_SMS_BSS_START[];
-extern void * _OVERLAY_SMS_BSS_END[];
-extern uint8_t _OVERLAY_SMS_BSS_SIZE;
-extern void * _OVERLAY_PCE_LOAD_START[];
-extern uint8_t _OVERLAY_PCE_SIZE;
-extern void * _OVERLAY_PCE_BSS_START[];
-extern void * _OVERLAY_PCE_BSS_END[];
-extern uint8_t _OVERLAY_PCE_BSS_SIZE;
 extern void * _OVERLAY_GW_LOAD_START[];
 extern uint8_t _OVERLAY_GW_SIZE;
 extern void * _OVERLAY_GW_BSS_START[];
@@ -77,11 +74,6 @@ extern uint8_t _OVERLAY_WSV_SIZE;
 extern void * _OVERLAY_WSV_BSS_START[];
 extern void * _OVERLAY_WSV_BSS_END[];
 extern uint8_t _OVERLAY_WSV_BSS_SIZE;
-extern void * _OVERLAY_MD_LOAD_START[];
-extern uint8_t _OVERLAY_MD_SIZE;
-extern void * _OVERLAY_MD_BSS_START[];
-extern void * _OVERLAY_MD_BSS_END[];
-extern uint8_t _OVERLAY_MD_BSS_SIZE;
 extern void * _OVERLAY_A7800_LOAD_START[];
 extern uint8_t _OVERLAY_A7800_SIZE;
 extern void * _OVERLAY_A7800_BSS_START[];
@@ -103,17 +95,6 @@ extern uint8_t _OVERLAY_SMW_SIZE;
 extern void * _OVERLAY_SMW_BSS_START[];
 extern void * _OVERLAY_SMW_BSS_END[];
 extern uint8_t _OVERLAY_SMW_BSS_SIZE;
-extern uint8_t _OVERLAY_GBA_SIZE;
-extern void * _OVERLAY_GBA_BSS_START[];
-extern uint8_t _OVERLAY_GBA_BSS_SIZE;
-/* End of main_gba.o inside .overlay_gba: where the XIP sentinel pass starts, so
- * that it does not walk over the constant it is built on (see main_gba.c). */
-extern void * _GBA_MAIN_CODE_END[];
-/* AHB-resident gpSP BSS (bios_rom / cheats / sound_buffer), outside
- * the overlay pool. They are .bss but they are NOT inside .overlay_gba_bss, so
- * run_internal_emu()'s memset never reaches them — main_gba.c zeroes this range. */
-extern uint8_t __gba_ahb_start__[];
-extern uint8_t __gba_ahb_end__[];
 extern void * _OVERLAY_VIDEOPAC_LOAD_START[];
 extern uint8_t _OVERLAY_VIDEOPAC_SIZE;
 extern void * _OVERLAY_VIDEOPAC_BSS_START[];
@@ -122,15 +103,11 @@ extern void * _OVERLAY_CELESTE_LOAD_START[];
 extern uint8_t _OVERLAY_CELESTE_SIZE;
 extern void * _OVERLAY_CELESTE_BSS_START[];
 extern uint8_t _OVERLAY_CELESTE_BSS_SIZE;
-extern void * _OVERLAY_PICO8_LOAD_START[];
-extern uint8_t _OVERLAY_PICO8_SIZE;
-extern void * _OVERLAY_PICO8_BSS_START[];
-extern void * _OVERLAY_PICO8_BSS_END[];
-extern uint8_t _OVERLAY_PICO8_BSS_SIZE;
-extern void * __pico8_code_start__[];
-extern void * __pico8_code_end__[];
-extern void * _PICO8_MAIN_CODE_START[];
-extern void * _PICO8_MAIN_CODE_END[];
+/* _OVERLAY_PICO8_LOAD_START/_SIZE/_BSS_START/_BSS_END/_BSS_SIZE removed:
+ * they only ever existed for the firmware-compiled GPL install-prompt
+ * stub (main_pico8_stub.c), which is no longer built. LUT8 extra core
+ * code now loads as a GNW_CORE_REGION_RAM_UC segment at
+ * __RAM_UC_CORE_START__ (ld/gnw_ram_uc_core.ld). */
 extern void * _OVERLAY_TAMA_LOAD_START[];
 extern uint8_t _OVERLAY_TAMA_SIZE;
 extern void * _OVERLAY_TAMA_BSS_START[];
@@ -145,11 +122,6 @@ extern uint8_t _OVERLAY_A2600_SIZE;
 extern void * _OVERLAY_A2600_BSS_START[];
 extern void * _OVERLAY_A2600_BSS_END[];
 extern uint8_t _OVERLAY_A2600_BSS_SIZE;
-extern void * _OVERLAY_LYNX_LOAD_START[];
-extern uint8_t _OVERLAY_LYNX_SIZE;
-extern void * _OVERLAY_LYNX_BSS_START[];
-extern void * _OVERLAY_LYNX_BSS_END[];
-extern uint8_t _OVERLAY_LYNX_BSS_SIZE;
 extern void * __itcram_emu_wswan_start__[];
 extern void * __itcram_emu_wswan_end__[];
 extern uint8_t _ITCM_WSWAN_SIZE;
@@ -159,8 +131,6 @@ extern uint8_t _OVERLAY_WSWAN_BSS_SIZE;
 
 extern void * _MSX_ROM_UNPACK_BUFFER[];
 extern uint8_t _MSX_ROM_UNPACK_BUFFER_SIZE;
-extern uint8_t _PCE_ROM_UNPACK_BUFFER[];
-extern uint8_t _PCE_ROM_UNPACK_BUFFER_SIZE;
 
 extern void * __RAM_END__[];
 
@@ -174,5 +144,3 @@ extern void (* __init_array_tgb_start__[])(void);
 extern void (* __init_array_tgb_end__[])(void);
 extern void (* __init_array_a2600_start__[])(void);
 extern void (* __init_array_a2600_end__[])(void);
-extern void (* __init_array_lynx_start__[])(void);
-extern void (* __init_array_lynx_end__[])(void);
