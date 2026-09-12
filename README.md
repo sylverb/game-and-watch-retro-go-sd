@@ -29,6 +29,10 @@ If you are looking for the mod without SD Card (Flash mod only), check https://g
     - [Emulators](#emulators)
     - [SNES Ports](#snes-ports)
     - [Homebrew Ports](#homebrew-ports)
+  - [Notes for specific systems](#notes-for-specific-systems)
+    - [Game Boy Advance](#game-boy-advance)
+    - [PC Engine CD / TurboGrafx-CD](#pc-engine-cd--turbografx-cd)
+    - [Atari Lynx](#atari-lynx)
   - [Controls](#controls)
     - [Button Mappings](#button-mappings)
     - [Macros](#macros)
@@ -38,17 +42,9 @@ If you are looking for the mod without SD Card (Flash mod only), check https://g
     - [Cheat codes on NES System](#cheat-codes-on-nes-system)
     - [Cheat codes on GB System](#cheat-codes-on-gb-system)
     - [Cheat codes on PCE System](#cheat-codes-on-pce-system)
-    - [Cheat codes on MSX System](#cheat-codes-on-msx-system)
   - [NES Emulator](#nes-emulator)
-  - [MSX Emulator](#msx-emulator)
-  - [Amstrad CPC6128 Emulator](#amstrad-cpc6128-emulator)
-  - [Vectrex/Odyssey2 Emulator (not included in SD Card version yet)](#vectrexodyssey2-emulator-not-included-in-sd-card-version-yet)
 - [Pokémon Mini Emulator](#pokémon-mini-emulator)
   - [Homebrew ports](#homebrew-ports-1)
-    - [The Legend of Zelda: A Link to the Past](#the-legend-of-zelda-a-link-to-the-past)
-      - [Alternate languages](#alternate-languages)
-    - [Super Mario World](#super-mario-world)
-    - [Celeste Classic](#celeste-classic)
   - [Pico-8](#pico-8)
     - [Compatibility and performance](#compatibility-and-performance)
     - [Installation](#installation-1)
@@ -56,6 +52,7 @@ If you are looking for the mod without SD Card (Flash mod only), check https://g
     - [Covers](#covers)
   - [Developer info](#developer-info)
     - [Build and flash using Docker](#build-and-flash-using-docker)
+    - [Creating a new emulator core from scratch](#creating-a-new-emulator-core-from-scratch)
   - [Discord, support and discussion](#discord-support-and-discussion)
   - [License](#license)
 
@@ -260,30 +257,52 @@ renders it with the PICO-8 palette, and saves as a JPEG cover.
 ## Supported Systems
 
 ### Emulators
-- Amstrad CPC6128 (beta)
-- Atari 2600
-- Atari 7800
+- Atari 2600 (external `/cores/a2600.bin`)
+- Atari 7800 (external `/cores/a7800.bin`)
+- Atari Lynx (experimental)
 - ColecoVision
-- Gameboy / Gameboy Color
-- Game & Watch / LCD Games
-- MSX1/2/2+
+- Gameboy / Gameboy Color (external `/cores/tgb.bin`)
+- Game Boy Advance (experimental, SD card only)
+- Game & Watch / LCD Games (external `/cores/gw.bin`)
+- MSX1/2/2+ (external `/cores/msx.bin`)
 - Nintendo Entertainment System
 - Pico-8
 - PC Engine / TurboGrafx-16
-- Pokémon Mini
+- PC Engine CD / TurboGrafx-CD (beta, SD card only)
+- Pokémon Mini (external `/cores/pkmini.bin`)
 - Sega Game Gear
 - Sega Genesis / Megadrive
 - Sega Master System
 - Sega SG-1000
-- Tamagotchi P1
-- Watara Supervision
-
-### SNES Ports
-- The Legend of Zelda: A Link to the Past
-- Super Mario World
+- Watara Supervision (external `/cores/wsv.bin`)
 
 ### Homebrew Ports
-- Celeste Classic 
+- External GWHB homebrews (e.g. Celeste Classic, Zelda 3 / SMW ports) — place under `/homebrews/` on the SD card
+
+## Notes for specific systems
+
+### PC Engine CD / TurboGrafx-CD
+
+PC Engine CD support is currently **beta** and available on **SD-card builds only** (not on flash-only builds).
+
+- Put disc images under: `/roms/pcecd/`
+  - Flat layout: `.cue` (+ referenced tracks) directly in `/roms/pcecd/`
+  - Or one folder per game: `/roms/pcecd/<game>/…`
+- HuCard games stay in `/roms/pce/` as usual
+
+A Super System Card 3.0 dump is **required**:
+
+- Path: `/bios/pce/syscard3.pce` (or `/bios/pce/syscard3.bin`)
+- Expected MD5: `38179df8f4ac870017db21ebcbf53114`
+
+Without this BIOS file, CD games will not boot.
+
+### Atari Lynx
+
+Lynx support is currently **experimental**.
+
+- Put ROMs in: `/roms/lynx/` (extensions: `.lnx`, `.lyx`)
+- No external BIOS file is required (the port uses an internal HLE BIOS)
 
 ## Controls
 
@@ -312,22 +331,17 @@ renders it with the PICO-8 palette, and saves as a JPEG cover.
 
 ## FAQ
 
-- I'd like to play Zelda 3 in French/Italian/German/... How to change language ?
-
-   First follow the steps to create a zelda3_assets.dat file including wanted languages.
-   Load Zelda 3, press Pause/Set button to enter menu, select Options, select Language line and press left/right to change current language. Text for Player Select/Create/... is always in English, but dialogs will be in selected language. Do not change language when a dialog is shown on the screen, it can cause some issues.
-
 - Can you add [new system name] support ?
 
    Maybe ... Probably not ! G&W system is very limited, it has only about 1MB of RAM free for code + dynamic ressources for each emulator. Most of the time emulators have to be deeply optimized to reduce their memory use so they can fit. Each emulator port is a challenge and some have failed already (fake-08, picodrive, ...).
 
 ## Cheat codes
 
-Note: Currently cheat codes are only working with GB, GBC, NES, PCE and MSX games.
+Note: Currently cheat codes are only working with GB, GBC, NES and PCE games.
 
 To enable, add CHEAT_CODES=1 to your make command. If you have already compiled without CHEAT_CODES=1, I recommend running make clean first.
 To enable or disable cheats, select a game then select "Cheat Codes". You will be able to select cheats you want to enable/disable. Then you can start/resume a game and selected cheats will be applied.
-On GB, GBC and MSX systems, you can enable/disable cheats during game.
+On GB and GBC systems, you can enable/disable cheats during game.
 
 ### Cheat codes on NES System
 
@@ -388,12 +402,6 @@ _
        |bytes data to patched from start address
 
 ```
-### Cheat codes on MSX System
-
-You can use blueMSX MCF cheat files with your Game & Watch. A nice collection of patch files is available [Here](http://bluemsx.msxblue.com/rel_download/Cheats.zip).
-Just copy the wanted MCF files in the /cheats/msx/ folder with the same name as the corresponding rom/dsk file.
-On MSX system, you can enable/disable cheats while playing. Just press the Pause/Set button and choose "Cheat Codes" menu to choose which cheats you want to enable or disable.
-
 ## NES Emulator
 
 NES emulation uses **fceumm** (FCEUmm). It has very good compatibility but uses significant CPU: typically about 65–85% depending on games; FDS titles can reach about 95%.
@@ -406,150 +414,22 @@ FDS support requires you to put the FDS firmware in `/bios/nes/disksys.rom` file
 
 ## MSX Emulator
 
-MSX system is a computer with a keyboard and with multiple extensions possible (like sound cartridges).
-The system needs bios files to be in the roms/msx_bios folder. Check roms/msx_bios/README.md file for details.
-
-What is supported :
-- MSX1/2/2+ system are supported. MSX Turbo-R will probably not work on the G&W.
-- ROM cartridges images : roms have to be named with rom, mx1 or mx2 extension.
-- Disks images : disks images have to be named with dsk extension. Multiple disks games are supported and user can change the current disk using the "Pause/Options/Change Dsk" menu.
-- Cheat codes support (MCF files in old or new format as described [Here](http://www.msxblue.com/manual/trainermcf_c.htm))
-- The file roms/msx_bios/msxromdb.xml contains control profiles for some games, it allows to configure controls in the best way for some games. If a game has no control profile defined in msxromdb.xml, then controls will be configured as joystick emulation mode.
-- Sometimes games require the user to enter his name using the keyboard, and some games like Metal Gear 1/2 are using F1-F5 keys to acces items/radio/... menus. It is possible to virtually press these keys using the "Pause/Options/Press Key" menu.
-
-Note that the MSX support is done using blueMsx 2.8.2, any game that is not working correctly using this emulator will not work on the Game & Watch. To fit in the G&W, a some features have been removed, so it's possible that some games running on blueMSX will not work in the G&W port. The emulator port is still in progress, consider it as a preview version.
-
-## Amstrad CPC6128 Emulator
-
-Amstrad CPC6128 system is a computer with a keyboard and disk drive.
-
-What is supported :
-- Amstrad CPC6128 system is the only supported system. CPC464 could be added if there is any interest in doing this. Note that CPC464+/6128+ systems are not supported (running a around 40% of their normal speed so it has been removed)
-- Disks images : disks images have to be named with dsk extension. Due to memory constraints, disks images are read only. Multiple disks games are supported and user can change the current disk using the "Pause/Options/Change Dsk" menu.  Both standard and extended dsk format are supported.
-- Normally when the amstrad system starts, it will wait the user to enter a run"file or |CPM command to load the content of the disk. As it's not very friendly, the emulator is detecting the name of the file to run and enter automatically the right command at startup
-- Sometimes games require the user to enter his name using the keyboard. It is possible to virtually press these keys using the "Pause/Options/Press Key" menu.
-- Amstrad screen resolution is 384x272 pixels while G&W resolution is 320x240. The standard screen mode (with no scaling) will show the screen without the borders which will be ok in most cases, but in some cases games are using borders to show some content. If you want to see the whole Amstrad screen on the G&W, set options/scaling to "fit".
-
-Tape support has not been ported, if there is any interest in adding this, it could be considered.
-
-Note that the Amstrad CPC6128 support is done using caprice32 emulator, any game that is not working correctly using this emulator will not work on the Game & Watch. To fit in the G&W, a some features have been removed, so it's possible that some games running on caprice32 will not work in the G&W port. The emulator port is still in progress, consider it as a preview version.
-
-## Vectrex/Odyssey2 Emulator (not included in SD Card version yet)
-Vectrex/Odyssey2 is provided by a modified version of o2em emulator.
-Support is currently in development so it's unstable, has lots of bugs and it's not really playable.
-To play, you need a bios file, for now rename your bios file to bios.bin and put it in the roms/vectrex folder
+MSX is provided as an external core (`/cores/msx.bin`) built outside this
+firmware tree (blueMSX-based). Place the core and BIOS under `/bios/msx/`
+on the SD card; see that core's documentation for details.
 
 # Pokémon Mini Emulator
-https://github.com/libretro/PokeMini was used for porting. You can provide a bios file in /bios/mini/bios.min file, but it's optional : if no bios file is provided, an integrated open source bios will be used.
+
+Pokémon Mini is provided as an external core (`/cores/pkmini.bin`). Optional
+BIOS: `/bios/mini/bios.min` (integrated open-source BIOS used if missing).
 
 ## Homebrew ports
 
-Some homebrew/SNES games have been _ported_ to the G&W.
-
-### The Legend of Zelda: A Link to the Past
-
-To play The Legend of Zelda: A Link to the Past, you need to generate the zelda3_assets.dat file by following these steps :
-- clone the project with submodules if not already done :
-```git clone --recurse-submodules https://github.com/sylverb/game-and-watch-retro-go-sd```
-- install python requirements : ```python3 -m pip install -r requirements.txt```
-- copy zelda3.sfc (USA version, sha1 = '6d4f10a8b10e10dbe624cb23cf03b88bb8252973') rom to external/zelda3/tables/
-- run 'make -C external/zelda3 tables/zelda3_assets.dat' command
-
-The file zelda3_assets.dat will be created in external/zelda3/tables. Copy the zelda3_assets.dat file in /roms/homebrew/ folder of your sd card.
-
-If you want to create zelda3_assets.dat file with several languages, the steps are :
-- copy all zelda3_xx.sfc files (including us zelda3.sfc) from languages you want to include (check names and sha1 below)
-- go in tables folder : 'cd external/zelda3/tables'
-- for each rom run this command : 'python3 restool.py --extract-dialogue -r ./zelda3_xx.sfc' (replace _xx with real rom names)
-- run the command to build assets file : 'python3 restool.py --extract-from-rom --languages=fr,fr-c,de,en,es,pl,pt,nl' (adapt the languages list to fit the languages you did provide)
-
-The file zelda3_assets.dat will be created in external/zelda3/tables. Copy the zelda3_assets.dat file in /roms/homebrew/ folder of your sd card.
-
-When playing, you'll be able to change current language by going in the options menu.
-
-Due to the limited set of buttons (especially on the Mario console), the controls are peculiar:
-
-| Description | Binding on Mario units | Binding on Zelda units |
-| ----------- | ---------------------- | ---------------------- |
-| `A` button (Pegasus Boots / Interacting) | `A` | `A` |
-| `B` button (Sword) | `B` | `B` |
-| `X` button (Show Map) | `GAME + B` | `TIME` |
-| `Y` button (Use Item) | `TIME` | `SELECT` |
-| `Select` button (Save Screen) | `GAME + TIME` | `GAME + TIME` |
-| `Start` button (Item Selection Screen) | `GAME + A` | `START` |
-| `L` button (Quick-swapping, if enabled) | `-` | `GAME + B` |
-| `R` button (Quick-swapping, if enabled) | `-` | `GAME + A` |
-
-Some features can be configured with flags:
-
-| Build flag    | Description |
-| ------------- | ------------- |
-| `LIMIT_30FPS` | Limit to 30 fps for improved stability.<br>Enabled by default.<br>Disabling this flag will result in unsteady framerate and stuttering. |
-| `FASTER_UI` | Increase UI speed (item menu, etc.).<br>Enabled by default. |
-| `BATTERY_INDICATOR` | Display battery indicator in item menu.<br>Enabled by default. |
-| `FEATURE_SWITCH_LR` | Item switch on L/R. Also allows reordering of items in inventory by pressing Y+direction.<br>Hold X, L, or R inside of the item selection screen to assign items to those buttons.<br>If X is reassigned, Select opens the map. Push Select while paused to save or quit.<br>When L or R are assigned items, those buttons will no longer cycle items. |
-| `FEATURE_TURN_WHILE_DASHING` | Allow turning while dashing. |
-| `FEATURE_MIRROR_TO_DARK_WORLD` | Allow mirror to be used to warp to the Dark World. |
-| `FEATURE_COLLECT_ITEMS_WITH_SWORD` | Collect items (like hearts) with sword instead of having to touch them. |
-| `FEATURE_BREAK_POTS_WITH_SWORD` | Level 2-4 sword can be used to break pots. |
-| `FEATURE_DISABLE_LOW_HEALTH_BEEP` | Disable the low health beep. |
-| `FEATURE_SKIP_INTRO_ON_KEYPRESS` | Avoid waiting too much at the start.<br>Enabled by default. |
-| `FEATURE_SHOW_MAX_ITEMS_IN_YELLOW` | Display max rupees/bombs/arrows with orange/yellow color. |
-| `FEATURE_MORE_ACTIVE_BOMBS` | Allows up to four bombs active at a time instead of two. |
-| `FEATURE_CARRY_MORE_RUPEES` | Can carry 9999 rupees instead of 999. |
-| `FEATURE_MISC_BUG_FIXES` | Enable various zelda bug fixes. |
-| `FEATURE_CANCEL_BIRD_TRAVEL` | Allow bird travel to be cancelled by hitting the X key. |
-| `FEATURE_GAME_CHANGING_BUG_FIXES` | Enable some more advanced zelda bugfixes that change game behavior. |
-| `FEATURE_SWITCH_LR_LIMIT` | Enable this to limit the ItemSwitchLR item cycling to the first 4 items. |
-
-#### Alternate languages
-
-By default, dialogues extracted from the US ROM are in english. You can replace dialogues with another language by using a localized ROM file. Supported alternate languages are:
-
-| Language | Origin | Naming | SHA1 hash |
-| -------- | ------ | ------ | --------- |
-| German   | Original | zelda3_de.sfc | 2E62494967FB0AFDF5DA1635607F9641DF7C6559 |
-| French   | Original | zelda3_fr.sfc | 229364A1B92A05167CD38609B1AA98F7041987CC |
-| French (Canada) | Original | zelda3_fr-c.sfc | C1C6C7F76FFF936C534FF11F87A54162FC0AA100 |
-| English (Europe) | Original | zelda3_en.sfc | 7C073A222569B9B8E8CA5FCB5DFEC3B5E31DA895 |
-| Spanish  | Romhack | zelda3_es.sfc | 461FCBD700D1332009C0E85A7A136E2A8E4B111E |
-| Polish   | Romhack | zelda3_pl.sfc | 3C4D605EEFDA1D76F101965138F238476655B11D |
-| Portuguese | Romhack | zelda3_pt.sfc | D0D09ED41F9C373FE6AFDCCAFBF0DA8C88D3D90D |
-| Dutch    | Romhack | zelda3_nl.sfc | FA8ADFDBA2697C9A54D583A1284A22AC764C7637 |
-| Swedish  | Romhack | zelda3_sv.sfc | 43CD3438469B2C3FE879EA2F410B3EF3CB3F1CA4 |
-
-### Super Mario World
-
-To play Super Mario world you need to copy the smw_assets.dat file in /roms/homebrew/ folder of your sd card.
-the smw_assets.dat file can be generated by doing the following steps :
-- clone the project with submodules if not already done :
-```git clone --recurse-submodules https://github.com/sylverb/game-and-watch-retro-go-sd```
-- install python requirements : ```python3 -m pip install -r requirements.txt```
-- copy smw.sfc (USA version, sha1 = '6B47BB75D16514B6A476AA0C73A683A2A4C18765') rom to external/smw/assets/
-- run 'make -C external/smw smw_assets.dat' command
-The file smw_assets.dat will be created in external/smw.
-
-Due to the limited set of buttons (especially on the Mario console), the controls are peculiar:
-
-| Description | Binding on Mario units | Binding on Zelda units |
-| ----------- | ---------------------- | ---------------------- |
-| `A` button (Spin Jump) | `GAME + A` | `SELECT` |
-| `B` button (Regular Jump) | `A` | `A` |
-| `X`/`Y` button (Dash/Shoot) | `B` | `B` |
-| `Select` button (Use Reserve Item) | `TIME` | `TIME` |
-| `Start` button (Pause Game) | `GAME + TIME` | `START` |
-| `L` button (Scroll Screen Left) | `-` | `GAME + B` |
-| `R` button (Scroll Screen Right) | `-` | `GAME + A` |
-
-Some features can be configured with flags:
-
-| Build flag    | Description |
-| ------------- | ------------- |
-| `LIMIT_30FPS` | Limit to 30 fps for improved stability.<br>Enabled by default.<br>Disabling this flag will result in unsteady framerate and stuttering. |
-
-### Celeste Classic
-
-This is a port of the Pico-8 version of Celeste Classic. Not a Pico-8 emulator.
+Standalone SNES reimplementations (Zelda 3 / Super Mario World), Celeste
+Classic, and other GWHB payloads are built outside this firmware tree and
+discovered at runtime from `/homebrews/*.bin` (plus any sibling assets they
+load). Copy the prebuilt files from those projects onto the SD card — they
+are no longer compiled or linked into the firmware.
 
 ## Pico-8
 
@@ -595,7 +475,7 @@ For development on macOS/Linux without Docker you need `arm-none-eabi-gcc` v10+ 
 
 #### One-time per-device setup
 
-The device needs SylverB's bootloader in bank 1, with Retro-Go-SD in bank 2. Without it, the firmware-update flow that creates the SD card directory tree (`/cores`, `/bios`, `/roms/homebrew`, …) cannot run.
+The device needs SylverB's bootloader in bank 1, with Retro-Go-SD in bank 2. Without it, the firmware-update flow that creates the SD card directory tree (`/cores`, `/bios`, `/homebrews`, …) cannot run.
 
 ```bash
 # Install the bootloader to bank 1 (one-time):
@@ -625,7 +505,7 @@ make flash create_sd_data GNW_TARGET=mario
 `create_sd_data` writes the SD files under `sd_content/`. Push only the ones you changed instead of re-sending every core, e.g.:
 
 ```bash
-gnwmanager sdpush --file sd_content/cores/nes.bin --dest-path /cores/
+gnwmanager sdpush --file path/to/example.bin --dest-path /cores/
 ```
 
 #### Common gotchas
@@ -663,6 +543,71 @@ gnwmanager sdpush --file sd_content/cores/nes.bin --dest-path /cores/
   make docker
   ```
   The install/update file will be available in release/retro-go_update.bin
+
+</details>
+
+### Creating a new emulator core from scratch
+
+<details>
+  <summary>
+    Want to port a new emulator/system to Retro-Go-SD? Expand this section for a step-by-step guide to the "standalone core" model.
+  </summary>
+
+Emulator cores (NES, MSX, Watara Supervision, PICO-8, ...) are **not** linked into the main firmware ELF. Each one is built as its own small, freestanding binary, communicates with the firmware exclusively through a stable, versioned function table (the "ABI"), and is discovered automatically at boot by scanning `/cores/*.bin` on the SD card — no compile-time list of systems lives in the launcher. This keeps the firmware small and lets every core use the entire ~1MB "free RAM" budget for itself (only one core is ever resident in memory at a time).
+
+Use [`cores/_template/`](cores/_template/) as the build starting point. The full technical guide (ABI extension checklist, linker script internals, every gotcha hit while writing the SDK) lives in [`Core/Src/porting/core_common/CLAUDE.md`](Core/Src/porting/core_common/CLAUDE.md) — this section is a shorter overview to get you oriented before diving into that file.
+
+**1. Understand the moving pieces**
+
+| Piece | Path | Role |
+| ----- | ---- | ---- |
+| ABI (function table) | `Core/Inc/retro-go/gw_firmware_abi.h` | Every libc/hardware/retro-go function a core is allowed to call, exposed as function pointers at a fixed address. Append-only and versioned so old cores keep working on newer firmware. |
+| Bridge SDK | `Core/Src/porting/core_common/` | Generic trampolines that forward calls through the ABI, plus the symbol-renaming list and entry-point assembly shared by every core. |
+| Build template | `cores/_template/` | The Makefile and linker script every core's own `cores/<name>/Makefile` includes — handles toolchain flags, the ABI symbol-renaming step, and linking at the fixed RAM address cores load into. |
+| Packaging tool | `tools/pack_core.py` | Turns a linked core ELF into `cores/<name>.bin`: a small header (system name, ROM folder, supported extensions, required ABI version, code/BSS size) followed by optional pad/console logo images and the core's code. |
+| Metadata struct | `Core/Inc/retro-go/gnw_core_meta.h` | Defines that header (`gnw_core_meta_t`) so the launcher can read it back. |
+| Discovery + launch | `Core/Src/retro-go/rg_emulators.c` (`emulators_scan_cores`, `run_dynamic_core`) | At boot, probes every `/cores/*.bin`, registers one tab per valid core; at launch, loads the core's code into RAM, zeroes its BSS, and jumps to it. |
+
+**2. Write the porting layer**
+
+Create `Core/Src/porting/<system>/main_<system>.c` (or adapt an existing one). This is where ROM loading, input mapping, video/audio bridging, and savestate hooks live. Two things are specific to the standalone-core model:
+
+- `#include "gw_core_bridge.h"` **after** the normal firmware headers (`common.h`, `rom_manager.h`, `gw_malloc.h`, ...). It turns shared globals like `common_emu_state`, `ACTIVE_FILE`, and `ram_start` into live reads/writes through the ABI instead of direct firmware symbols.
+- There's no access to the launcher's translated strings (i18n) yet from a standalone core, so any menu text your port needs has to be a hardcoded English string for now.
+
+**3. Set up the build**
+
+Create `cores/<system>/Makefile` modeled on the variables documented in [`cores/_template/Makefile`](cores/_template/Makefile):
+
+```makefile
+CORE_NAME  := <system>
+CORE_ENTRY := app_main_<system>   # must be a real function defined in your sources
+
+CORE_C_SOURCES := \
+external/<engine>/some_file.c \
+../../Core/Src/porting/<system>/main_<system>.c
+
+include ../_template/Makefile
+```
+
+Then build it standalone:
+
+```bash
+cd cores/<system>
+make
+```
+
+If the link fails with an undefined reference to a libc/hardware/retro-go function, that function needs to be added to the ABI (or, if it's already in `gw_firmware_abi_t`, just needs a trampoline + rename entry in `Core/Src/porting/core_common/`). Both cases are documented step by step in the "Extending the ABI" and "Porting a new core: checklist" sections of [`Core/Src/porting/core_common/CLAUDE.md`](Core/Src/porting/core_common/CLAUDE.md).
+
+A successful `make` produces `cores/<system>.bin`, packaged automatically via `tools/pack_core.py`.
+
+**4. Ship the core**
+
+External cores: copy `cores/<system>.bin` to `/cores/` on the SD card (the launcher discovers it at boot). If this firmware tree still builds a core in-tree, wire a `Makefile.common` phony/`sdpush` block for it — see the checklist in [`Core/Src/porting/core_common/CLAUDE.md`](Core/Src/porting/core_common/CLAUDE.md).
+
+**5. Test**
+
+`make release` (or `make flash create_sd_data`, see [Fast-iteration workflow](#fast-iteration-workflow) above) builds the firmware and your new core together. Push the SD content, boot the console, and your system's tab should appear in the launcher automatically — no other firmware change required.
 
 </details>
 

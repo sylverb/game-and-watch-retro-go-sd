@@ -50,8 +50,20 @@ jobs:
           name: retro-go_update.bin
           path: release/retro-go_update.bin
 
+  # Disabled on this branch: flasher-artifacts.yml owns releases here, and two
+  # workflows creating a release for the same tag cannot both win — this one uses
+  # actions/create-release@v1, which errors once the release exists. It was also
+  # failing outright ("Resource not accessible by integration") because it declares
+  # no permissions and so gets the read-only default.
+  #
+  # retro-go_update.bin, the on-device SD updater package this job produced, is
+  # still wanted; the plan is to fold it into the release flasher-artifacts.yml
+  # publishes rather than to have a second release-producing workflow.
+  #
+  # 'false && ...' rather than deleting the job, so this stays a small, obvious
+  # diff against upstream, which still uses it as its real release path.
   release-package:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    if: false && github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
 
     steps:

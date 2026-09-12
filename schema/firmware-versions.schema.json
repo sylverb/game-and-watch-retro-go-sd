@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slash-proc.github.io/game-and-watch-retro-go-sd/schema/firmware-versions.schema.json",
+  "title": "Retro-Go SD firmware versions.json",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "project",
+    "title",
+    "repo",
+    "releasesUrl",
+    "retained",
+    "versions"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "project": { "type": "string", "const": "retro-go-sd" },
+    "title": { "type": "string", "minLength": 1 },
+    "repo": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+    "releasesUrl": { "type": "string", "pattern": "^https://[^\\s]+$" },
+    "retained": { "type": "integer", "minimum": 1 },
+    "versions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/version" }
+    }
+  },
+  "$defs": {
+    "providesAbi": {
+      "type": "object",
+      "required": ["version", "size"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "size": { "type": "integer", "minimum": 8, "maximum": 16384 }
+      }
+    },
+    "version": {
+      "type": "object",
+      "required": [
+        "tag",
+        "manifest",
+        "publishedAt",
+        "prerelease",
+        "gitTag",
+        "providesAbi",
+        "coreMetaVersion"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tag": { "type": "string", "minLength": 1 },
+        "manifest": { "type": "string", "pattern": "^[^/][^:]*$" },
+        "publishedAt": { "type": "string", "format": "date-time" },
+        "prerelease": { "type": "boolean" },
+        "gitTag": { "type": "string", "minLength": 1, "maxLength": 47 },
+        "providesAbi": { "$ref": "#/$defs/providesAbi" },
+        "coreMetaVersion": { "type": "integer", "minimum": 1 }
+      }
+    }
+  }
+}

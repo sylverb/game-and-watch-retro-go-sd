@@ -2,10 +2,14 @@ build
 
 Drivers
 
-Makefile
+# Root Makefile only (already tracked; this is defensive against local
+# regeneration) — NOT anchored bare "Makefile" would also swallow the
+# per-core build files under cores/<name>/Makefile (see cores/_template/).
+/Makefile
 Core/Inc/rom_info.h
 Core/Inc/gittag.h
 roms
+gwemusd
 sd_content
 
 release
@@ -19,11 +23,20 @@ rom_hashes.txt
 linux/loaded_gb_rom.c
 linux/loaded_nes_rom.c
 linux/loaded_o2em_rom.c
-linux/loaded_a2600_rom.c
-linux/loaded_pkmini_rom.c
 linux/loaded_gwenesis_rom.c
+linux/loaded_lynx_rom.c
 
 save_states
+
+# cores/<name>/ mixes tracked source (Makefile, linker script) with build
+# output — the generated package (cores/<name>.bin) and build dir are
+# already caught by the generic *.bin / build rules below, spelled out
+# here so it's obvious at a glance nothing under cores/ needs manual
+# cleanup before a commit.
+cores/*.bin
+cores/*.xip
+cores/*/build
+cores/nes_fceumm_mappers/
 
 venv
 
@@ -45,3 +58,16 @@ choices.yaml
 build-error.log
 .bash_history
 *.sfc
+
+# gwemu emulator binary (downloaded, lives at repo root so make clean does not wipe it)
+gwemu_bin
+gwemu_bin.version
+.gwemu_tmp/
+# On macOS gwemu ships as an .app bundle whose executable loads its dylibs from
+# a sibling Frameworks/ dir, so the bundle is kept and gwemu_bin symlinks into it.
+gwemu.app/
+
+# Session logs from scripts/run_gwemu.sh. The default (build/gwemu.log) is already
+# covered by build/, but --log-file can point anywhere. No .log files are tracked.
+*.log
+.gwemu_release_cache

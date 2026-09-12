@@ -16,6 +16,8 @@
 #include "ff.h"
 #endif
 
+extern SPI_HandleTypeDef hspi2;
+
 static rg_app_desc_t currentApp;
 static runtime_stats_t statistics;
 static runtime_counters_t counters;
@@ -42,6 +44,11 @@ void odroid_system_init(int appId, int sampleRate)
     currentApp.id = appId;
     currentApp.romPath = ACTIVE_FILE->path;
 
+    /* appId is APPID_LAUNCHER / APPID_CORE / APPID_HOMEBREW.
+     * Per-core settings live in /data/<stem>.cfg, not APPID slots. */
+    if (appId == APPID_LAUNCHER)
+        odroid_settings_unbind_core_cfg();
+
     odroid_settings_init();
     odroid_audio_init(sampleRate);
     odroid_display_init();
@@ -56,7 +63,8 @@ void odroid_system_emu_init(state_handler_t load_cb,
                             screenshot_handler_t screenshot_cb,
                             shutdown_handler_t shutdown_cb,
                             sleep_post_wakeup_handler_t sleep_post_wakeup_cb,
-                            sram_save_handler_t sram_save_cb)
+                            sram_save_handler_t sram_save_cb,
+                            cheat_update_handler_t cheat_update_cb)
 {
     // currentApp.gameId = crc32_le(0, buffer, sizeof(buffer));
     currentApp.gameId = 0;
@@ -66,6 +74,7 @@ void odroid_system_emu_init(state_handler_t load_cb,
     currentApp.handlers.shutdown = shutdown_cb;
     currentApp.handlers.sleep_post_wakeup = sleep_post_wakeup_cb;
     currentApp.handlers.sram_save = sram_save_cb;
+    currentApp.handlers.cheat_update = cheat_update_cb;
     
     printf("%s: Init done. GameId=%08lX\n", __func__, currentApp.gameId);
 }
@@ -75,24 +84,26 @@ rg_app_desc_t *odroid_system_get_app()
     return &currentApp;
 }
 
-static char *extract_system(const char *filename) {
-    char *last_slash = strrchr(filename, '/');
-    char *directory = malloc(last_slash - filename + 2);
-    strncpy(directory, filename, last_slash - filename + 1);
-    directory[last_slash - filename + 1] = '\0';
-    return directory;
-}
-
 /* Build a path into the provided buffer. If out_buf is NULL, allocates
  * via strdup (legacy behavior). Callers that provide a buffer avoid heap. */
 static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPath, char *out, int out_size)
 {
     const char *fileName = _romPath ?: currentApp.romPath;
+    char homebrew_rel[200];
 
     if (strstr(fileName, ODROID_BASE_PATH_ROMS))
     {
         fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
         fileName += strlen(ODROID_BASE_PATH_ROMS);
+    }
+    else if (strstr(fileName, ODROID_BASE_PATH_HOMEBREWS))
+    {
+        /* /homebrews/Foo.bin → relative "/homebrew/Foo.bin" so covers stay
+         * under /covers/homebrew/ and saves under /data/homebrew/. */
+        const char *base = strrchr(fileName, '/');
+        base = base ? base + 1 : fileName;
+        snprintf(homebrew_rel, sizeof(homebrew_rel), "/homebrew/%s", base);
+        fileName = homebrew_rel;
     }
 
     if (!fileName || strlen(fileName) < 4)
@@ -150,7 +161,10 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             break;
 
         case ODROID_PATH_ROM_FILE:
-            snprintf(out, out_size, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
+            if (strncmp(fileName, "/homebrew/", 10) == 0)
+                snprintf(out, out_size, "%s/%s", ODROID_BASE_PATH_HOMEBREWS, fileName + 10);
+            else
+                snprintf(out, out_size, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
             break;
 
         case ODROID_PATH_CRC_CACHE:
@@ -172,39 +186,6 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             /* Persist active cheat bitmask alongside savestates (writable /data). */
             snprintf(out, out_size, "%s%s.state", ODROID_BASE_PATH_SAVES, fileName);
             break;
-
-        case ODROID_PATH_CHEAT_PCE:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.pceplus", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
-
-        case ODROID_PATH_CHEAT_GAME_GENIE:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.ggcodes", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
-
-        case ODROID_PATH_CHEAT_MCF:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.mcf", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
 
         case ODROID_PATH_SYSTEM_CONFIG:
         {
@@ -240,6 +221,46 @@ char* odroid_system_get_path(emu_path_type_t type, const char *_romPath)
 void odroid_system_get_path_to_buf(emu_path_type_t type, const char *_romPath, char *buf, int buf_size)
 {
     odroid_system_get_path_buf(type, _romPath, buf, buf_size);
+}
+
+void odroid_system_get_cheat_path_to_buf(const char *_romPath, const char *cheat_ext,
+                                         char *buf, int buf_size)
+{
+    const char *fileName = _romPath ?: currentApp.romPath;
+    char homebrew_rel[200];
+
+    if (strstr(fileName, ODROID_BASE_PATH_ROMS))
+    {
+        fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
+        fileName += strlen(ODROID_BASE_PATH_ROMS);
+    }
+    else if (strstr(fileName, ODROID_BASE_PATH_HOMEBREWS))
+    {
+        const char *base = strrchr(fileName, '/');
+        base = base ? base + 1 : fileName;
+        snprintf(homebrew_rel, sizeof(homebrew_rel), "/homebrew/%s", base);
+        fileName = homebrew_rel;
+    }
+
+    if (!fileName || strlen(fileName) < 4 || !cheat_ext || !cheat_ext[0])
+    {
+        if (buf_size > 0)
+            buf[0] = '\0';
+        return;
+    }
+
+    char shortFileName[200];
+    strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
+    shortFileName[sizeof(shortFileName) - 1] = '\0';
+    char *dot = strrchr(shortFileName, '.');
+    if (dot)
+        *dot = '\0';
+
+    /* Accept either "ggcodes" or ".ggcodes" from callers. */
+    if (cheat_ext[0] == '.')
+        cheat_ext++;
+
+    snprintf(buf, buf_size, "%s%s.%s", ODROID_BASE_PATH_CHEATS, shortFileName, cheat_ext);
 }
 
 bool odroid_system_emu_screenshot(const char *filename)
@@ -444,14 +465,22 @@ void odroid_system_switch_app(int app)
     /* Restore default LCD pixel format on app exit. Emulators that switched
      * the LTDC into LUT8 mode (PICO-8, NES) leave the LCD configured for
      * indexed color — the retro-go launcher and other targets expect
-     * RGB565. Catch-all here so every emulator's exit path resets cleanly. */
+     * RGB565. Catch-all here so every emulator's exit path resets cleanly.
+     * lcd_setup_framebuffers() flushes the LCD-pool D-cache and waits for
+     * the LTDC VBLANK reload; one extra vsync here guarantees the new
+     * RGB565 pitch has been scanned out before we tear the peripheral down
+     * for the hot boot. */
     lcd_setup_framebuffers(LCD_MODE_RGB565);
+    lcd_wait_for_vblank();
 
     odroid_system_sram_save();
 
     switch (app)
     {
     case 0:
+        /* Let the core/homebrew flush its own state (settings, etc.) before
+         * we commit the bound .cfg and tear down the SD card. */
+        odroid_system_shutdown();
         odroid_settings_StartupFile_set(0);
         odroid_settings_commit();
 
@@ -473,14 +502,23 @@ void odroid_system_switch_app(int app)
         }
 
         void _boot_bank2(void) {
-            /* sp/pc must live in callee-saved registers across HAL_MPU_Disable.
-             * If the compiler spills them to the (caller-saved) stack, the
-             * subsequent __set_MSP() switches the stack and the reload
-             * reads garbage from the new stack (out-of-DTCM at 0x20020004
-             * which is 0 → bx 0 → fault). Forcing r6/r7 keeps them safe
-             * regardless of optimisation level / register pressure. */
-            register uint32_t sp asm("r6") = *((uint32_t *)FLASH_BANK2_BASE);
-            register uint32_t pc asm("r7") = *((uint32_t *)FLASH_BANK2_BASE + 1);
+            /* sp/pc are `static` (not stack-resident), so the __set_MSP() stack
+             * switch below can never invalidate them. The previous approach forced
+             * them into r6/r7 via register-hinted locals, betting that they'd stay
+             * live there across the HAL_MPU_Disable() call — but that's only a hint
+             * to the compiler, not a guarantee: it can still spill them to the
+             * (caller-saved) stack depending on optimisation/register pressure, and
+             * after the stack switch the reload reads garbage from the NEW stack
+             * (out-of-DTCM at 0x20020004, which is 0 → bx 0 → fault). This was a
+             * real, intermittent bug — bisected on real hardware to reproduce with
+             * IDENTICAL source just from an unrelated string elsewhere in the image
+             * changing length (which perturbs the compiler's register-allocation
+             * decisions here enough to trigger the spill). `static` storage removes
+             * both the stack and register allocation from the equation entirely. */
+            static uint32_t sp;
+            static uint32_t pc;
+            sp = *((uint32_t *)FLASH_BANK2_BASE);
+            pc = *((uint32_t *)FLASH_BANK2_BASE + 1);
 
             HAL_MPU_Disable();
             __set_MSP(sp);
@@ -492,9 +530,21 @@ void odroid_system_switch_app(int app)
 
         app_animate_lcd_brightness(odroid_display_get_backlight_raw(), 0, 10);
 
+        /* Full panel power-down before hot boot. Previously we only
+         * HAL_DeInit()'d LTDC and left 1V8/3V3 up, so the next lcd_init()
+         * re-ran the SPI bring-up on a still-powered glass — intermittent
+         * mis-init / visual glitches. Match the sleep path: cut rails, wait
+         * for collapse, then the post-boot lcd_init does a clean power cycle. */
+        lcd_deinit(&hspi2);
+        HAL_Delay(20);
+
         HAL_DeInit();
 
-        SCB_InvalidateDCache();
+        /* Clean+Invalidate (not Invalidate alone): discard-only would drop
+         * any still-dirty AXI SRAM lines written after the LCD restore
+         * above, and left the L1 in a state that could confuse the next
+         * MPU_Config on hot boot. */
+        SCB_CleanInvalidateDCache();
         SCB_InvalidateICache();
 
         while (1) {
@@ -503,6 +553,10 @@ void odroid_system_switch_app(int app)
 #else
         // Retro-go is in bank1 with no bootloader present.
         // Reset directly back into retro-go.
+
+        app_animate_lcd_brightness(odroid_display_get_backlight_raw(), 0, 10);
+        lcd_deinit(&hspi2);
+        HAL_Delay(20);
 
         NVIC_SystemReset();
 #endif

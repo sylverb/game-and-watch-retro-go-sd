@@ -62,7 +62,11 @@ typedef struct {
 } tab_t;
 
 typedef struct {
-    tab_t *tabs[32];
+    /* Pointer table sized once at boot by gui_ensure_tab_capacity()
+     * (favorites + every system tab). Not a fixed compile-time array so
+     * cores under /cores/ can grow without bumping a MAX_* constant. */
+    tab_t **tabs;
+    int tab_capacity;
     int tabcount;
     int selected;
     int theme;
@@ -78,10 +82,18 @@ extern int gui_colors_count;
 extern colors_t *curr_colors;
 extern colors_t gui_colors[];
 
+/** Allocate gui.tabs for up to `capacity` entries (AHB bump, once). Must be
+ *  called before the first gui_add_tab(). */
+void gui_ensure_tab_capacity(int capacity);
 tab_t *gui_add_tab(const char *name, int16_t logo_idx, int16_t header_idx, void *arg, void *event_handler);
+/* Drop the RAM_EMU-backed listbox buffers before a core reuses that memory.
+ * Pairs with rg_reset_logo_buffers(). */
+void gui_reset_list_buffers(void);
 tab_t *gui_get_tab(int index);
 tab_t *gui_get_current_tab();
 tab_t *gui_set_current_tab(int index);
+/** Move to the next (+1) or previous (-1) non-empty tab. */
+bool gui_change_tab(int direction);
 void gui_init_tab(tab_t *tab);
 void gui_init_colors(void);
 void gui_apply_colors_to_overlay_clut(void);

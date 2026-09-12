@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slash-proc.github.io/game-and-watch-retro-go-sd/schema/firmware-manifest.schema.json",
+  "title": "Retro-Go SD firmware manifest.json",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "project",
+    "title",
+    "source",
+    "firmware",
+    "paths",
+    "languages",
+    "builds",
+    "builtAt"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "project": { "type": "string", "const": "retro-go-sd" },
+    "title": { "type": "string", "minLength": 1 },
+    "docs": { "type": "string", "pattern": "^https://[^\\s]+$" },
+    "source": {
+      "type": "object",
+      "required": ["repo", "commit", "ref"],
+      "additionalProperties": false,
+      "properties": {
+        "repo": { "type": "string", "pattern": "^[^/]+/[^/]+$" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "ref": { "type": "string", "minLength": 1 }
+      }
+    },
+    "firmware": { "$ref": "#/$defs/firmware" },
+    "paths": { "$ref": "#/$defs/paths" },
+    "languages": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/language" }
+    },
+    "builds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/build" }
+    },
+    "builtAt": { "type": "string", "format": "date-time" },
+    "projects": { "$ref": "#/$defs/asset" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+
+    "language": { "type": "string", "pattern": "^[a-z]{2}_[a-z]{2}$" },
+
+    "zipPath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9][A-Za-z0-9 ._/-]*$"
+    },
+
+    "filename": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9._-])?$"
+    },
+
+    "providesAbi": {
+      "type": "object",
+      "required": ["version", "size"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "type": "integer", "minimum": 1, "maximum": 255 },
+        "size": { "type": "integer", "minimum": 8, "maximum": 16384 }
+      }
+    },
+
+    "firmware": {
+      "type": "object",
+      "required": [
+        "gitTag",
+        "providesAbi",
+        "abiOffset",
+        "coreMetaVersion",
+        "superblock",
+        "installFile"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "gitTag": { "type": "string", "minLength": 1, "maxLength": 47 },
+        "providesAbi": { "$ref": "#/$defs/providesAbi" },
+        "abiOffset": { "type": "string", "pattern": "^0x[0-9a-f]+$" },
+        "coreMetaVersion": { "type": "integer", "minimum": 1 },
+        "superblock": {
+          "type": "object",
+          "required": ["magic", "version", "structSize"],
+          "additionalProperties": false,
+          "properties": {
+            "magic": { "type": "string", "const": "GWLB" },
+            "version": { "type": "integer", "minimum": 1, "maximum": 255 },
+            "structSize": { "type": "integer", "minimum": 16, "maximum": 256 }
+          }
+        },
+        "installFile": {
+          "type": "object",
+          "required": ["path", "magic", "version"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string", "const": "data/INSTALL" },
+            "magic": { "type": "string", "const": "RGIN" },
+            "version": { "type": "integer", "minimum": 1, "maximum": 255 }
+          }
+        }
+      }
+    },
+
+    "paths": {
+      "description": "Install directories, keyed by role. Open on purpose: a later firmware may name a role this version does not, and an installer ignores roles it does not use.",
+      "type": "object",
+      "required": [
+        "cores",
+        "homebrew",
+        "bios",
+        "roms",
+        "covers",
+        "cheats",
+        "data"
+      ],
+      "propertyNames": { "pattern": "^[a-z][a-zA-Z0-9]*$" },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^/[A-Za-z0-9._/-]*$"
+      }
+    },
+
+    "asset": {
+      "description": "A standalone file published beside the manifest.",
+      "type": "object",
+      "required": ["bytes", "sha256", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "url": { "$ref": "#/$defs/filename" }
+      }
+    },
+
+    "member": {
+      "description": "A file stored inside the build's bundle zip.",
+      "type": "object",
+      "required": ["bytes", "sha256", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "path": { "$ref": "#/$defs/zipPath" }
+      }
+    },
+
+    "sdUpdate": {
+      "description": "Like member, plus the exact name the on-device updater looks for.",
+      "type": "object",
+      "required": ["bytes", "sha256", "path", "filename"],
+      "additionalProperties": false,
+      "properties": {
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "path": { "$ref": "#/$defs/zipPath" },
+        "filename": { "type": "string", "pattern": "^update_bank[12]\\.bin$" }
+      }
+    },
+
+    "content": {
+      "type": "object",
+      "required": ["path", "install", "bytes", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "$ref": "#/$defs/zipPath" },
+        "install": { "$ref": "#/$defs/zipPath" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "$ref": "#/$defs/sha256" },
+        "language": { "$ref": "#/$defs/language" }
+      }
+    },
+
+    "build": {
+      "type": "object",
+      "required": [
+        "id",
+        "storage",
+        "bank",
+        "capabilities",
+        "littlefsBlockSize",
+        "buildFlags",
+        "bundle",
+        "debug",
+        "image",
+        "content"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^(sd|flash)-bank[12]$" },
+        "storage": { "enum": ["sd", "flash"] },
+        "bank": { "type": "integer", "enum": [1, 2] },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "coverflow",
+              "cheatCodes",
+              "screenshot",
+              "sharedHibernateSavestate"
+            ]
+          }
+        },
+        "littlefsBlockSize": { "type": "integer", "minimum": 512 },
+        "buildFlags": { "type": "string" },
+        "bundle": { "$ref": "#/$defs/asset" },
+        "debug": { "$ref": "#/$defs/asset" },
+        "image": { "$ref": "#/$defs/member" },
+        "sdUpdate": { "$ref": "#/$defs/sdUpdate" },
+        "content": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/content" }
+        }
+      },
+      "allOf": [
+        {
+          "description": "sdUpdate is required on SD builds and forbidden on flash builds.",
+          "if": { "properties": { "storage": { "const": "sd" } } },
+          "then": { "required": ["sdUpdate"] },
+          "else": { "not": { "required": ["sdUpdate"] } }
+        },
+        {
+          "description": "The build id must agree with storage and bank.",
+          "if": { "properties": { "storage": { "const": "sd" } } },
+          "then": { "properties": { "id": { "pattern": "^sd-bank[12]$" } } },
+          "else": { "properties": { "id": { "pattern": "^flash-bank[12]$" } } }
+        }
+      ]
+    }
+  }
+}

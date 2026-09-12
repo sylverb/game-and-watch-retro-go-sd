@@ -1,62 +1,9 @@
-[submodule "retro-go-stm32"]
-	path = retro-go-stm32
-	url = https://github.com/sylverb/retro-go-stm32
-[submodule "LCD-Game-Emulator"]
-	path = external/LCD-Game-Emulator
-	url = https://github.com/sylverb/LCD-Game-Emulator.git
-[submodule "blueMSX-go"]
-	path = external/blueMSX-go
-	url = https://github.com/sylverb/blueMSX-go.git
-[submodule "potator"]
-	path = external/potator
-	url = https://github.com/sylverb/potator.git
-[submodule "gwenesis"]
-	path = external/gwenesis
-	url = https://github.com/sylverb/gwenesis
-[submodule "prosystem-go"]
-	path = external/prosystem-go
-	url = https://github.com/sylverb/prosystem-go.git
-[submodule "caprice32-go"]
-	path = external/caprice32-go
-	url = https://github.com/sylverb/caprice32-go.git
-[submodule "fceumm-go"]
-	path = external/fceumm-go
-	url = https://github.com/sylverb/fceumm-go.git
-[submodule "tgbdual-go"]
-	path = external/tgbdual-go
-	url = https://github.com/sylverb/tgbdual-go.git
-[submodule "zelda3"]
-	path = external/zelda3
-	url = https://github.com/sylverb/zelda3.git
-	branch = filesystem
-[submodule "smw"]
-	path = external/smw
-	url = https://github.com/sylverb/smw.git
-	branch = filesystem
-[submodule "o2em-go"]
-	path = external/o2em-go
-	url = https://github.com/sylverb/o2em-go.git
-[submodule "ccleste-go"]
-	path = external/ccleste-go
-	url = https://github.com/sylverb/ccleste-go.git
-[submodule "external/tamalib"]
-	path = external/tamalib
-	url = https://github.com/BenjaminSoelberg/tamalib.git
-[submodule "external/stella2014-go"]
-	path = external/stella2014-go
-	url = https://github.com/sylverb/stella2014-go.git
 [submodule "Core/Src/porting/lib/FatFs"]
 	path = Core/Src/porting/lib/FatFs
-	url = https://github.com/sylverb/FatFs.git
+	url = https://github.com/slash-proc/FatFs.git
 [submodule "external/firmware_update"]
 	path = external/firmware_update
 	url = https://github.com/sylverb/firmware_update
-[submodule "external/PokeMini-go"]
-	path = external/PokeMini-go
-	url = https://github.com/sylverb/PokeMini-go.git
-[submodule "external/oswan-go"]
-	path = external/oswan-go
-	url = https://github.com/sylverb/oswan-go.git
 [submodule "Core/Src/porting/lib/frogfs"]
 	path = Core/Src/porting/lib/frogfs
 	url = https://github.com/jkent/frogfs.git

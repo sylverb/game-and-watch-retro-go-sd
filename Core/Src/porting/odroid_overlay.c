@@ -46,14 +46,12 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
 #include "rg_rtc.h"
 #include "rg_i18n.h"
 #include "rg_storage.h"
+#include "rg_emulators.h"
 #include "gw_flash_alloc.h"
 #if SD_CARD == 0
 #include "rg_frogfs.h"
 #endif
 #if CHEAT_CODES == 1
-#include "main_msx.h"
-#include "main_gb_tgbdual.h"
-
 static retro_emulator_file_t *CHOSEN_FILE = NULL;
 #endif
 
@@ -400,6 +398,8 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     bool any_key_debounce = false;
     uint32_t start_time = get_elapsed_time();
 
+    lcd_overlay_clut_begin();
+
     void _draw_banner(bool draw_only)
     {
         const int message_blink_rate = 750;
@@ -460,6 +460,7 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     if (flags & ODROID_MENU_FLAG_DRAW_ONLY)
     {
         _repaint(true);
+        /* Leave overlay CLUT live across sleep → game menu. */
         return;
     }
 
@@ -516,6 +517,11 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     }
 
     odroid_audio_mute(false);
+    if (lcd_overlay_clut_end_will_restore()) {
+        lcd_sleep_while_swap_pending();
+        lcd_clear_active_buffer();
+    }
+    lcd_overlay_clut_end();
 }
 
 static int get_dialog_items_count(odroid_dialog_choice_t *options)
@@ -564,14 +570,12 @@ uint16_t get_shined_pixel(uint16_t color, uint16_t shined)
 __attribute__((optimize("unroll-loops")))
 void odroid_overlay_darken_all()
 {
-    /* LUT8 mode: each pixel is a 1-byte CLUT index. lcd_set_clut() programs
-     * a darkened twin of every entry into slots [count..2*count), so just OR
-     * LCD_DARKEN_BIT into each pixel and the LTDC's own CLUT does the dim
-     * lookup at scanout — exact RGB darkening, no nearest-match approximation. */
+    /* LUT8: lcd_darken_active_buffer() uses twin slots when present, else a
+     * nearest-match of darkened RGB (256-colour carts have no twin room —
+     * the old `|= LCD_DARKEN_BIT` turned cleared letterbox 0 into NES $20
+     * white). */
     if (lcd_get_mode() == LCD_MODE_LUT8) {
-        uint8_t *fb = (uint8_t *)lcd_get_active_buffer();
-        size_t n = lcd_get_frame_size();
-        for (size_t i = 0; i < n; i++) fb[i] |= LCD_DARKEN_BIT;
+        lcd_darken_active_buffer();
         return;
     }
 
@@ -894,6 +898,43 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     bool power_key_debounce = false;
     odroid_gamepad_state_t joystick;
 
+    /* Full 256-colour carts: stamp theme CLUT only while the dialog is up. */
+    lcd_overlay_clut_begin();
+
+    /* Snapshot header + labels (+ values that may point into lang
+     * strings). i18n_load_language() keeps only one non-en_us language
+     * in RAM and frees the previous when browsing the language picker;
+     * without this copy, options[i].label pointers captured at dialog
+     * construction would dangle. update_cb writes still go through
+     * option->value into these local buffers.
+     *
+     * Only the first MAX_OPTIONS_COUNT entries are snapshotted — that
+     * covers the settings menu (where language browsing happens).
+     * Longer dialogs (e.g. cheat lists) do not switch languages. */
+#define DIALOG_STR_MAX 64
+    char header_buf[DIALOG_STR_MAX];
+    char label_bufs[MAX_OPTIONS_COUNT][DIALOG_STR_MAX];
+    char value_bufs[MAX_OPTIONS_COUNT][DIALOG_STR_MAX];
+    if (header) {
+        strncpy(header_buf, header, DIALOG_STR_MAX - 1);
+        header_buf[DIALOG_STR_MAX - 1] = '\0';
+        header = header_buf;
+    }
+    const int snap_count = options_count < MAX_OPTIONS_COUNT ? options_count : MAX_OPTIONS_COUNT;
+    for (int i = 0; i < snap_count; i++) {
+        if (options[i].label) {
+            strncpy(label_bufs[i], options[i].label, DIALOG_STR_MAX - 1);
+            label_bufs[i][DIALOG_STR_MAX - 1] = '\0';
+            options[i].label = label_bufs[i];
+        }
+        if (options[i].value) {
+            strncpy(value_bufs[i], options[i].value, DIALOG_STR_MAX - 1);
+            value_bufs[i][DIALOG_STR_MAX - 1] = '\0';
+            options[i].value = value_bufs[i];
+        }
+    }
+#undef DIALOG_STR_MAX
+
     void _repaint()
     {
         wdog_refresh();
@@ -922,6 +963,7 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     {
         _repaint();
         if (flags & ODROID_MENU_FLAG_DRAW_ONLY) {
+            /* Leave overlay CLUT live for a follow-up sleep/menu paint. */
             return sel;
         }
 
@@ -1063,6 +1105,14 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     } while (joystick.values[last_key] == 1);
     sel = tmp_sel;
 
+    /* Drop chrome before restoring cart CLUT — otherwise the still-visible
+     * menu frame flashes PLAYPAL colours into theme slots for one vblank.
+     * Nested dialogs (depth>1) skip clear/restore. */
+    if (lcd_overlay_clut_end_will_restore()) {
+        lcd_sleep_while_swap_pending();
+        lcd_clear_active_buffer();
+    }
+    lcd_overlay_clut_end();
     return sel < 0 ? sel : options[sel].id;
 }
 
@@ -1384,16 +1434,11 @@ static bool cheat_update_cb(odroid_dialog_choice_t *option, odroid_dialog_event_
         is_on = is_on ? false : true;
         odroid_settings_ActiveGameGenieCodes_set(CHOSEN_FILE->path, option->id, is_on);
     }
-    strcpy(option->value, is_on ? curr_lang->s_Cheat_Codes_ON : curr_lang->s_Cheat_Codes_OFF);
+    strcpy(option->value, is_on ? curr_lang->s_Option_ON : curr_lang->s_Option_OFF);
     if (event == ODROID_DIALOG_ENTER) {
-        rom_system_t *system = (rom_system_t *)CHOSEN_FILE->system;
-        if(strcmp(system->system_name, "MSX") == 0) {
-            update_cheats_msx();
-        }
-        if((strcmp(system->system_name, "Nintendo Gameboy") == 0) ||
-           (strcmp(system->system_name, "Nintendo Gameboy Color") == 0)) {
-            update_cheats_gb();
-        }
+        cheat_update_handler_t update = odroid_system_get_app()->handlers.cheat_update;
+        if (update)
+            update();
     }
 
     return event == ODROID_DIALOG_ENTER;
@@ -1428,39 +1473,14 @@ static bool show_cheat_dialog()
 }
 #endif
 
-/* Darken an RGB565 color by LCD_DARKEN_PERCENT — mirrors clut_store_dark_twin
- * in gw_lcd.c so we can reconstruct the [count..2*count) darkened-twin range
- * from the embedded cart CLUT during LUT8→RGB565 preview conversion. */
-static inline uint16_t darken_rgb565(uint16_t c)
-{
-    const int keep = 100 - LCD_DARKEN_PERCENT;
-    int r = (c >> 11) & 0x1F;
-    int g = (c >>  5) & 0x3F;
-    int b = (c      ) & 0x1F;
-    r = (r * keep) / 100;
-    g = (g * keep) / 100;
-    b = (b * keep) / 100;
-    return (uint16_t)((r << 11) | (g << 5) | b);
-}
-
 static void preview_blit_lut8_to_rgb565(FILE *file, const uint16_t clut[LCD_SCREENSHOT_CLUT_ENTRIES])
 {
     uint8_t row[GW_LCD_WIDTH];
     uint16_t *dst = (uint16_t *)lcd_get_active_buffer();
     for (int y = 0; y < GW_LCD_HEIGHT; y++) {
         if (fread(row, 1, GW_LCD_WIDTH, file) != GW_LCD_WIDTH) return;
-        for (int x = 0; x < GW_LCD_WIDTH; x++) {
-            uint8_t idx = row[x];
-            uint16_t color;
-            if (idx < LCD_SCREENSHOT_CLUT_ENTRIES) {
-                color = clut[idx];
-            } else if (idx < 2 * LCD_SCREENSHOT_CLUT_ENTRIES) {
-                color = darken_rgb565(clut[idx - LCD_SCREENSHOT_CLUT_ENTRIES]);
-            } else {
-                color = 0;
-            }
-            *dst++ = color;
-        }
+        lcd_convert_lut8_to_rgb565(row, dst, GW_LCD_WIDTH, clut);
+        dst += GW_LCD_WIDTH;
     }
 }
 
@@ -1587,16 +1607,20 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
         draw_game_status_bar(&stats);
     }
 
+    char core_name_value[24];
+    char core_version_value[16];
+    char core_path_value[64];
+    char core_date_value[24];
+    bool show_core_info = rg_emulators_get_running_core_info(
+        core_name_value, sizeof(core_name_value),
+        core_version_value, sizeof(core_version_value),
+        core_path_value, sizeof(core_path_value),
+        core_date_value, sizeof(core_date_value));
+
 #if CHEAT_CODES == 1
-    odroid_dialog_choice_t choices[12];
-    bool cheat_update_support = false;
+    odroid_dialog_choice_t choices[14];
     CHOSEN_FILE = ACTIVE_FILE;
-    rom_system_t *system = (rom_system_t *)CHOSEN_FILE->system;
-    if((strcmp(system->system_name, "MSX") == 0) ||
-       (strcmp(system->system_name, "Nintendo Gameboy") == 0) ||
-       (strcmp(system->system_name, "Nintendo Gameboy Color") == 0)) {
-        cheat_update_support = true;
-    }
+    bool cheat_update_support = odroid_system_get_app()->handlers.cheat_update != NULL;
 
     int index=0;
     choices[index].id = 10;
@@ -1629,6 +1653,14 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     choices[index].enabled = 1;
     choices[index].update_cb = NULL;
     index++;
+    if (show_core_info) {
+        choices[index].id = 70;
+        choices[index].label = curr_lang->s_Info;
+        choices[index].value = "";
+        choices[index].enabled = 1;
+        choices[index].update_cb = NULL;
+        index++;
+    }
     if ((ACTIVE_FILE->cheat_count != 0) && (cheat_update_support)) {
         choices[index].id = 60;
         choices[index].label = curr_lang->s_Cheat_Codes;
@@ -1667,20 +1699,20 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     choices[index].enabled = 0xFFFF;
     choices[index].update_cb = NULL;
 #else
-    odroid_dialog_choice_t choices[] = {
-        // {0, "Continue", "",  1, NULL},
-        {10, curr_lang->s_Save_Cont, "", 1, NULL},
-        {20, curr_lang->s_Save_Quit, "", 1, NULL},
-        ODROID_DIALOG_CHOICE_SEPARATOR,
-        {30, curr_lang->s_Reload, "", 1, NULL},
-        {40, curr_lang->s_Options, "", 1, NULL},
-        // {50, "Tools", "", 1, NULL},
-        ODROID_DIALOG_CHOICE_SEPARATOR,
-        {90, curr_lang->s_Power_off, "", 1, NULL},
-        ODROID_DIALOG_CHOICE_SEPARATOR,
-        {100, curr_lang->s_Quit_to_menu, "", 1, NULL},
-        ODROID_DIALOG_CHOICE_LAST,
-    };
+    odroid_dialog_choice_t choices[12];
+    int index = 0;
+    choices[index++] = (odroid_dialog_choice_t){10, curr_lang->s_Save_Cont, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t){20, curr_lang->s_Save_Quit, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+    choices[index++] = (odroid_dialog_choice_t){30, curr_lang->s_Reload, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t){40, curr_lang->s_Options, "", 1, NULL};
+    if (show_core_info)
+        choices[index++] = (odroid_dialog_choice_t){70, curr_lang->s_Info, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+    choices[index++] = (odroid_dialog_choice_t){90, curr_lang->s_Power_off, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+    choices[index++] = (odroid_dialog_choice_t){100, curr_lang->s_Quit_to_menu, "", 1, NULL};
+    choices[index] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_LAST;
 #endif
 
     odroid_audio_mute(true);
@@ -1722,6 +1754,27 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
         show_cheat_dialog();
         break;
 #endif
+    case 70:
+        if (show_core_info) {
+            /* Refresh date in case the file was touched; other fields are
+             * already filled from launch-time meta. */
+            rg_emulators_get_running_core_info(
+                core_name_value, sizeof(core_name_value),
+                core_version_value, sizeof(core_version_value),
+                core_path_value, sizeof(core_path_value),
+                core_date_value, sizeof(core_date_value));
+            odroid_dialog_choice_t info_choices[] = {
+                {-1, curr_lang->s_Name, core_name_value, 0, NULL},
+                {-1, curr_lang->s_Version, core_version_value, 0, NULL},
+                {-1, curr_lang->s_File, core_path_value, 0, NULL},
+                {-1, curr_lang->s_Date, core_date_value, 0, NULL},
+                ODROID_DIALOG_CHOICE_SEPARATOR,
+                {1, curr_lang->s_Close, "", 1, NULL},
+                ODROID_DIALOG_CHOICE_LAST
+            };
+            odroid_overlay_dialog(curr_lang->s_Info, info_choices, -1, &_repaint, flags | ODROID_MENU_FLAG_NO_BG_DARKEN);
+        }
+        break;
     case 90:
         save_state_and_sleep(true, NULL);
         break;
@@ -1804,8 +1857,17 @@ void odroid_overlay_draw_progress_bar(const char *header, uint8_t progress)
 
 uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap)
 {
+    return odroid_overlay_cache_file_in_flash_relocate(file_path, file_size_p, byte_swap, NULL);
+}
+
+uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
+                                                     bool byte_swap, flash_relocate_cb_t relocate_cb)
+{
 #if SD_CARD == 0
     (void)byte_swap;
+    /* FrogFS maps the file where it already sits in the firmware image, so there
+     * is no copy to relocate. Callers that need one must not use this build. */
+    (void)relocate_cb;
     const uint8_t *data = NULL;
     uint32_t file_size = 0;
 
@@ -1823,16 +1885,25 @@ uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *fil
 #else
     void progress_cb(uint32_t total_size, uint32_t total_processed, uint8_t progress)
     {
-        if (lcd_is_swap_pending())
-            return;
+        (void)total_size;
+        (void)total_processed;
+
+        /* Wait out the previous VBLANK reload — skipping the update (the old
+         * `if (lcd_is_swap_pending()) return`) left one buffer with the
+         * progress UI and the other with the pre-load frame, so consecutive
+         * swaps flickered between them.
+         * lcd_sleep_while_swap_pending() is timed out in gw_lcd.c so a stuck
+         * LTDC SRCR after overclock cannot freeze this bar forever. */
+        lcd_sleep_while_swap_pending();
 
         odroid_overlay_draw_progress_bar(curr_lang->s_Caching_Game, progress);
-
-        // Show
+        /* Keep both framebuffers identical so the next swap cannot reveal the
+         * pre-cache screen (or a stale progress percentage). */
+        lcd_sync();
         lcd_swap();
     }
 
-    return store_file_in_flash(file_path, file_size_p, byte_swap, progress_cb);
+    return store_file_in_flash_relocate(file_path, file_size_p, byte_swap, progress_cb, relocate_cb);
 #endif
 }
 
@@ -1861,10 +1932,9 @@ size_t odroid_overlay_cache_file_in_ram_with_offset(const char *file_path, uint8
 
         debounce_time = uptime_get();
 
-        // Draw
+        lcd_sleep_while_swap_pending();
         odroid_overlay_draw_banner_text(ODROID_SCREEN_WIDTH / 2, ODROID_SCREEN_HEIGHT / 2, curr_lang->s_Loading_Banner);
-
-        // Show
+        lcd_sync();
         lcd_swap();
     }
 

@@ -43,32 +43,16 @@ function print_simple_usage {
 
 print_usage itcram   __ITCMRAM_LENGTH__
 
-# DTCRAM is a special case
+# DTCRAM: bump pool fills all space from ORIGIN up to the fixed stack.
+# (stdlib malloc heap + .data/.bss live in AHB, not DTCM.)
 dtc_size=$(get_symbol __DTCMRAM_LENGTH__)
-dtc_free=$(get_section_length dtc_padding)
-dtc_usage=$(( dtc_size - dtc_free ))
-echo -e "dtcram\t$dtc_usage / $dtc_size ($dtc_free bytes free)"
+dtc_heap=$(get_section_length dtc_padding)
+dtc_static=$(( dtc_size - dtc_heap ))
+echo -e "dtcram\t$dtc_static static + $dtc_heap bump / $dtc_size"
 
 print_usage ram_uc   __RAM_UC_LENGTH__
 print_usage ram      __RAM_CORE_LENGTH__
-print_usage ram_emu_nes_fceu  __RAM_EMU_LENGTH__
-print_usage ram_emu_tgb __RAM_EMU_LENGTH__
-print_usage ram_emu_sms  __RAM_EMU_LENGTH__
-print_usage ram_emu_pce  __RAM_EMU_LENGTH__
-print_usage ram_emu_gw   __RAM_EMU_LENGTH__
-print_usage ram_emu_msx  __RAM_EMU_LENGTH__
-print_usage ram_emu_wsv  __RAM_EMU_LENGTH__
 print_usage ram_emu_md __RAM_EMU_LENGTH__
-print_usage ram_emu_a2600  __RAM_EMU_LENGTH__
-print_usage ram_emu_a7800  __RAM_EMU_LENGTH__
-print_usage ram_emu_amstrad  __RAM_EMU_LENGTH__
-print_usage ram_emu_zelda3  __RAM_EMU_LENGTH__
-print_simple_usage rodata_zelda3
-print_usage ram_emu_smw  __RAM_EMU_LENGTH__
-print_usage ram_emu_videopac  __RAM_EMU_LENGTH__
-print_usage ram_emu_celeste  __RAM_EMU_LENGTH__
-print_usage ram_emu_tama __RAM_EMU_LENGTH__
-print_usage ram_emu_pkmini __RAM_EMU_LENGTH__
 print_usage ahbram   __AHBRAM_LENGTH__
 print_usage flash    __FLASH_LENGTH__
 print_usage extflash __EXTFLASH_LENGTH__
