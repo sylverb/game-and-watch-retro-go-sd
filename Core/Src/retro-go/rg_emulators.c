@@ -1720,6 +1720,15 @@ static bool load_gnw_segments(const char *path, uint32_t file_offset,
             return false;
         }
 
+        /* An ITCM segment's span is reserved BEFORE it is read, not after.
+         * mem_ctl(GW_MEM_OP_ALLOC) is a calloc -- itc_malloc() zeroes what
+         * it returns -- so reserving afterwards wipes the code that was
+         * just loaded, and the core jumps into a cleared ITCM. The reserve
+         * is only a bump of the ITC pointer, so doing it first is free. */
+        void *reserved_itcm = NULL;
+        if (seg->region == GNW_CORE_REGION_ITCM)
+            reserved_itcm = itc_malloc(seg->code_size + seg->bss_size);
+
         size_t loaded = seg->code_size
             ? rg_storage_copy_file_range_to_ram((char *)path, base, file_offset, seg->code_size, NULL)
             : 0;
@@ -1738,9 +1747,13 @@ static bool load_gnw_segments(const char *path, uint32_t file_offset,
             entry_base = base;
             ram_start = (uint32_t)(base + seg->code_size + seg->bss_size);
         } else if (seg->region == GNW_CORE_REGION_ITCM) {
-            void *reserved = itc_malloc(seg->code_size + seg->bss_size);
-            if (reserved != base) {
-                printf("GNW: ITCM reserve failed (%p vs %p)\n", reserved, base);
+            /* RESERVE BEFORE LOADING, not after: mem_ctl(GW_MEM_OP_ALLOC)
+             * is a CALLOC, so taking the span after the read zeroes the
+             * code that was just placed there. The reservation is made
+             * before the segment is read (see above); this only checks
+             * that it landed where the segment does. */
+            if (reserved_itcm != base) {
+                printf("GNW: ITCM reserve failed (%p vs %p)\n", reserved_itcm, base);
                 return false;
             }
         } else if (seg->region == GNW_CORE_REGION_RAM_UC) {

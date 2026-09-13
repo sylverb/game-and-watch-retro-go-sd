@@ -17,6 +17,10 @@ extern uint32_t ram_start;
  *      Freeable with free(). No pool-wide reset — live allocations are kept.
  * DTCM (dtc_init/dtc_malloc/dtc_calloc): bump from DTCM ORIGIN to the
  *      stack redzone. No free; forgotten by dtc_init().
+ * NOTE: reached from a core through mem_ctl(GW_MEM_OP_ALLOC), ALL of
+ * these ZERO what they return -- malloc and calloc alike. Anything that
+ * places data first and reserves the span afterwards therefore wipes it.
+ *
  * ITC  (itc_init/itc_malloc/itc_calloc): bump; forgotten by itc_init().
  * RAM_EMU (ram_init/ram_malloc/ram_calloc): bump from ram_start; forgotten
  *      by ram_init() (current_ram_pointer rewind).
