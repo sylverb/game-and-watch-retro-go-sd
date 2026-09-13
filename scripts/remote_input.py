@@ -3,9 +3,9 @@
 How it works
 ------------
 A `REMOTE_INPUT` firmware build OR's a 32-bit "shadow" word at
-`SRAM_REMOTE_INPUT_ADDR` (0x2001FFF4, DTCM) into its live button state every
-input poll, so a debug-probe write to that cell is indistinguishable from a
-physical press.
+`SRAM_REMOTE_INPUT_ADDR` (0x30001FF4, AHB .persistent pad) into its live
+button state every input poll, so a debug-probe write to that cell is
+indistinguishable from a physical press.
 
 The whole point of this module is **one persistent OpenOCD connection** to keep
 overhead low and avoid repeating commands.
@@ -16,7 +16,7 @@ import time
 from contextlib import contextmanager
 
 # --- Shadow cell: keep in sync with Core/Inc/gw_buttons.h ---
-SHADOW_ADDR = 0x2001FFF4
+SHADOW_ADDR = 0x30001FF4
 
 # --- Button bits: keep in sync with input_button_t enum order:
 #     UP, DOWN, LEFT, RIGHT, A, B, START, SELECT, PAUSE, GAME, TIME, PWR

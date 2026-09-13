@@ -44,6 +44,11 @@ void odroid_system_init(int appId, int sampleRate)
     currentApp.id = appId;
     currentApp.romPath = ACTIVE_FILE->path;
 
+    /* appId is APPID_LAUNCHER / APPID_CORE / APPID_HOMEBREW.
+     * Per-core settings live in /data/<stem>.cfg, not APPID slots. */
+    if (appId == APPID_LAUNCHER)
+        odroid_settings_unbind_core_cfg();
+
     odroid_settings_init();
     odroid_audio_init(sampleRate);
     odroid_display_init();
@@ -84,11 +89,21 @@ rg_app_desc_t *odroid_system_get_app()
 static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPath, char *out, int out_size)
 {
     const char *fileName = _romPath ?: currentApp.romPath;
+    char homebrew_rel[200];
 
     if (strstr(fileName, ODROID_BASE_PATH_ROMS))
     {
         fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
         fileName += strlen(ODROID_BASE_PATH_ROMS);
+    }
+    else if (strstr(fileName, ODROID_BASE_PATH_HOMEBREWS))
+    {
+        /* /homebrews/Foo.bin → relative "/homebrew/Foo.bin" so covers stay
+         * under /covers/homebrew/ and saves under /data/homebrew/. */
+        const char *base = strrchr(fileName, '/');
+        base = base ? base + 1 : fileName;
+        snprintf(homebrew_rel, sizeof(homebrew_rel), "/homebrew/%s", base);
+        fileName = homebrew_rel;
     }
 
     if (!fileName || strlen(fileName) < 4)
@@ -146,7 +161,10 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             break;
 
         case ODROID_PATH_ROM_FILE:
-            snprintf(out, out_size, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
+            if (strncmp(fileName, "/homebrew/", 10) == 0)
+                snprintf(out, out_size, "%s/%s", ODROID_BASE_PATH_HOMEBREWS, fileName + 10);
+            else
+                snprintf(out, out_size, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
             break;
 
         case ODROID_PATH_CRC_CACHE:
@@ -168,39 +186,6 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             /* Persist active cheat bitmask alongside savestates (writable /data). */
             snprintf(out, out_size, "%s%s.state", ODROID_BASE_PATH_SAVES, fileName);
             break;
-
-        case ODROID_PATH_CHEAT_PCE:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.pceplus", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
-
-        case ODROID_PATH_CHEAT_GAME_GENIE:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.ggcodes", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
-
-        case ODROID_PATH_CHEAT_MCF:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.mcf", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
 
         case ODROID_PATH_SYSTEM_CONFIG:
         {
@@ -236,6 +221,46 @@ char* odroid_system_get_path(emu_path_type_t type, const char *_romPath)
 void odroid_system_get_path_to_buf(emu_path_type_t type, const char *_romPath, char *buf, int buf_size)
 {
     odroid_system_get_path_buf(type, _romPath, buf, buf_size);
+}
+
+void odroid_system_get_cheat_path_to_buf(const char *_romPath, const char *cheat_ext,
+                                         char *buf, int buf_size)
+{
+    const char *fileName = _romPath ?: currentApp.romPath;
+    char homebrew_rel[200];
+
+    if (strstr(fileName, ODROID_BASE_PATH_ROMS))
+    {
+        fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
+        fileName += strlen(ODROID_BASE_PATH_ROMS);
+    }
+    else if (strstr(fileName, ODROID_BASE_PATH_HOMEBREWS))
+    {
+        const char *base = strrchr(fileName, '/');
+        base = base ? base + 1 : fileName;
+        snprintf(homebrew_rel, sizeof(homebrew_rel), "/homebrew/%s", base);
+        fileName = homebrew_rel;
+    }
+
+    if (!fileName || strlen(fileName) < 4 || !cheat_ext || !cheat_ext[0])
+    {
+        if (buf_size > 0)
+            buf[0] = '\0';
+        return;
+    }
+
+    char shortFileName[200];
+    strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
+    shortFileName[sizeof(shortFileName) - 1] = '\0';
+    char *dot = strrchr(shortFileName, '.');
+    if (dot)
+        *dot = '\0';
+
+    /* Accept either "ggcodes" or ".ggcodes" from callers. */
+    if (cheat_ext[0] == '.')
+        cheat_ext++;
+
+    snprintf(buf, buf_size, "%s%s.%s", ODROID_BASE_PATH_CHEATS, shortFileName, cheat_ext);
 }
 
 bool odroid_system_emu_screenshot(const char *filename)
@@ -453,6 +478,9 @@ void odroid_system_switch_app(int app)
     switch (app)
     {
     case 0:
+        /* Let the core/homebrew flush its own state (settings, etc.) before
+         * we commit the bound .cfg and tear down the SD card. */
+        odroid_system_shutdown();
         odroid_settings_StartupFile_set(0);
         odroid_settings_commit();
 

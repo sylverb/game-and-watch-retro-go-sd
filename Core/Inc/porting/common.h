@@ -85,13 +85,3 @@ void common_emu_clear_dwt_cycles(void);
 void common_ingame_overlay(void);
 
 void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
-
-/**
- * Draw border screen for Zelda 3 when not full screen.
- */
-void draw_border_zelda3(pixel_t * fb);
-
-/**
- * Draw border screen for Super Mario World.
- */
-void draw_border_smw(pixel_t * fb);
