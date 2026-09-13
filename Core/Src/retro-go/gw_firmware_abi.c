@@ -263,6 +263,27 @@ extern int     __popcountsi2(unsigned);
  * no references to the symbol. Plugins reach it via the fixed address
  * macro, not by symbol name.
  */
+/* ---- ours: derived-blob flash cache ---------------------------------
+ * flash_stream_t is published in gw_flash_alloc.h and the core allocates
+ * it; the ABI takes void * so the slot signature does not drag a
+ * firmware-private header into every core. */
+static bool gw_abi_store_data_begin(void *st, const char *key, uint32_t total_size)
+{
+    return store_data_begin((flash_stream_t *)st, key, total_size);
+}
+static bool gw_abi_store_data_append(void *st, const uint8_t *buf, uint32_t len)
+{
+    return store_data_append((flash_stream_t *)st, buf, len);
+}
+static const uint8_t *gw_abi_store_data_finish(void *st)
+{
+    return store_data_finish((flash_stream_t *)st);
+}
+static void gw_abi_store_data_abort(void *st)
+{
+    store_data_abort((flash_stream_t *)st);
+}
+
 __attribute__((section(".firmware_abi"), used))
 const gw_firmware_abi_t g_firmware_abi = {
     .version = GW_FIRMWARE_ABI_VERSION,
@@ -558,4 +579,17 @@ const gw_firmware_abi_t g_firmware_abi = {
 
     /* v2 append: soft bilinear blit (OpenMV imlib) */
     .imlib_draw_image            = imlib_draw_image,
+
+    /* ours: derived-blob flash cache + four small slots */
+    .lookup_data_in_flash        = lookup_data_in_flash,
+    .store_data_in_flash         = store_data_in_flash,
+    .store_data_set_progress_cb  = store_data_set_progress_cb,
+    .store_data_begin            = gw_abi_store_data_begin,
+    .store_data_append           = gw_abi_store_data_append,
+    .store_data_finish           = gw_abi_store_data_finish,
+    .store_data_abort            = gw_abi_store_data_abort,
+    .lcd_get_mode                = lcd_get_mode,
+    .odroid_overlay_draw_progress_bar = odroid_overlay_draw_progress_bar,
+    .rg_storage_mkdir            = rg_storage_mkdir,
+    .rg_dirname                  = rg_dirname,
 };
