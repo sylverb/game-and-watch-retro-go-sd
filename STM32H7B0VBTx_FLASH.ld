@@ -290,6 +290,15 @@ SECTIONS
     KEEP(*(.firmware_abi))
   } >FLASH
 
+  /* A core resolves this table as VTOR + GW_FIRMWARE_ABI_OFFSET and reads
+     function pointers straight out of it, so if g_firmware_abi ends up
+     anywhere else the core calls into whatever happens to be there. That
+     is easy to do by accident: the attribute pins the NEXT declaration,
+     so anything inserted between it and the struct silently takes the
+     section instead. Fail the link rather than the device. */
+  ASSERT(g_firmware_abi == ORIGIN(FLASH) + 0x400,
+         "Error: g_firmware_abi is not at FLASH+0x400 -- .firmware_abi lost the struct (check the section attribute in gw_firmware_abi.c)")
+
   /* The program code and other data goes into FLASH */
   .text :
   {
