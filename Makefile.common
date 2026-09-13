@@ -1003,6 +1003,10 @@ endif
 
 # Upload cores to sd card
 SD_FOLDER := sd_content
+# Still USED below -- MAPPERS_DIR, and the per-core .bin extraction -- but
+# no longer defined since the in-tree cores were removed, so it expanded
+# empty and create_sd_folders tried to mkdir an absolute /path.
+CORES_DIR := $(SD_FOLDER)/cores
 FONTS_DIR := $(SD_FOLDER)/fonts
 UNICODE_FONT_SOURCE ?= assets/fonts/fusion-pixel-12px-monospaced-zh_hant.ttf
 # tools/gen_unicode_bin.py --script names → /fonts/unicode_<name>.bin (trimmed by active UI langs)
