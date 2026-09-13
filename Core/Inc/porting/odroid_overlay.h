@@ -67,6 +67,10 @@ int odroid_overlay_confirm(const char *text, bool yes_selected, void_callback_t 
 void odroid_overlay_alert(const char *text);
 
 uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap);
+
+/* Caching progress chrome, also published through the firmware ABI so a
+ * core that caches its own game data can draw the same bar. */
+void odroid_overlay_draw_progress_bar(const char *header, uint8_t progress);
 size_t   odroid_overlay_cache_file_in_ram(const char *file_path, uint8_t *dest_address);
 size_t   odroid_overlay_cache_file_in_ram_with_offset(const char *file_path, uint8_t *dest_address, uint32_t offset);
 

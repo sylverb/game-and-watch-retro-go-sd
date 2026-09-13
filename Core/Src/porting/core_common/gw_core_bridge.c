@@ -1334,3 +1334,57 @@ unsigned long strtoul(const char *nptr, char **endptr, int base)
 {
     return core_strtoul(nptr, endptr, base);
 }
+
+/* ---- ours: derived-blob flash cache + four small slots ---------------
+ * A core that decodes or weaves an asset once caches it in external flash
+ * under a key and gets a memory-mapped pointer back on every later launch
+ * (the arcade master's woven 68000 program, its Z80 flag tables, the
+ * YM2610 LFO table). See gw_firmware_abi.h.
+ *
+ * KEEP THESE RESIDENT. The streaming trampolines run while OSPI is
+ * unmapped, so a core that sweeps them into a flash-resident cold section
+ * faults on the first blob. They are ~230 bytes in total. */
+const uint8_t *core_lookup_data_in_flash(const char *key, uint32_t *size_out)
+{
+    return gw_firmware_abi()->lookup_data_in_flash(key, size_out);
+}
+const uint8_t *core_store_data_in_flash(const char *key, const uint8_t *data, uint32_t data_size)
+{
+    return gw_firmware_abi()->store_data_in_flash(key, data, data_size);
+}
+void core_store_data_set_progress_cb(void (*cb)(uint32_t done, uint32_t total))
+{
+    gw_firmware_abi()->store_data_set_progress_cb(cb);
+}
+bool core_store_data_begin(void *st, const char *key, uint32_t total_size)
+{
+    return gw_firmware_abi()->store_data_begin(st, key, total_size);
+}
+bool core_store_data_append(void *st, const uint8_t *buf, uint32_t len)
+{
+    return gw_firmware_abi()->store_data_append(st, buf, len);
+}
+const uint8_t *core_store_data_finish(void *st)
+{
+    return gw_firmware_abi()->store_data_finish(st);
+}
+void core_store_data_abort(void *st)
+{
+    gw_firmware_abi()->store_data_abort(st);
+}
+int core_lcd_get_mode(void)
+{
+    return gw_firmware_abi()->lcd_get_mode();
+}
+void core_odroid_overlay_draw_progress_bar(const char *header, uint8_t progress)
+{
+    gw_firmware_abi()->odroid_overlay_draw_progress_bar(header, progress);
+}
+bool core_rg_storage_mkdir(const char *dir)
+{
+    return gw_firmware_abi()->rg_storage_mkdir(dir);
+}
+const char *core_rg_dirname(const char *path)
+{
+    return gw_firmware_abi()->rg_dirname(path);
+}
