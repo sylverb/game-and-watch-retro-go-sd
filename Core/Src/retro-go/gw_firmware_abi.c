@@ -266,7 +266,23 @@ extern int     __popcountsi2(unsigned);
 /* ---- ours: derived-blob flash cache ---------------------------------
  * flash_stream_t is published in gw_flash_alloc.h and the core allocates
  * it; the ABI takes void * so the slot signature does not drag a
- * firmware-private header into every core. */
+ * firmware-private header into every core.
+ *
+ * SD ONLY. gw_flash_alloc.c is compiled only for SD_CARD=1
+ * (Makefile.common), so on a flash-only build these symbols do not
+ * exist and referencing them from the table is seven undefined
+ * references at link time. The SLOTS still exist there and are NULL:
+ * removing the struct members instead would shift every later entry and
+ * silently give the two build variants different ABIs.
+ *
+ * Nothing is lost on flash-only. The store caches data DERIVED at
+ * runtime in RAM, which a flash build has no reason to do: its
+ * equivalent already sits in FrogFS as an uncompressed file, and
+ * odroid_overlay_cache_file_in_flash() maps it in place with no copy
+ * (see the SD_CARD == 0 arm in odroid_overlay.c). A core must therefore
+ * test these slots for NULL and fall back to the file, which is the
+ * cheaper path anyway. */
+#if SD_CARD == 1
 static bool gw_abi_store_data_begin(void *st, const char *key, uint32_t total_size)
 {
     return store_data_begin((flash_stream_t *)st, key, total_size);
@@ -283,6 +299,7 @@ static void gw_abi_store_data_abort(void *st)
 {
     store_data_abort((flash_stream_t *)st);
 }
+#endif  /* SD_CARD == 1 */
 
 __attribute__((section(".firmware_abi"), used))
 const gw_firmware_abi_t g_firmware_abi = {
@@ -581,6 +598,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .imlib_draw_image            = imlib_draw_image,
 
     /* ours: derived-blob flash cache + four small slots */
+#if SD_CARD == 1
     .lookup_data_in_flash        = lookup_data_in_flash,
     .store_data_in_flash         = store_data_in_flash,
     .store_data_set_progress_cb  = store_data_set_progress_cb,
@@ -588,6 +606,7 @@ const gw_firmware_abi_t g_firmware_abi = {
     .store_data_append           = gw_abi_store_data_append,
     .store_data_finish           = gw_abi_store_data_finish,
     .store_data_abort            = gw_abi_store_data_abort,
+#endif  /* flash-only leaves these NULL; see above */
     .lcd_get_mode                = lcd_get_mode,
     .odroid_overlay_draw_progress_bar = odroid_overlay_draw_progress_bar,
     .rg_storage_mkdir            = rg_storage_mkdir,

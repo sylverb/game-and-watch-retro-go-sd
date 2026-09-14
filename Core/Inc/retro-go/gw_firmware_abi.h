@@ -635,6 +635,12 @@ typedef struct {
      * against these slots cannot run on stock firmware, because
      * gnw_core_probe() gates on required_abi_min_size <= sizeof(abi).
      * ================================================================ */
+    /* NULL on SD_CARD=0 builds: gw_flash_alloc.c is SD-only, and a flash
+     * build has no reason to derive this data at runtime -- the same
+     * bytes ship as an uncompressed FrogFS file that
+     * odroid_overlay_cache_file_in_flash() maps in place with no copy.
+     * Test for NULL and use the file. The slots stay present in both
+     * variants so the table layout never differs. */
     const uint8_t *(*lookup_data_in_flash)(const char *key, uint32_t *size_out);
     const uint8_t *(*store_data_in_flash)(const char *key, const uint8_t *data,
                                           uint32_t data_size);
