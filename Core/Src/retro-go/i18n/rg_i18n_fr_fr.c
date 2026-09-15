@@ -1,7 +1,6 @@
 //#include "rg_i18n_lang.h"
 // Stand French
 
-
 int fr_fr_fmt_Title_Date_Format(char *outstr, const char *datefmt, uint16_t day, uint16_t month, const char *weekday, uint16_t hour, uint16_t minutes, uint16_t seconds)
 {
     return sprintf(outstr, datefmt, day, month, weekday, hour, minutes, seconds);
@@ -24,125 +23,10 @@ const lang_t lang_fr_fr LANG_DATA = {
     .s_LangUI = "Langue",
     .s_LangName = "French",
 
-    // Core\Src\porting\nes-fceu\main_nes_fceu.c ===========================
-    .s_Crop_Vertical_Overscan = "Recadrage Vertical",
-    .s_Crop_Horizontal_Overscan = "Recadrage Horizontal",
-    .s_Disable_Sprite_Limit = "Désactiver limit. nb sprites",
+    // Shared (firmware overlays); core-specific strings are in *_i18n.c
     .s_Reset = "Reset",
-    .s_NES_CPU_OC = "Overclocking du CPU NES",
-    .s_NES_Eject_Insert_FDS = "Ejecter/Insérer le disque",
-    .s_NES_Eject_FDS = "Ejecter Disque",
-    .s_NES_Insert_FDS = "Insérer Disque",
-    .s_NES_Swap_Side_FDS = "Changer la face du disque",
-    .s_NES_FDS_Side_Format = "Disque %d Face %s",
-    //=====================================================================
-
-    // Core\Src\porting\gb\main_gb.c =======================================
     .s_Palette = "Palette",
-    .s_System = "Système",
-    .s_SGB_Border = "Cadre SGB",
-    //=====================================================================
-
-    // Core\Src\porting\nes\main_nes.c =====================================
-    //.s_Palette = "Palette" dul
     .s_Default = "Par défaut",
-    //=====================================================================
-
-    // Core\Src\porting\pkmini\main_pkmini.c ==============================
-    .s_pkmini_LCD_Filter = "Filtre LCD",
-    .s_pkmini_LCD_Mode = "Mode LCD",
-    .s_pkmini_Piezo_Filter = "Filtre Piezo",
-    .s_pkmini_Low_Pass_Filter = "Filtre Passe-Bas",
-    // PokeMini palette names
-    .s_pkmini_palette_Default = "Défaut",
-    .s_pkmini_palette_Old = "Vieux",
-    .s_pkmini_palette_BlackWhite = "Noir et Blanc",
-    .s_pkmini_palette_Green = "Vert",
-    .s_pkmini_palette_InvertedGreen = "Vert Inversé",
-    .s_pkmini_palette_Red = "Rouge",
-    .s_pkmini_palette_InvertedRed = "Rouge Inversé",
-    .s_pkmini_palette_BlueLCD = "LCD Bleu",
-    .s_pkmini_palette_LEDBacklight = "Rétro-éclairage LED",
-    .s_pkmini_palette_GirlPower = "Pouvoir des Filles",
-    .s_pkmini_palette_Blue = "Bleu",
-    .s_pkmini_palette_InvertedBlue = "Bleu Inversé",
-    .s_pkmini_palette_Sepia = "Sépia",
-    .s_pkmini_palette_InvertedBlackWhite = "Noir et Blanc Inversé",
-    // PokeMini LCD filter names
-    .s_pkmini_lcd_filter_None = "Aucun",
-    .s_pkmini_lcd_filter_DotMatrix = "Matrice de points",
-    .s_pkmini_lcd_filter_Scanlines = "Lignes de balayage",
-    // PokeMini LCD mode names
-    .s_pkmini_lcd_mode_Analog = "Analogique",
-    .s_pkmini_lcd_mode_3Shades = "3 Nuances",
-    .s_pkmini_lcd_mode_2Shades = "2 Nuances",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_gwenesis.c ================================
-    .s_md_keydefine = "keys: A-B-C",
-    .s_md_Synchro = "Synchro",
-    .s_md_Synchro_Audio = "AUDIO",
-    .s_md_Synchro_Vsync = "VSYNC",
-    .s_md_Dithering = "Dithering",
-    .s_md_Debug_bar = "Debug bar",
-    .s_md_AudioFilter = "Audio Filter",
-    .s_md_VideoUpscaler = "Video Upscaler",
-    .s_md_Region = "Région",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_wsv.c ================================
-    .s_wsv_palette_Default = "Default",
-    .s_wsv_palette_Amber = "Amber",
-    .s_wsv_palette_Green = "Green",
-    .s_wsv_palette_Blue = "Blue",
-    .s_wsv_palette_BGB = "BGB",
-    .s_wsv_palette_Wataroo = "Wataroo",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_msx.c ================================
-    .s_msx_Change_Dsk = "Change Dsk",
-    .s_msx_Select_MSX = "Type de MSX",
-    .s_msx_MSX1_EUR = "MSX1 (EUR)",
-    .s_msx_MSX2_EUR = "MSX2 (EUR)",
-    .s_msx_MSX2_JP = "MSX2+ (JP)",
-    .s_msx_Frequency = "Fréquence",
-    .s_msx_Freq_Auto = "Auto",
-    .s_msx_Freq_50 = "50Hz",
-    .s_msx_Freq_60 = "60Hz",
-    .s_msx_A_Button = "Bouton A",
-    .s_msx_B_Button = "Bouton B",
-    .s_msx_Press_Key = "Press Key",
-    //=====================================================================
-
-    // Core\Src\porting\md\main_amstrad.c ================================
-    .s_amd_Change_Dsk = "Change Dsk",
-    .s_amd_Controls = "Contrôles",
-    .s_amd_Controls_Joystick = "Manette",
-    .s_amd_Controls_Keyboard = "Clavier",
-    .s_amd_palette_Color = "Couleur",
-    .s_amd_palette_Green = "Vert",
-    .s_amd_palette_Grey = "Gris",
-    .s_amd_game_Button = "Bouton Game",
-    .s_amd_time_Button = "Bouton Time",
-    .s_amd_start_Button = "Bouton Start",
-    .s_amd_select_Button = "Bouton Select",
-    .s_amd_A_Button = "Bouton A",
-    .s_amd_B_Button = "Bouton B",
-    .s_amd_Press_Key = "Press Key",
-    //=====================================================================
-
-    // Core\Src\porting\gw\main_gw.c =======================================
-    .s_copy_RTC_to_GW_time = "Copie RTC vers horloge G&W",
-    .s_copy_GW_time_to_RTC = "Copie temps G&W vers horloge RTC",
-    .s_LCD_filter = "Filtre LCD",
-    .s_Display_RAM = "Montrer la RAM",
-    .s_Press_ACL = "Presser ACL ou Reset",
-    .s_Press_TIME = "Presser TIME [B+TIME]",
-    .s_Press_ALARM = "Presser ALARM [B+GAME]",
-    .s_filter_0_none = "0-aucun",
-    .s_filter_1_medium = "1-moyen",
-    .s_filter_2_high = "2-élevé",
-    //=====================================================================
 
     // Core\Src\porting\odroid_overlay.c ===================================
     .s_Option_ON = "\x6",
@@ -279,6 +163,9 @@ const lang_t lang_fr_fr LANG_DATA = {
     .s_Date_Format = "%02d.%02d.20%02d %s",
     .s_Time_Format = "%02d:%02d:%02d",
     .s_favorite = "Favori",
+    .s_Info = "Info",
+    .s_Name = "Nom",
+    .s_Version = "Version",
     .fmt_Title_Date_Format = fr_fr_fmt_Title_Date_Format,
     .fmtDate = fr_fr_fmt_Date,
     .fmtTime = fr_fr_fmt_Time,

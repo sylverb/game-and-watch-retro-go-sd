@@ -105,19 +105,28 @@ bool rg_favorites_reset(void)
     return res == FR_OK || res == FR_NO_FILE;
 }
 
-/** Map "/roms/<dirname>/..." to its registered system, or NULL. */
+/** Map "/roms/<dirname>/..." or "/homebrews/..." to its registered system. */
 static const rom_system_t *system_for_path(const char *path)
 {
-    static const char prefix[] = RG_BASE_PATH_ROMS "/";
-    const size_t prefix_len = sizeof(prefix) - 1;
+    static const char roms_prefix[] = RG_BASE_PATH_ROMS "/";
+    static const char hb_prefix[] = RG_BASE_PATH_HOMEBREWS "/";
+    const size_t roms_prefix_len = sizeof(roms_prefix) - 1;
+    const size_t hb_prefix_len = sizeof(hb_prefix) - 1;
 
-    if (strncmp(path, prefix, prefix_len) != 0)
+    if (strncmp(path, hb_prefix, hb_prefix_len) == 0)
+        return rg_emulators_system_for_dir("homebrew", strlen("homebrew"));
+
+    if (strncmp(path, roms_prefix, roms_prefix_len) != 0)
         return NULL;
-    const char *dirname = path + prefix_len;
+    const char *dirname = path + roms_prefix_len;
     const char *slash = strchr(dirname, '/');
     if (slash == NULL || slash == dirname)
         return NULL;
-    return rg_emulators_system_for_dir(dirname, (size_t)(slash - dirname));
+    size_t dlen = (size_t)(slash - dirname);
+    /* Legacy /roms/homebrew/ — homebrews live at /homebrews/ only. */
+    if (dlen == 8 && strncmp(dirname, "homebrew", 8) == 0)
+        return NULL;
+    return rg_emulators_system_for_dir(dirname, dlen);
 }
 
 /** Build one launchable list entry from a favorite path (mirrors the file

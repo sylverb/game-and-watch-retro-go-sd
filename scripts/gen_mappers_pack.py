@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Pack every FCEUmm per-mapper blob (build/nes_mappers/mapper_<stem>.bin) into a
-single file (default sd_content/cores/mappers/mappers.pak), replacing the old
+single file (default sd_content/cores/nes_fceumm_mappers/mappers.pak), replacing the old
 one-file-per-mapper layout plus mappers_table.bin.
 
 Format (little-endian):
@@ -23,6 +23,7 @@ exactly like the old "mapper_<x>.bin not found" case.
 from __future__ import annotations
 
 import argparse
+import os
 import struct
 import sys
 from pathlib import Path
@@ -34,9 +35,23 @@ INDEX_ENTRY_SIZE = 8
 
 
 def load_mapper_dict(repo_root: Path) -> dict[int, str]:
-    """Import mapper_dict from external/fceumm-go/gen_mappers_table.py without
-    running its CLI tail (which sys.exit()s when called with no arguments)."""
-    p = repo_root / "external/fceumm-go/gen_mappers_table.py"
+    """Import mapper_dict from the NES core project's gen_mappers_table.py.
+
+    Historically this lived at ``external/fceumm-go/``; that submodule is gone
+    now that NES is an external core. Override with ``FCEUMM_GO`` or place a
+    checkout at ``external/fceumm-go`` when regenerating a pruned pack.
+    """
+    override = Path(os.environ["FCEUMM_GO"]) if "FCEUMM_GO" in os.environ else None
+    candidates = [
+        override,
+        repo_root / "external" / "fceumm-go",
+    ]
+    p = next((c / "gen_mappers_table.py" for c in candidates if c and (c / "gen_mappers_table.py").is_file()), None)
+    if p is None:
+        raise FileNotFoundError(
+            "gen_mappers_table.py not found (set FCEUMM_GO to the NES/fceumm "
+            "checkout, or ship a prebuilt cores/nes_fceumm_mappers/mappers.pak)"
+        )
     text = p.read_text(encoding="utf-8")
     marker = "\nn = len(sys.argv)"
     i = text.find(marker)

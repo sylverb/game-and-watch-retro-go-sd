@@ -68,14 +68,6 @@ def _migrate_roms(repo_path: Path) -> None:
         destination = Path("roms") / item.name
         shutil.copytree(item, destination, dirs_exist_ok=True) if item.is_dir() else shutil.copy2(item, destination)
 
-    # Relocate homebrew ROMs into their own subdirectory
-    Path("roms/homebrew").mkdir(exist_ok=True)
-    for rom in [Path("roms/smw/smw.sfc"), Path("roms/zelda3/zelda3.sfc")]:
-        if rom.exists():
-            rom.rename(Path("roms/homebrew") / rom.name)
-            shutil.rmtree(rom.parent)
-            console.print(f"  ✓ Migrated {rom.name} to roms/homebrew/")
-
     if found:
         console.print("  ✓ Migrated ROMs")
     else:

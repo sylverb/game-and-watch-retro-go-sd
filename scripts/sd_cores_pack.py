@@ -9,17 +9,16 @@ from __future__ import annotations
 import pathlib
 
 # UI logos: built to sd_content/bios/logo.bin (FrogFS /bios when SD_CARD=0, SD path /bios when SD_CARD=1).
-# pico8_stub.bin is omitted (placeholder; use real pico8.bin on FrogFS/SD or skip).
 ALWAYS_PACK_REL = frozenset()
 
 # Never copy these into LittleFS /cores (still produced under sd_content/cores for SD workflows).
-LITTLEFS_EXCLUDE_CORE_RELPATHS = frozenset({"pico8_stub.bin"})
+LITTLEFS_EXCLUDE_CORE_RELPATHS = frozenset()
 
 # roms/<dirname>/ → core blob(s) under sd_content/cores/
 _SYSTEM_CORE_RELFILES: dict[str, frozenset[str]] = {
     "gb": frozenset({"tgb.bin"}),
     "gbc": frozenset({"tgb.bin"}),
-    "nes": frozenset(),  # nes_fceu.bin + mappers/ (fceumm)
+    "nes": frozenset(),  # nes_fceu.bin + nes_fceumm_mappers/ (fceumm)
     "gw": frozenset({"gw.bin"}),
     "pce": frozenset({"pce.bin"}),
     "gg": frozenset({"sms.bin"}),
@@ -33,9 +32,8 @@ _SYSTEM_CORE_RELFILES: dict[str, frozenset[str]] = {
     "lynx": frozenset({"lynx.bin"}),
     "a7800": frozenset({"a7800.bin"}),
     "amstrad": frozenset({"amstrad.bin"}),
-    "tama": frozenset({"tama.bin"}),
     "mini": frozenset({"pkmini.bin"}),
-    "videopac": frozenset({"videopac.bin"}),
+    "gba": frozenset({"gba.bin", "gba.xip"}),
     "homebrew": frozenset(),
     "pico8": frozenset(),
 }
@@ -77,10 +75,10 @@ def core_relative_path_allowed(
 ) -> bool:
     """Whether rel_posix (relative to cores/, posix) should be copied to the image.
 
-    NES mappers now ship as a single ``mappers/mappers.pak`` (+ ines_correct.bin);
-    ROM-based pruning happens when that pack is (re)built, not here. The
-    ``nes_mapper_allowlist`` argument is accepted for backward compatibility and
-    ignored.
+    NES mappers now ship as a single ``nes_fceumm_mappers/mappers.pak``
+    (+ ines_correct.bin); ROM-based pruning happens when that pack is
+    (re)built, not here. The ``nes_mapper_allowlist`` argument is accepted
+    for backward compatibility and ignored.
     """
     del nes_mapper_allowlist  # single-file pack: pruning handled at pack build time
     if rel_posix in LITTLEFS_EXCLUDE_CORE_RELPATHS:
@@ -94,8 +92,11 @@ def core_relative_path_allowed(
     if "nes" in active_systems:
         if rel_posix == "nes_fceu.bin":
             return True
-        if rel_posix.startswith("mappers/"):
-            return rel_posix in ("mappers/mappers.pak", "mappers/ines_correct.bin")
+        if rel_posix.startswith("nes_fceumm_mappers/"):
+            return rel_posix in (
+                "nes_fceumm_mappers/mappers.pak",
+                "nes_fceumm_mappers/ines_correct.bin",
+            )
 
     for dirname, relfiles in _SYSTEM_CORE_RELFILES.items():
         if dirname in active_systems:

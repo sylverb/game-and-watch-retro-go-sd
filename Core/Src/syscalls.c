@@ -28,7 +28,7 @@ typedef struct {
     int is_open;
 } FatFSFile;
 
-#define MAX_OPEN_FILES 3
+#define MAX_OPEN_FILES 6
 FatFSFile file_table[MAX_OPEN_FILES];
 
 void init_file_table() {
@@ -381,7 +381,7 @@ int __wrap_fflush(int file) {
 extern uint32_t log_idx;
 extern char logbuf[1024 * 4];
 
-#define MAX_OPEN_FILES 3
+#define MAX_OPEN_FILES 6
 #define FS_FD_OFFSET 3
 
 typedef enum {
