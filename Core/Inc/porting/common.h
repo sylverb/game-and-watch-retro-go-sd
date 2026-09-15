@@ -17,8 +17,12 @@ bool common_emu_frame_loop(void);
 void common_emu_input_loop(odroid_gamepad_state_t *joystick, odroid_dialog_choice_t *game_options, void_callback_t repaint);
 void common_emu_input_loop_handle_turbo(odroid_gamepad_state_t *joystick);
 void common_emu_sound_sync(bool use_nops);
+void common_emu_sound_sync_reset(void);
 bool common_emu_sound_loop_is_muted();
 uint8_t common_emu_sound_get_volume();
+
+/* DMA half-buffer pacing marker shared by common_emu_sound_sync and PCE. */
+extern uint32_t common_emu_sound_dma_marker;
 
 typedef struct {
     uint last_busy;
@@ -81,13 +85,3 @@ void common_emu_clear_dwt_cycles(void);
 void common_ingame_overlay(void);
 
 void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
-
-/**
- * Draw border screen for Zelda 3 when not full screen.
- */
-void draw_border_zelda3(pixel_t * fb);
-
-/**
- * Draw border screen for Super Mario World.
- */
-void draw_border_smw(pixel_t * fb);

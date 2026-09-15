@@ -7,9 +7,15 @@
 #include "stm32h7xx_hal.h"
 
 #define BUFFER_SIZE 4*1024
+
 int8_t calculate_sha1_file(const char *file_path, uint8_t *output_hash) {
+    return calculate_sha1_file_limit(file_path, NO_LIMIT, output_hash);
+}
+
+int8_t calculate_sha1_file_limit(const char *file_path, ssize_t max_bytes, uint8_t *output_hash) {
     uint8_t buffer[BUFFER_SIZE];
     size_t read_bytes;
+    size_t remaining = (max_bytes == NO_LIMIT) ? (size_t)-1 : (size_t)max_bytes;
 
     FILE *file = fopen(file_path, "rb");
     if (!file) {
@@ -26,13 +32,16 @@ int8_t calculate_sha1_file(const char *file_path, uint8_t *output_hash) {
         return 0;
     }
 
-    while ((read_bytes = fread(buffer, 1, BUFFER_SIZE, file)) > 0) {
+    while (remaining > 0 && (read_bytes = fread(buffer, 1,
+            remaining < BUFFER_SIZE ? remaining : BUFFER_SIZE, file)) > 0) {
         if (HAL_HASH_SHA1_Accumulate(&hhash, buffer, read_bytes) != HAL_OK) {
             HAL_HASH_DeInit(&hhash);
             __HAL_RCC_HASH_CLK_DISABLE();
             fclose(file);
             return 0;
         }
+        if (remaining != NO_LIMIT)
+            remaining -= read_bytes;
     }
 
     if (HAL_HASH_SHA1_Start(&hhash, buffer, 0, output_hash, HAL_MAX_DELAY) != HAL_OK) {

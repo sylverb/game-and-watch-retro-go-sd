@@ -12,8 +12,18 @@
 #include "odroid_audio.h"
 #include "rg_i18n.h"
 #include "gw_malloc.h"
+#include "gui.h"
 
 static void set_ingame_overlay(ingame_overlay_t type);
+
+/* Per-system automatic CPU boost. A core that needs more headroom than stock
+ * 280MHz calls SystemClock_Config(level) once at app start (see MSX / PCE-CD /
+ * GBA). Levels 0/1/2 match the launcher menu; level 3 is core-private
+ * (~353 MHz) and must not be exposed in settings. NOT persisted: leaving an
+ * emulator resets the system, restoring the user's configured clock.
+ * SystemClock_Config itself refuses OC on OSPI1 SD hardware.
+ */
+uint8_t odroid_settings_cpu_oc_level_get(void);
 
 cpumon_stats_t cpumon_stats = {0};
 
@@ -47,10 +57,22 @@ void odroid_audio_mute(bool mute)
 
 common_emu_state_t common_emu_state = {
     .frame_time_10us = (uint16_t)(100000 / 60 + 0.5f),  // Reasonable default of 60FPS if not explicitly configured.
-    .clear_frames = 2, // Clear when starting emulator
+    .clear_frames = 2, // Clear each write FB once on first input_loop ticks
 };
 
 static int32_t frame_integrator = 0;
+static uint8_t skip_streak = 0;
+
+/* Shared with PCE's prefetch sound-sync so pause/resume can't desync the two. */
+uint32_t common_emu_sound_dma_marker = 0;
+
+void common_emu_sound_sync_reset(void)
+{
+    /* Pin to the current DMA half so the next sync waits for a fresh edge.
+     * After a long pause the old marker is many IRQs behind, the wait becomes
+     * a no-op, and the emu races a frame at 100% CPU (audible audio glitch). */
+    common_emu_sound_dma_marker = dma_counter;
+}
 
 void common_emu_frame_loop_reset(void){
     common_emu_state.last_sync_time = 0;
@@ -61,13 +83,23 @@ void common_emu_frame_loop_reset(void){
     common_emu_state.startup_frames=0;
     common_emu_state.clear_frames=0;
     frame_integrator = 0;
+    skip_streak = 0;
+    common_emu_sound_sync_reset();
 }
 
 bool common_emu_frame_loop(void){
     rg_app_desc_t *app = odroid_system_get_app();
     int16_t frame_time_10us = common_emu_state.frame_time_10us;
-    int16_t elapsed_10us = 100 * get_elapsed_time_since(common_emu_state.last_sync_time);
+    /* int32_t: a long stall must not overflow a 16-bit elapsed_10us into
+     * negative space (which would randomly "credit" pacing error). */
+    int32_t elapsed_10us = 100 * (int32_t)get_elapsed_time_since(common_emu_state.last_sync_time);
     bool draw_frame = common_emu_state.skip_frames < 2;
+
+    /* Overload guard: under sustained slowdown, skip_frames can stay >=2
+     * long enough to leave the screen visually frozen. Force one drawn
+     * frame in every 4 worst-case so the user always sees something. */
+    if (!draw_frame && ++skip_streak >= 4) { draw_frame = true; skip_streak = 0; }
+    else if (draw_frame) skip_streak = 0;
 
     if( !cpumon_stats.busy_ms ) cpumon_busy();
     odroid_system_tick(!draw_frame, 0, cpumon_stats.busy_ms);
@@ -107,6 +139,17 @@ bool common_emu_frame_loop(void){
             break;
     }
     frame_integrator += (elapsed_10us - frame_time_10us);
+
+    /* Clamp: short-term pacing error, not a debt ledger.
+     * One long stall would otherwise make the integrator saturate and
+     * keep drawFrame disabled for too long. */
+    {
+        const int32_t debt_cap   = ((int32_t)frame_time_10us << 1) + (frame_time_10us >> 1);
+        const int32_t credit_cap = -(int32_t)frame_time_10us - (frame_time_10us >> 1);
+        if (frame_integrator > debt_cap)        frame_integrator = debt_cap;
+        else if (frame_integrator < credit_cap) frame_integrator = credit_cap;
+    }
+
     if(frame_integrator > frame_time_10us << 1) common_emu_state.skip_frames = 2;
     else if(frame_integrator > frame_time_10us) common_emu_state.skip_frames = 1;
     else if(frame_integrator < -frame_time_10us) common_emu_state.pause_frames = 1;
@@ -164,8 +207,22 @@ static void open_pause_menu(odroid_dialog_choice_t *game_options, void_callback_
     if ((flags & ODROID_MENU_FLAG_DRAW_ONLY) == 0) {
         common_emu_state.pause_after_frames = 0;
         common_emu_state.startup_frames = 0;
-        common_emu_state.clear_frames = 2;
+        /* Clear BOTH framebuffers now. Deferred clear_frames=2 only wiped
+         * the active write buffer per input_loop tick; a skipped frame
+         * (no lcd_swap) burned a clear on the same buffer and left pause
+         * chrome on the other — letterboxed cores (NES scaling-off) then
+         * showed menu leftovers on the unreblitted sides ~50% of the time. */
+        lcd_sleep_while_swap_pending();
+        lcd_clear_buffers();
+        /* DRAW_ONLY → sleep may have left overlay CLUT nests open. */
+        lcd_overlay_clut_end_all();
+        common_emu_state.clear_frames = 0;
+        common_emu_state.skip_frames = 0;
+        common_emu_state.pause_frames = 0;
+        frame_integrator = 0;
+        common_emu_state.last_sync_time = get_elapsed_time();
         cpumon_stats.last_busy = 0;
+        common_emu_sound_sync_reset();
     }
 }
 
@@ -242,17 +299,29 @@ void common_emu_input_loop(odroid_gamepad_state_t *joystick, odroid_dialog_choic
                     return;
                 }
 
-                // Write BMP header
+                // Write BMP header (always RGB565 — convert from LUT8 if needed)
                 fwrite(bmp_header, 1, 66, file);
 
-                // Write RGB565 pixel data directly (bottom-up for BMP)
                 odroid_audio_mute(true);
                 lcd_sleep_while_swap_pending();
                 uint8_t *data = (uint8_t*)lcd_get_inactive_buffer();
 
-                for (int y = 239; y >= 0; y--) {  // BMP is bottom-up
-                    uint8_t *src_line = &data[y * 320 * 2];
-                    fwrite(src_line, 1, 320 * 2, file);
+                /* BMP is bottom-up. In LUT8 the framebuffer is 1 byte/pixel
+                 * (CLUT indices); expand via the live CLUT so the on-disk
+                 * BMP stays RGB565 like RGB565-mode screenshots. Same
+                 * conversion helper as savestate-preview loading. */
+                if (lcd_get_mode() == LCD_MODE_LUT8) {
+                    uint16_t row[GW_LCD_WIDTH];
+                    for (int y = GW_LCD_HEIGHT - 1; y >= 0; y--) {
+                        lcd_convert_lut8_to_rgb565(&data[y * GW_LCD_WIDTH],
+                                                   row, GW_LCD_WIDTH, NULL);
+                        fwrite(row, sizeof(uint16_t), GW_LCD_WIDTH, file);
+                    }
+                } else {
+                    for (int y = GW_LCD_HEIGHT - 1; y >= 0; y--) {
+                        uint8_t *src_line = &data[y * GW_LCD_WIDTH * 2];
+                        fwrite(src_line, 1, GW_LCD_WIDTH * 2, file);
+                    }
                 }
 
                 fclose(file);
@@ -390,14 +459,15 @@ void common_emu_input_loop(odroid_gamepad_state_t *joystick, odroid_dialog_choic
     }
 
     if (ingame_overlay_loop()) {
+        /* Two ticks: clear only the write buffer each time so the next
+         * emu paint+swap wipes HUD leftovers from both FBs. Clearing the
+         * currently displayed buffer (lcd_clear_buffers) flashes black. */
         common_emu_state.clear_frames = 2;
     }
 
     if (common_emu_state.clear_frames) {
         common_emu_state.clear_frames--;
         lcd_sleep_while_swap_pending();
-
-        // Clear the active screen buffer, caller must repaint it 
         lcd_clear_active_buffer();
     }
 
@@ -434,19 +504,18 @@ void common_emu_input_loop_handle_turbo(odroid_gamepad_state_t *joystick) {
 
 void common_emu_sound_sync(bool use_nops) {
     if (!common_emu_state.skip_frames) {
-        static uint32_t last_dma_counter = 0;
-        if (last_dma_counter == 0) {
-            last_dma_counter = dma_counter;
+        if (common_emu_sound_dma_marker == 0) {
+            common_emu_sound_dma_marker = dma_counter;
         }
         for (uint8_t p = 0; p < common_emu_state.pause_frames + 1; p++) {
-            while (dma_counter == last_dma_counter) {
+            while (dma_counter == common_emu_sound_dma_marker) {
                 if (use_nops) {
                     __NOP();
                 } else {
                     cpumon_sleep();
                 }
             }
-            last_dma_counter = dma_counter;
+            common_emu_sound_dma_marker = dma_counter;
         }
     }
 }
@@ -536,7 +605,6 @@ static const uint8_t ROUND[] = {  // This is the top/left of a 8-pixel radius ci
 #define IMG_H 24
 #define IMG_W 24
 
-
 /* Mode-agnostic via lcd_pen_t — handles both RGB565 and LUT8. The fb
  * argument is unused (the pen captures lcd_get_active_buffer() itself);
  * it's kept on the signature for back-compat with existing call sites. */
@@ -576,6 +644,70 @@ static void draw_darken_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_
     }
 }
 
+/*
+ * LUT8 panel pixel:
+ *  - Game content: darken (≈ translucent gray over the scene).
+ *  - Letterbox (0), already-shaded HUD gray, other overlay slots, or
+ *    near-black game pixels: solid panel gray.
+ * Never darken overlay indices — that nearest-matched into the cart
+ * palette and turned letterbox gray greenish on the next frame.
+ */
+static inline void hud_lut8_shade(uint8_t *fb, int off, uint8_t gray_idx)
+{
+    uint8_t idx = fb[off];
+    if (idx == 0 || idx == gray_idx ||
+        (idx >= LCD_OVERLAY_CLUT_BASE &&
+         idx < (uint8_t)(LCD_OVERLAY_CLUT_BASE + LCD_OVERLAY_CLUT_MAX)) ||
+        lcd_clut_luma_sum(idx) < 48) {
+        fb[off] = gray_idx;
+        return;
+    }
+    uint8_t d = lcd_darken_index(idx);
+    fb[off] = (d == 0 || lcd_clut_luma_sum(d) < 48) ? gray_idx : d;
+}
+
+static uint8_t hud_lut8_gray_idx(void)
+{
+    return (uint8_t)(LCD_OVERLAY_CLUT_BASE + LCD_OVERLAY_CLUT_GRAY);
+}
+
+static uint8_t hud_lut8_gray_dark_idx(void)
+{
+    return (uint8_t)(LCD_OVERLAY_CLUT_BASE + LCD_OVERLAY_CLUT_GRAY_DARK);
+}
+
+__attribute__((optimize("unroll-loops")))
+static void draw_hud_shade_rectangle(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
+{
+    if (lcd_get_mode() != LCD_MODE_LUT8) {
+        draw_darken_rectangle(NULL, x1, y1, x2, y2);
+        return;
+    }
+
+    uint8_t *fb = (uint8_t *)lcd_get_active_buffer();
+    uint8_t gray = hud_lut8_gray_idx();
+    for (uint16_t i = y1; i < y2; i++) {
+        for (uint16_t j = x1; j < x2; j++)
+            hud_lut8_shade(fb, j + GW_LCD_WIDTH * i, gray);
+    }
+}
+
+__attribute__((optimize("unroll-loops")))
+static void draw_hud_empty_box(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
+{
+    if (lcd_get_mode() != LCD_MODE_LUT8) {
+        draw_darken_rectangle(NULL, x1, y1, x2, y2);
+        return;
+    }
+    /* Opaque darker gray — second darken of panel gray would be a no-op
+     * (overlay map is identity) and looked identical to the panel. */
+    uint8_t *fb = (uint8_t *)lcd_get_active_buffer();
+    uint8_t dark = hud_lut8_gray_dark_idx();
+    for (uint16_t i = y1; i < y2; i++) {
+        memset(&fb[x1 + GW_LCD_WIDTH * i], dark, (size_t)(x2 - x1));
+    }
+}
+
 __attribute__((optimize("unroll-loops")))
 void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2){
     (void)fb;
@@ -583,8 +715,32 @@ void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16
     uint16_t h = y2 - y1;
     uint16_t w = x2 - x1;
     if (w < 16 || h < 16) {
-        // Draw not rounded rectangle
-        draw_darken_rectangle(NULL, x1, y1, x2, y2);
+        draw_hud_shade_rectangle(x1, y1, x2, y2);
+        return;
+    }
+
+    if (lcd_get_mode() == LCD_MODE_LUT8) {
+        uint8_t *dst = (uint8_t *)lcd_get_active_buffer();
+        uint8_t gray = hud_lut8_gray_idx();
+
+        for (uint8_t i = 0; i < 8; i++)
+            for (uint8_t j = 0; j < 8; j++)
+                if (ROUND[i] & (1 << (7 - j))) {
+                    hud_lut8_shade(dst, x1 + j + GW_LCD_WIDTH * (y1 + i), gray);
+                    hud_lut8_shade(dst, x2 - j - 1 + GW_LCD_WIDTH * (y1 + i), gray);
+                    hud_lut8_shade(dst, x1 + j + GW_LCD_WIDTH * (y2 - i - 1), gray);
+                    hud_lut8_shade(dst, x2 - j - 1 + GW_LCD_WIDTH * (y2 - i - 1), gray);
+                }
+
+        for (uint16_t i = x1 + 8; i < x2 - 8; i++)
+            for (uint8_t j = 0; j < 8; j++) {
+                hud_lut8_shade(dst, i + GW_LCD_WIDTH * (y1 + j), gray);
+                hud_lut8_shade(dst, i + GW_LCD_WIDTH * (y2 - j - 1), gray);
+            }
+
+        for (uint16_t i = x1; i < x2; i++)
+            for (uint16_t j = y1 + 8; j < y2 - 8; j++)
+                hud_lut8_shade(dst, i + GW_LCD_WIDTH * j, gray);
         return;
     }
 
@@ -619,6 +775,19 @@ void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16
         lcd_pen_darken(&pen, i + GW_LCD_WIDTH * (y2 - j - 1));
 }
 
+static void hud_draw_panel(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
+{
+    draw_darken_rounded_rectangle(fb, x1, y1, x2, y2);
+}
+
+static void hud_draw_level_box(pixel_t *fb, int filled, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
+{
+    if (filled)
+        draw_rectangle(fb, x1, y1, x2, y2);
+    else
+        draw_hud_empty_box(x1, y1, x2, y2);
+}
+
 #define INGAME_OVERLAY_X 265
 #define INGAME_OVERLAY_Y 10
 #define INGAME_OVERLAY_BARS_H 128
@@ -641,7 +810,7 @@ void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16
 #define INGAME_OVERLAY_BARS_IMG_X INGAME_OVERLAY_IMG_X
 #define INGAME_OVERLAY_BARS_IMG_Y (INGAME_OVERLAY_Y + INGAME_OVERLAY_BARS_H - IMG_H - INGAME_OVERLAY_BORDER)
 
-#define DARKEN_IMG_ONLY() draw_darken_rounded_rectangle(fb, \
+#define DARKEN_IMG_ONLY() hud_draw_panel(fb, \
                     INGAME_OVERLAY_X, \
                     INGAME_OVERLAY_Y, \
                     INGAME_OVERLAY_X + INGAME_OVERLAY_BARS_W, \
@@ -662,11 +831,27 @@ void common_ingame_overlay(void) {
 
     odroid_battery_state_t battery_state = odroid_input_read_battery();
     uint16_t percentage = battery_state.percentage;
-    if (percentage <= 15) {
-        if ((get_elapsed_time() % 1000) < 300)
-            odroid_overlay_draw_battery(battery_state, 150, 90); 
+    bool battery_blink = (percentage <= 15) &&
+                         ((get_elapsed_time() % 1000) < 300);
+    bool need_overlay_clut =
+        (common_emu_state.overlay != INGAME_OVERLAY_NONE) || battery_blink;
+
+    /* Full 256-colour carts overwrite overlay CLUT slots [64..]. Stamp the
+     * theme (white/gray HUD colours) while chrome is visible; release on the
+     * first frame without chrome so the last stamped frame still matches
+     * through swap. Pause dialogs nest via lcd_overlay_clut_begin/end. */
+    static bool ingame_clut_held = false;
+    if (need_overlay_clut && !ingame_clut_held) {
+        lcd_overlay_clut_begin();
+        ingame_clut_held = true;
+    } else if (!need_overlay_clut && ingame_clut_held) {
+        lcd_overlay_clut_end();
+        ingame_clut_held = false;
     }
-    
+
+    if (battery_blink)
+        odroid_overlay_draw_battery(battery_state, 150, 90);
+
     switch(common_emu_state.overlay)
     {
         case INGAME_OVERLAY_NONE:
@@ -675,7 +860,7 @@ void common_ingame_overlay(void) {
             level = odroid_audio_volume_get();
             bh = box_height(ODROID_AUDIO_VOLUME_MAX);
 
-            draw_darken_rounded_rectangle(fb,
+            hud_draw_panel(fb,
                     INGAME_OVERLAY_X,
                     INGAME_OVERLAY_Y,
                     INGAME_OVERLAY_X + INGAME_OVERLAY_BARS_W,
@@ -683,19 +868,11 @@ void common_ingame_overlay(void) {
             draw_img(fb, IMG_SPEAKER, INGAME_OVERLAY_BARS_IMG_X, INGAME_OVERLAY_BARS_IMG_Y);
 
             for(int8_t i=ODROID_AUDIO_VOLUME_MAX; i > 0; i--){
-                if(i <= level)
-                    draw_rectangle(fb,
+                hud_draw_level_box(fb, i <= level,
                             INGAME_OVERLAY_BOX_X,
                             by,
                             INGAME_OVERLAY_BOX_X + INGAME_OVERLAY_BOX_W,
                             by + bh);
-                else
-                    draw_darken_rectangle(fb,
-                            INGAME_OVERLAY_BOX_X,
-                            by,
-                            INGAME_OVERLAY_BOX_X + INGAME_OVERLAY_BOX_W,
-                            by + bh);
-
                 by += bh + INGAME_OVERLAY_BOX_GAP;
             }
             break;
@@ -703,7 +880,7 @@ void common_ingame_overlay(void) {
             level = odroid_display_get_backlight();
             bh = box_height(ODROID_BACKLIGHT_LEVEL_COUNT - 1);
 
-            draw_darken_rounded_rectangle(fb,
+            hud_draw_panel(fb,
                     INGAME_OVERLAY_X,
                     INGAME_OVERLAY_Y,
                     INGAME_OVERLAY_X + INGAME_OVERLAY_BARS_W,
@@ -711,19 +888,11 @@ void common_ingame_overlay(void) {
             draw_img(fb, IMG_SUN, INGAME_OVERLAY_BARS_IMG_X, INGAME_OVERLAY_BARS_IMG_Y);
 
             for(int8_t i=ODROID_BACKLIGHT_LEVEL_COUNT-1; i > 0; i--){
-                if(i <= level)
-                    draw_rectangle(fb,
+                hud_draw_level_box(fb, i <= level,
                             INGAME_OVERLAY_BOX_X,
                             by,
                             INGAME_OVERLAY_BOX_X + INGAME_OVERLAY_BOX_W,
                             by + bh);
-                else
-                    draw_darken_rectangle(fb,
-                            INGAME_OVERLAY_BOX_X,
-                            by,
-                            INGAME_OVERLAY_BOX_X + INGAME_OVERLAY_BOX_W,
-                            by + bh);
-
                 by += bh + INGAME_OVERLAY_BOX_GAP;
             }
             break;

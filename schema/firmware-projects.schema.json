@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slash-proc.github.io/game-and-watch-retro-go-sd/schema/firmware-projects.schema.json",
+  "title": "Retro-Go SD curated projects.json",
+  "type": "object",
+  "required": ["schemaVersion", "projects"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "projects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/project" }
+    }
+  },
+  "$defs": {
+    "project": {
+      "type": "object",
+      "required": ["project", "title", "kind", "versionsUrl"],
+      "additionalProperties": false,
+      "properties": {
+        "project": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+        "title": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["core", "homebrew"] },
+        "versionsUrl": { "type": "string", "pattern": "^https://[^\\s]+/versions\\.json$" }
+      }
+    }
+  }
+}

@@ -1,0 +1,363 @@
+# Retro-Go SD 2.0 release producer.
+#
+# Builds the four firmware variants (SD_CARD={0,1} x INTFLASH_BANK={1,2}), packs
+# each into a self-contained install zip plus a separate debug zip, publishes all
+# eight as release assets, and mirrors the release to GitHub Pages where a browser
+# can actually read it.
+#
+# See docs/RELEASE_2_0.md for the format and why it is shaped this way.
+#
+# No cores and no homebrew ship here: they are decoupled projects publishing under
+# the GWRG distribution spec, bound to this firmware only by the firmware ABI. The
+# curated list of them is generated from docs/CURATED_PROJECTS.md into projects.json.
+#
+# Pages is the mirror because a GitHub release asset sends no CORS header — `curl`
+# gets the bytes, a browser does not. Releases stay the archival source of truth;
+# delete the Pages site and this job rebuilds it.
+name: release (2.0)
+
+on:
+  workflow_dispatch:
+    inputs:
+      builder_image:
+        description: "retro-go-sd builder image"
+        default: sylverb/retro-go-sd-builder:v1.5
+        type: string
+  push:
+    # A release comes from a tag. A branch push only builds — it proves the four
+    # variants still compile and pack, and stops there: no release, no Pages
+    # deploy. Publishing from "whichever commit last touched Core/" would mint
+    # releases nobody asked for and race the mirror against itself.
+    tags: ['v*']
+    branches: [web-builder-flash]
+    # No paths filter. It would apply to the tag push as well, and a tag pointing
+    # at a commit that is already on the remote arrives as a push event with no
+    # commits — nothing for a path filter to match, so the release would silently
+    # never run. A branch push to web-builder-flash therefore always builds; that
+    # branch does not move often enough for the wasted runs to matter, and a
+    # release that quietly does not happen is far more expensive than a spare
+    # build.
+
+permissions:
+  contents: read
+
+concurrency:
+  group: retro-go-sd-release
+  cancel-in-progress: false
+
+env:
+  # One place for the feature set every variant is built with, so the four builds
+  # cannot drift apart. MAX_CHEAT_CODES is passed on the command line (NOT a
+  # Makefile edit): the stock Makefile only defines it for SD_CARD=1, so
+  # CHEAT_CODES=1 SD_CARD=0 needs it supplied here — matching the SD value.
+  # All 12 languages: seven locales default on, the four CJK ones do not.
+  COMMON_FLAGS: >-
+    COVERFLOW=1
+    CHEAT_CODES=1
+    MAX_CHEAT_CODES=13
+    ENABLE_SCREENSHOT=1
+    SHARED_HIBERNATE_SAVESTATE=1
+    DISABLE_SPLASH_SCREEN=1
+    ZH_CN=1
+    ZH_TW=1
+    KO_KR=1
+    JA_JP=1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true   # one bad image makes the release unpublishable anyway
+      matrix:
+        include:
+          - id: sd-bank2
+            sd_card: 1
+            bank: 2
+          - id: sd-bank1
+            sd_card: 1
+            bank: 1
+          - id: flash-bank2
+            sd_card: 0
+            bank: 2
+          - id: flash-bank1
+            sd_card: 0
+            bank: 1
+    name: build ${{ matrix.id }}
+    env:
+      BUILDER_IMAGE: ${{ inputs.builder_image || 'sylverb/retro-go-sd-builder:v1.5' }}
+    steps:
+      - name: Checkout (recursive submodules)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          submodules: recursive
+          # Full history + tags so scripts/update_gittag.sh's `git describe` resolves a
+          # real version instead of "NOTAG". GIT_TAG is baked into the firmware and read
+          # back out of the image by the packer, so a bogus tag would propagate into the
+          # manifest. Every matrix job checks out the same commit, so all four agree.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Build SD_CARD=${{ matrix.sd_card }} bank${{ matrix.bank }}
+        run: |
+          set -euo pipefail
+          # The bank IS the intflash link address (0x08000000 / 0x08100000), so it
+          # cannot be a runtime patch — hence a separate image for bank 1 (overwrite
+          # stock) and bank 2 (keep stock in bank 1 for dual-boot/recovery).
+          #
+          # GNW_TARGET is omitted: it is now only an EXTFLASH_SIZE_MB default, and the
+          # host resolves extflash geometry through the layout superblock instead.
+          #
+          # Every job extracts its OWN sd_content. Language blobs are build-specific:
+          # lang_t gains 2 fields under CHEAT_CODES=1 and 3 more under INTFLASH_BANK=2,
+          # so a blob built for one variant has a different field ORDER than another,
+          # and rg_i18n.c truncates a mismatched blob rather than rejecting it — silently
+          # wrong menu text in every non-English language. Fonts and the logo happen to
+          # be identical across builds, but each zip carries its own copy anyway so a
+          # bundle cannot be mis-assembled.
+          FLAGS="SD_CARD=${{ matrix.sd_card }} INTFLASH_BANK=${{ matrix.bank }} $COMMON_FLAGS"
+          echo "$FLAGS" > _flags.txt
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/opt/workdir" \
+            "$BUILDER_IMAGE" \
+            bash -l -c "set -e
+              make -j\$(nproc) $FLAGS create_sd_data build/gw_retro_go_intflash.bin"
+
+          # Stage under _out/<id>/ so the four jobs' artifacts merge into one tree.
+          mkdir -p "_out/${{ matrix.id }}"
+          cp build/gw_retro_go_intflash.bin "_out/${{ matrix.id }}/"
+          cp build/gw_retro_go.elf          "_out/${{ matrix.id }}/"
+          cp _flags.txt                     "_out/${{ matrix.id }}/flags.txt"
+          cp -r sd_content                  "_out/${{ matrix.id }}/content"
+
+      - name: Upload ${{ matrix.id }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.id }}
+          path: _out/
+          retention-days: 1   # intermediates; the release assets are the real output
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release and upload assets
+    outputs:
+      tag: ${{ steps.pack.outputs.tag }}
+      prerelease: ${{ steps.pack.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          fetch-tags: true
+          # No submodules: this job only runs scripts over what the build jobs produced.
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: build-*
+          merge-multiple: true   # merges the four _out/ trees into one _dl/
+          path: _dl
+
+      - name: Check every build arrived
+        run: |
+          set -euo pipefail
+          # merge-multiple is silent about a job that uploaded nothing; a missing build
+          # would otherwise surface as a confusing packer error much later.
+          for id in sd-bank1 sd-bank2 flash-bank1 flash-bank2; do
+            for f in "_dl/$id/gw_retro_go_intflash.bin" \
+                     "_dl/$id/gw_retro_go.elf" \
+                     "_dl/$id/flags.txt"; do
+              [ -f "$f" ] || { echo "missing: $f"; exit 1; }
+            done
+            [ -d "_dl/$id/content" ] || { echo "missing content dir for $id"; exit 1; }
+          done
+
+      - name: Pack release
+        id: pack
+        run: |
+          set -euo pipefail
+          # The tag that triggered this run IS the release. Deriving one with
+          # git describe instead would mint "vX.Y.Z-N-gHASH" release tags that
+          # nobody created, and each would then be found as the "nearest" tag by
+          # the next build and compounded further.
+          #
+          # This is not the same string as the firmware's baked GIT_TAG, which is
+          # still a describe (see scripts/update_gittag.sh) and is published
+          # separately as manifest.firmware.gitTag. One names the release, the
+          # other identifies the exact build inside it.
+          TAG="${GITHUB_REF_NAME}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          # Semver: anything after a hyphen is a prerelease identifier, so v2.0.0-rc1
+          # is a prerelease and v2.0.0 is not. Hardcoding prerelease:true would mark
+          # every release a prerelease forever; hardcoding false would announce an rc
+          # as final. The tag already says which it is.
+          case "$TAG" in
+            *-*) PRERELEASE=true ;;
+            *)   PRERELEASE=false ;;
+          esac
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+          python3 scripts/gen_projects_json.py --output _release/projects.json
+
+          BUILD_ARGS=()
+          for id in sd-bank2 sd-bank1 flash-bank2 flash-bank1; do
+            storage="${id%%-*}"
+            bank="${id##*bank}"
+            BUILD_ARGS+=( --build "id=$id,storage=$storage,bank=$bank,image=_dl/$id/gw_retro_go_intflash.bin,elf=_dl/$id/gw_retro_go.elf,content=_dl/$id/content,flags=$(cat "_dl/$id/flags.txt")" )
+          done
+
+          python3 scripts/flasher/pack_release.py \
+            "${BUILD_ARGS[@]}" \
+            --tag "$TAG" \
+            --commit "$GITHUB_SHA" \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "${GITHUB_REF_NAME}" \
+            --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            $([ "$PRERELEASE" = true ] && echo --prerelease) \
+            --projects _release/projects.json \
+            --out _release
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.pack.outputs.tag }}
+          name: ${{ steps.pack.outputs.tag }}
+          prerelease: ${{ steps.pack.outputs.prerelease }}
+          body: |
+            Retro-Go SD firmware, four variants: storage (SD card / internal flash)
+            x intflash bank (1 / 2).
+
+            Each `-<variant>.zip` is a complete install — the intflash image plus the
+            fonts, language blobs and boot logo that variant needs. The matching
+            `-debug.zip` holds only the ELF, for symbolising a crash.
+
+            Emulator cores and homebrew are **not** included; they install separately
+            from their own projects. `projects.json` lists the curated set.
+
+            - commit: `${{ github.sha }}`
+          files: |
+            _release/*.zip
+            _release/manifest.json
+            _release/projects.json
+
+      - name: Stage the Pages mirror for this release
+        run: |
+          set -euo pipefail
+          # The manifest resolves every url as a plain filename beside itself, so the
+          # zips must sit in the same directory as manifest.json.
+          mkdir -p "_pages/dist/${{ steps.pack.outputs.tag }}"
+          cp _release/*.zip _release/manifest.json _release/projects.json \
+             "_pages/dist/${{ steps.pack.outputs.tag }}/"
+
+      - name: Upload Pages staging
+        uses: actions/upload-artifact@v4
+        with:
+          name: pages-staging
+          path: _pages/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Deploy Pages only after the release exists, so the site can never advertise a
+  # file that was never published.
+  pages:
+    needs: publish
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Download Pages staging
+        uses: actions/download-artifact@v4
+        with:
+          name: pages-staging
+          path: _pages
+
+      - name: Mirror the other retained releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The mirror is derived, and each deploy replaces the whole site — so the
+          # retained releases have to be fetched back from the Releases API every time
+          # rather than carried over from the previous deploy.
+          RETAINED=5
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 50 \
+            --json tagName,publishedAt,isPrerelease > _releases.json
+
+          python3 - <<'PY' > _tags.txt
+          import json
+          rels = json.load(open("_releases.json"))
+          rels.sort(key=lambda r: r.get("publishedAt", ""), reverse=True)
+          for r in rels[:5]:
+              print(r["tagName"])
+          PY
+
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            dest="_pages/dist/$tag"
+            # This release was staged by the publish job already.
+            [ -d "$dest" ] && continue
+            mkdir -p "$dest"
+            # A release from before this format has no manifest.json; skip it rather
+            # than publish a directory an installer cannot read. gen_versions_json.py
+            # drops any tag it finds no manifest for.
+            if ! gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+                 --dir "$dest" --pattern 'manifest.json' --clobber 2>/dev/null; then
+              echo "no manifest.json on $tag; not mirroring"
+              rm -rf "$dest"
+              continue
+            fi
+            # A manifest.json is not enough. The old web-artifacts POC published
+            # one too, with a completely different shape (id/ref/sha/blobs), and it
+            # downloads exactly like ours. Check the shape before mirroring, or the
+            # deploy carries a directory no installer can read.
+            if ! python3 -c "import json,sys; m=json.load(open(sys.argv[1])); sys.exit(0 if m.get('schemaVersion')==1 and isinstance(m.get('firmware'),dict) else 1)" "$dest/manifest.json"; then
+              echo "$tag: manifest.json predates the 2.0 format; not mirroring"
+              rm -rf "$dest"
+              continue
+            fi
+            if ! gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+                 --dir "$dest" --pattern '*.zip' --clobber; then
+              echo "$tag: manifest.json present but no zips; not mirroring"
+              rm -rf "$dest"
+              continue
+            fi
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --dir "$dest" --pattern 'projects.json' --clobber || true
+          done < _tags.txt
+
+      - name: Regenerate the index
+        run: |
+          set -euo pipefail
+          python3 scripts/flasher/gen_versions_json.py \
+            --dist-dir _pages/dist \
+            --releases _releases.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --retained 5 \
+            --out _pages/dist/versions.json
+          echo "--- dist tree ---"
+          find _pages -type f | sort
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _pages
+
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,1125 @@
+{
+  "schemaVersion": 1,
+  "project": "retro-go-sd",
+  "title": "Retro-Go SD",
+  "docs": "https://github.com/slash-proc/game-and-watch-retro-go-sd#readme",
+  "source": {
+    "repo": "slash-proc/game-and-watch-retro-go-sd",
+    "commit": "1dfd6f95b478ac56c37e3ccb35d41dd365fa42cb",
+    "ref": "v2.0.0"
+  },
+  "firmware": {
+    "gitTag": "Retro-Go SD v1.4.1-124-g1dfd6f95b+",
+    "providesAbi": {
+      "version": 2,
+      "size": 844
+    },
+    "abiOffset": "0x400",
+    "coreMetaVersion": 3,
+    "superblock": {
+      "magic": "GWLB",
+      "version": 2,
+      "structSize": 36
+    },
+    "installFile": {
+      "path": "data/INSTALL",
+      "magic": "RGIN",
+      "version": 1
+    }
+  },
+  "paths": {
+    "cores": "/cores",
+    "homebrew": "/homebrews",
+    "bios": "/bios",
+    "roms": "/roms",
+    "covers": "/covers",
+    "cheats": "/cheats",
+    "data": "/data"
+  },
+  "languages": [
+    "de_de",
+    "en_us",
+    "es_es",
+    "fr_fr",
+    "it_it",
+    "ja_jp",
+    "ko_kr",
+    "no_nb",
+    "pt_pt",
+    "ru_ru",
+    "zh_cn",
+    "zh_tw"
+  ],
+  "builds": [
+    {
+      "id": "sd-bank1",
+      "storage": "sd",
+      "bank": 1,
+      "capabilities": [
+        "coverflow",
+        "cheatCodes",
+        "screenshot",
+        "sharedHibernateSavestate"
+      ],
+      "littlefsBlockSize": 4096,
+      "buildFlags": "SD_CARD=1 CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 ENABLE_SCREENSHOT=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 INTFLASH_BANK=1",
+      "bundle": {
+        "bytes": 489761,
+        "sha256": "5dacf5dc01968a9f294ed720fabd0c3187d767240d28c32fb14b39a13f8d158d",
+        "url": "retro-go-sd-v2.0.0-sd-bank1.zip"
+      },
+      "debug": {
+        "bytes": 1506675,
+        "sha256": "4350c74285e80bee9cfbe0b34f85de2a86f2cb562a63b14b3a895a77e96f7192",
+        "url": "retro-go-sd-v2.0.0-sd-bank1-debug.zip"
+      },
+      "image": {
+        "bytes": 238916,
+        "sha256": "e263a222b83b843d392209855b7f5c298b74b0317fc80287fa390615ecce1ca9",
+        "path": "gw_retro_go_intflash.bin"
+      },
+      "sdUpdate": {
+        "bytes": 238916,
+        "sha256": "e263a222b83b843d392209855b7f5c298b74b0317fc80287fa390615ecce1ca9",
+        "path": "gw_retro_go_intflash.bin",
+        "filename": "update_bank1.bin"
+      },
+      "content": [
+        {
+          "path": "fonts/cp1251_greybeard.bin",
+          "install": "fonts/cp1251_greybeard.bin",
+          "bytes": 2268,
+          "sha256": "63945891afe8ebf2a5bce61516dec14fad5abe0604a0f860c4ce8d45db18dc84"
+        },
+        {
+          "path": "fonts/cp1251_sans_serif.bin",
+          "install": "fonts/cp1251_sans_serif.bin",
+          "bytes": 2256,
+          "sha256": "4d37c05cab6ede4aad57d2d9b45aeb82bde82a8addefd7cdc9259ebe8c04a1c4"
+        },
+        {
+          "path": "fonts/cp1251_sans_serif_bold.bin",
+          "install": "fonts/cp1251_sans_serif_bold.bin",
+          "bytes": 2256,
+          "sha256": "77a7b49849896aa86a18ec07c78a0f40d9d1a2c3d2c7cf3185f8c570a881e20b"
+        },
+        {
+          "path": "fonts/cp1251_serif.bin",
+          "install": "fonts/cp1251_serif.bin",
+          "bytes": 2268,
+          "sha256": "217ddb4af954b524e0b8611f0db2ed70f1d2ef0ecbbd3a3a7aa9a0dc2a4a50bb"
+        },
+        {
+          "path": "fonts/cp1251_serif_bold.bin",
+          "install": "fonts/cp1251_serif_bold.bin",
+          "bytes": 2592,
+          "sha256": "b6bfeb6f8ea85bfbe7143d308dd273b05689c9b4d8125b1d818fec2c5a55d5cf"
+        },
+        {
+          "path": "fonts/cp1252_greybeard.bin",
+          "install": "fonts/cp1252_greybeard.bin",
+          "bytes": 3468,
+          "sha256": "c82d852f83890949a0838e92d19ebe6ed12c0dd8aa4cc89ec206a11e4d40ea54"
+        },
+        {
+          "path": "fonts/cp1252_haeberli12.bin",
+          "install": "fonts/cp1252_haeberli12.bin",
+          "bytes": 3240,
+          "sha256": "575836dd47404607d1455dac7ed54fab61a4a420eff2a37eacc7e347d0dfbbbf"
+        },
+        {
+          "path": "fonts/cp1252_rock12.bin",
+          "install": "fonts/cp1252_rock12.bin",
+          "bytes": 3756,
+          "sha256": "6c3702e1dd8f4f2cca0c77d103f58d0e9970851608dbb48dbf3e49fd183a256b"
+        },
+        {
+          "path": "fonts/cp1252_sans_serif.bin",
+          "install": "fonts/cp1252_sans_serif.bin",
+          "bytes": 3456,
+          "sha256": "4c8e80f2073f8567bd21f251b8e8308bb1a46f8c551b3420d59d028a54f3e77d"
+        },
+        {
+          "path": "fonts/cp1252_sans_serif_bold.bin",
+          "install": "fonts/cp1252_sans_serif_bold.bin",
+          "bytes": 3456,
+          "sha256": "abde17b7e208d205ec88002233b5df4f3f1624c61dbdff2499ff72bb4f1b08df"
+        },
+        {
+          "path": "fonts/cp1252_serif.bin",
+          "install": "fonts/cp1252_serif.bin",
+          "bytes": 3480,
+          "sha256": "e3da582c34cefacb152170a4879779bc2692cb497a9f69856b3ffe2034d5ad7b"
+        },
+        {
+          "path": "fonts/cp1252_serif_bold.bin",
+          "install": "fonts/cp1252_serif_bold.bin",
+          "bytes": 3804,
+          "sha256": "1437d58cc29e430a3f33535ef2a3bfafe9ddfdaff3d63677fe08bdb6a2d5d5ec"
+        },
+        {
+          "path": "fonts/cp1252_serif_cjk.bin",
+          "install": "fonts/cp1252_serif_cjk.bin",
+          "bytes": 3540,
+          "sha256": "2155e49f96a07e050e45f010e1aeedf90c0ebccf284adb914c112d18b24f0728"
+        },
+        {
+          "path": "fonts/cp1252_unbalanced.bin",
+          "install": "fonts/cp1252_unbalanced.bin",
+          "bytes": 3660,
+          "sha256": "1982964aad6b9ccc47aeeebb440e0976488127f0901d447634c246b08a7969c6"
+        },
+        {
+          "path": "fonts/unicode_cjk.bin",
+          "install": "fonts/unicode_cjk.bin",
+          "bytes": 503808,
+          "sha256": "8162c818f692510093f70f26e752415d2157258c04318eefc0af4941cad350e5"
+        },
+        {
+          "path": "fonts/unicode_cjk_punct.bin",
+          "install": "fonts/unicode_cjk_punct.bin",
+          "bytes": 1536,
+          "sha256": "e40ce911478817f0bac3a5da7f5375a0583b3956c10cd61cd5ebdbb2d1f33b3a"
+        },
+        {
+          "path": "fonts/unicode_fullwidth.bin",
+          "install": "fonts/unicode_fullwidth.bin",
+          "bytes": 4680,
+          "sha256": "13ff6bc7e20dce340d04ee03d3cbeb0ecee072be8ba6c363dd1e76aed5acf189"
+        },
+        {
+          "path": "fonts/unicode_general_punct.bin",
+          "install": "fonts/unicode_general_punct.bin",
+          "bytes": 1800,
+          "sha256": "3183504be56a54daa049865be8152845a879a66411401884d2db89debc932b96"
+        },
+        {
+          "path": "fonts/unicode_geometric.bin",
+          "install": "fonts/unicode_geometric.bin",
+          "bytes": 2424,
+          "sha256": "78aebb068fc546cfdf3f6e6fd2bec41a43b61c2bd9bd2cc0329d82fb7f7a771c"
+        },
+        {
+          "path": "fonts/unicode_greek.bin",
+          "install": "fonts/unicode_greek.bin",
+          "bytes": 2700,
+          "sha256": "5c36eb2fe556b9e9439e1220e131c6a8f65765c027c5c96ce3e4fde7b873877e"
+        },
+        {
+          "path": "fonts/unicode_hangul.bin",
+          "install": "fonts/unicode_hangul.bin",
+          "bytes": 268128,
+          "sha256": "c5b55dc91fd5c58cf8cd1d7d85465b4ad93c713077701ee9ccfff66cf387884e"
+        },
+        {
+          "path": "fonts/unicode_hiragana.bin",
+          "install": "fonts/unicode_hiragana.bin",
+          "bytes": 2304,
+          "sha256": "64c646451fc30824f7a8ffc9de54a353a8e25ef2f5d7e819c1acf147f2de5caf"
+        },
+        {
+          "path": "fonts/unicode_katakana.bin",
+          "install": "fonts/unicode_katakana.bin",
+          "bytes": 2304,
+          "sha256": "26350be464671c9e73e144c0932168748d4b019623ddf40c25e171fca26dab4c"
+        },
+        {
+          "path": "fonts/unicode_math_operators.bin",
+          "install": "fonts/unicode_math_operators.bin",
+          "bytes": 6912,
+          "sha256": "4b839f880bc8eba427ff788a86f1eab97f2573323d488997666e7a5418184372"
+        },
+        {
+          "path": "fonts/unicode_misc_symbols.bin",
+          "install": "fonts/unicode_misc_symbols.bin",
+          "bytes": 6840,
+          "sha256": "e4acedd6721c40636cb7a8b2087f126034db892bc3b9aec7f6018022d516786a"
+        },
+        {
+          "path": "lang/de_de.bin",
+          "install": "lang/de_de.bin",
+          "bytes": 1895,
+          "sha256": "cde50f8fb22d43aa06f3868a39a9d63c9e8b3ad60955a2f0b310de69a3ff47b9",
+          "language": "de_de"
+        },
+        {
+          "path": "lang/es_es.bin",
+          "install": "lang/es_es.bin",
+          "bytes": 1816,
+          "sha256": "535ac933416315fe526da792c483d5544cfee87bd8f2192544a537dcabb96f9c",
+          "language": "es_es"
+        },
+        {
+          "path": "lang/fr_fr.bin",
+          "install": "lang/fr_fr.bin",
+          "bytes": 1880,
+          "sha256": "d2498addb6a5aa82b8eb15a948b708c3947a2b41f76f4064d5d93bea2daef3cc",
+          "language": "fr_fr"
+        },
+        {
+          "path": "lang/it_it.bin",
+          "install": "lang/it_it.bin",
+          "bytes": 1853,
+          "sha256": "9491a58da9234bebee0800c28c83b121902a97bcb784969022d07ec370812b5a",
+          "language": "it_it"
+        },
+        {
+          "path": "lang/ja_jp.bin",
+          "install": "lang/ja_jp.bin",
+          "bytes": 2188,
+          "sha256": "714c564be44e925e82f0dcffb08d9255e1a4206c641d296e9cc2827d660c7437",
+          "language": "ja_jp"
+        },
+        {
+          "path": "lang/ko_kr.bin",
+          "install": "lang/ko_kr.bin",
+          "bytes": 2119,
+          "sha256": "347d8d78a4dd81439406a042c2233b96074d9e13a46c7deee36585c276db0ced",
+          "language": "ko_kr"
+        },
+        {
+          "path": "lang/no_nb.bin",
+          "install": "lang/no_nb.bin",
+          "bytes": 1881,
+          "sha256": "76a8d8e0c7613e1e2072b1e50c0cd640d33282e25da33302dfe015bf6654b377",
+          "language": "no_nb"
+        },
+        {
+          "path": "lang/pt_pt.bin",
+          "install": "lang/pt_pt.bin",
+          "bytes": 1874,
+          "sha256": "77106f96e8a5d5fd6d785cdd797b87e79553d5b41e4d32a27d30837199c24af5",
+          "language": "pt_pt"
+        },
+        {
+          "path": "lang/ru_ru.bin",
+          "install": "lang/ru_ru.bin",
+          "bytes": 2466,
+          "sha256": "b9659780ce5667fe3778cab0405b5194ded84ec82e85ac1f812bc386929237bc",
+          "language": "ru_ru"
+        },
+        {
+          "path": "lang/zh_cn.bin",
+          "install": "lang/zh_cn.bin",
+          "bytes": 1985,
+          "sha256": "4efa1d73f4fca709e06bdb9e12b6913796d477e5493ee250b8cc612a59d044bb",
+          "language": "zh_cn"
+        },
+        {
+          "path": "lang/zh_tw.bin",
+          "install": "lang/zh_tw.bin",
+          "bytes": 1989,
+          "sha256": "a75d01fe97c5e12992161e3ec2a2dc2b05a5ed3b11288bb08cdc717c8dd3a534",
+          "language": "zh_tw"
+        },
+        {
+          "path": "bios/logo.bin",
+          "install": "bios/logo.bin",
+          "bytes": 576,
+          "sha256": "f4ff5e4c08405172f8afb0ce3a4858975592cffb868f7144ec5303fd272f9689"
+        }
+      ]
+    },
+    {
+      "id": "sd-bank2",
+      "storage": "sd",
+      "bank": 2,
+      "capabilities": [
+        "coverflow",
+        "cheatCodes",
+        "screenshot",
+        "sharedHibernateSavestate"
+      ],
+      "littlefsBlockSize": 4096,
+      "buildFlags": "SD_CARD=1 CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 ENABLE_SCREENSHOT=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 INTFLASH_BANK=2",
+      "bundle": {
+        "bytes": 490467,
+        "sha256": "af09decc07b3a1fa45ce8563be00846ac1dbce4c501673085b5af7e23012e31c",
+        "url": "retro-go-sd-v2.0.0-sd-bank2.zip"
+      },
+      "debug": {
+        "bytes": 1509147,
+        "sha256": "b93900804d1cf201c94bc978420a5f3ac2a146bb4e676a95125b4d91e684808b",
+        "url": "retro-go-sd-v2.0.0-sd-bank2-debug.zip"
+      },
+      "image": {
+        "bytes": 239364,
+        "sha256": "95bc847a8d8d91fbb053bc6382dec5b320c216e4076a40994c74e5c0e6dab9ac",
+        "path": "gw_retro_go_intflash.bin"
+      },
+      "sdUpdate": {
+        "bytes": 239364,
+        "sha256": "95bc847a8d8d91fbb053bc6382dec5b320c216e4076a40994c74e5c0e6dab9ac",
+        "path": "gw_retro_go_intflash.bin",
+        "filename": "update_bank2.bin"
+      },
+      "content": [
+        {
+          "path": "fonts/cp1251_greybeard.bin",
+          "install": "fonts/cp1251_greybeard.bin",
+          "bytes": 2268,
+          "sha256": "63945891afe8ebf2a5bce61516dec14fad5abe0604a0f860c4ce8d45db18dc84"
+        },
+        {
+          "path": "fonts/cp1251_sans_serif.bin",
+          "install": "fonts/cp1251_sans_serif.bin",
+          "bytes": 2256,
+          "sha256": "4d37c05cab6ede4aad57d2d9b45aeb82bde82a8addefd7cdc9259ebe8c04a1c4"
+        },
+        {
+          "path": "fonts/cp1251_sans_serif_bold.bin",
+          "install": "fonts/cp1251_sans_serif_bold.bin",
+          "bytes": 2256,
+          "sha256": "77a7b49849896aa86a18ec07c78a0f40d9d1a2c3d2c7cf3185f8c570a881e20b"
+        },
+        {
+          "path": "fonts/cp1251_serif.bin",
+          "install": "fonts/cp1251_serif.bin",
+          "bytes": 2268,
+          "sha256": "217ddb4af954b524e0b8611f0db2ed70f1d2ef0ecbbd3a3a7aa9a0dc2a4a50bb"
+        },
+        {
+          "path": "fonts/cp1251_serif_bold.bin",
+          "install": "fonts/cp1251_serif_bold.bin",
+          "bytes": 2592,
+          "sha256": "b6bfeb6f8ea85bfbe7143d308dd273b05689c9b4d8125b1d818fec2c5a55d5cf"
+        },
+        {
+          "path": "fonts/cp1252_greybeard.bin",
+          "install": "fonts/cp1252_greybeard.bin",
+          "bytes": 3468,
+          "sha256": "c82d852f83890949a0838e92d19ebe6ed12c0dd8aa4cc89ec206a11e4d40ea54"
+        },
+        {
+          "path": "fonts/cp1252_haeberli12.bin",
+          "install": "fonts/cp1252_haeberli12.bin",
+          "bytes": 3240,
+          "sha256": "575836dd47404607d1455dac7ed54fab61a4a420eff2a37eacc7e347d0dfbbbf"
+        },
+        {
+          "path": "fonts/cp1252_rock12.bin",
+          "install": "fonts/cp1252_rock12.bin",
+          "bytes": 3756,
+          "sha256": "6c3702e1dd8f4f2cca0c77d103f58d0e9970851608dbb48dbf3e49fd183a256b"
+        },
+        {
+          "path": "fonts/cp1252_sans_serif.bin",
+          "install": "fonts/cp1252_sans_serif.bin",
+          "bytes": 3456,
+          "sha256": "4c8e80f2073f8567bd21f251b8e8308bb1a46f8c551b3420d59d028a54f3e77d"
+        },
+        {
+          "path": "fonts/cp1252_sans_serif_bold.bin",
+          "install": "fonts/cp1252_sans_serif_bold.bin",
+          "bytes": 3456,
+          "sha256": "abde17b7e208d205ec88002233b5df4f3f1624c61dbdff2499ff72bb4f1b08df"
+        },
+        {
+          "path": "fonts/cp1252_serif.bin",
+          "install": "fonts/cp1252_serif.bin",
+          "bytes": 3480,
+          "sha256": "e3da582c34cefacb152170a4879779bc2692cb497a9f69856b3ffe2034d5ad7b"
+        },
+        {
+          "path": "fonts/cp1252_serif_bold.bin",
+          "install": "fonts/cp1252_serif_bold.bin",
+          "bytes": 3804,
+          "sha256": "1437d58cc29e430a3f33535ef2a3bfafe9ddfdaff3d63677fe08bdb6a2d5d5ec"
+        },
+        {
+          "path": "fonts/cp1252_serif_cjk.bin",
+          "install": "fonts/cp1252_serif_cjk.bin",
+          "bytes": 3540,
+          "sha256": "2155e49f96a07e050e45f010e1aeedf90c0ebccf284adb914c112d18b24f0728"
+        },
+        {
+          "path": "fonts/cp1252_unbalanced.bin",
+          "install": "fonts/cp1252_unbalanced.bin",
+          "bytes": 3660,
+          "sha256": "1982964aad6b9ccc47aeeebb440e0976488127f0901d447634c246b08a7969c6"
+        },
+        {
+          "path": "fonts/unicode_cjk.bin",
+          "install": "fonts/unicode_cjk.bin",
+          "bytes": 503808,
+          "sha256": "8162c818f692510093f70f26e752415d2157258c04318eefc0af4941cad350e5"
+        },
+        {
+          "path": "fonts/unicode_cjk_punct.bin",
+          "install": "fonts/unicode_cjk_punct.bin",
+          "bytes": 1536,
+          "sha256": "e40ce911478817f0bac3a5da7f5375a0583b3956c10cd61cd5ebdbb2d1f33b3a"
+        },
+        {
+          "path": "fonts/unicode_fullwidth.bin",
+          "install": "fonts/unicode_fullwidth.bin",
+          "bytes": 4680,
+          "sha256": "13ff6bc7e20dce340d04ee03d3cbeb0ecee072be8ba6c363dd1e76aed5acf189"
+        },
+        {
+          "path": "fonts/unicode_general_punct.bin",
+          "install": "fonts/unicode_general_punct.bin",
+          "bytes": 1800,
+          "sha256": "3183504be56a54daa049865be8152845a879a66411401884d2db89debc932b96"
+        },
+        {
+          "path": "fonts/unicode_geometric.bin",
+          "install": "fonts/unicode_geometric.bin",
+          "bytes": 2424,
+          "sha256": "78aebb068fc546cfdf3f6e6fd2bec41a43b61c2bd9bd2cc0329d82fb7f7a771c"
+        },
+        {
+          "path": "fonts/unicode_greek.bin",
+          "install": "fonts/unicode_greek.bin",
+          "bytes": 2700,
+          "sha256": "5c36eb2fe556b9e9439e1220e131c6a8f65765c027c5c96ce3e4fde7b873877e"
+        },
+        {
+          "path": "fonts/unicode_hangul.bin",
+          "install": "fonts/unicode_hangul.bin",
+          "bytes": 268128,
+          "sha256": "c5b55dc91fd5c58cf8cd1d7d85465b4ad93c713077701ee9ccfff66cf387884e"
+        },
+        {
+          "path": "fonts/unicode_hiragana.bin",
+          "install": "fonts/unicode_hiragana.bin",
+          "bytes": 2304,
+          "sha256": "64c646451fc30824f7a8ffc9de54a353a8e25ef2f5d7e819c1acf147f2de5caf"
+        },
+        {
+          "path": "fonts/unicode_katakana.bin",
+          "install": "fonts/unicode_katakana.bin",
+          "bytes": 2304,
+          "sha256": "26350be464671c9e73e144c0932168748d4b019623ddf40c25e171fca26dab4c"
+        },
+        {
+          "path": "fonts/unicode_math_operators.bin",
+          "install": "fonts/unicode_math_operators.bin",
+          "bytes": 6912,
+          "sha256": "4b839f880bc8eba427ff788a86f1eab97f2573323d488997666e7a5418184372"
+        },
+        {
+          "path": "fonts/unicode_misc_symbols.bin",
+          "install": "fonts/unicode_misc_symbols.bin",
+          "bytes": 6840,
+          "sha256": "e4acedd6721c40636cb7a8b2087f126034db892bc3b9aec7f6018022d516786a"
+        },
+        {
+          "path": "lang/de_de.bin",
+          "install": "lang/de_de.bin",
+          "bytes": 1946,
+          "sha256": "978f1d12ed849e8199a3f88167bda98f0aec87564642dd855b8c8665ec8cc29e",
+          "language": "de_de"
+        },
+        {
+          "path": "lang/es_es.bin",
+          "install": "lang/es_es.bin",
+          "bytes": 1877,
+          "sha256": "b4612cbf7292785c7ecf30e29f3b24552054b7095624d357a73160dc00b19114",
+          "language": "es_es"
+        },
+        {
+          "path": "lang/fr_fr.bin",
+          "install": "lang/fr_fr.bin",
+          "bytes": 1947,
+          "sha256": "8e7749018629064d288d78c5cd11624bfa50f29075f0d31ca6a97934c9761ba2",
+          "language": "fr_fr"
+        },
+        {
+          "path": "lang/it_it.bin",
+          "install": "lang/it_it.bin",
+          "bytes": 1904,
+          "sha256": "1277af51cadaf58024b023c2544fc4eb831360aa5ea99a57d3766e5e2a3ef619",
+          "language": "it_it"
+        },
+        {
+          "path": "lang/ja_jp.bin",
+          "install": "lang/ja_jp.bin",
+          "bytes": 2278,
+          "sha256": "a5e214a381bfe5e0a771777727ccd0f0ae4c4d4b81b637b8535fc79a1a48b993",
+          "language": "ja_jp"
+        },
+        {
+          "path": "lang/ko_kr.bin",
+          "install": "lang/ko_kr.bin",
+          "bytes": 2188,
+          "sha256": "730d89b6571bf6eb4fa20cc087c99a282f7174b18857db1cbde126f082059a2a",
+          "language": "ko_kr"
+        },
+        {
+          "path": "lang/no_nb.bin",
+          "install": "lang/no_nb.bin",
+          "bytes": 1942,
+          "sha256": "10baf654ec776b66ff751c6ed997f8d80fe7011245b59ef195685abfbb61d808",
+          "language": "no_nb"
+        },
+        {
+          "path": "lang/pt_pt.bin",
+          "install": "lang/pt_pt.bin",
+          "bytes": 1940,
+          "sha256": "632509b4bfe7d5f714cde582751d65d978c5d3837c684feaa6437d992962b25d",
+          "language": "pt_pt"
+        },
+        {
+          "path": "lang/ru_ru.bin",
+          "install": "lang/ru_ru.bin",
+          "bytes": 2517,
+          "sha256": "8f380380a9699bf19f20bea1c6baaeee0f9e66d08bb15bc3436e705593aab577",
+          "language": "ru_ru"
+        },
+        {
+          "path": "lang/zh_cn.bin",
+          "install": "lang/zh_cn.bin",
+          "bytes": 2045,
+          "sha256": "9686e7272c417d016e67a2305b607e8dcf9c7d96270375b5c8acd8a0dc509ebf",
+          "language": "zh_cn"
+        },
+        {
+          "path": "lang/zh_tw.bin",
+          "install": "lang/zh_tw.bin",
+          "bytes": 2058,
+          "sha256": "bbc5ccfb86595de186638062a2741885083e421a2d317aa53002a4b13c74662c",
+          "language": "zh_tw"
+        },
+        {
+          "path": "bios/logo.bin",
+          "install": "bios/logo.bin",
+          "bytes": 576,
+          "sha256": "f4ff5e4c08405172f8afb0ce3a4858975592cffb868f7144ec5303fd272f9689"
+        }
+      ]
+    },
+    {
+      "id": "flash-bank1",
+      "storage": "flash",
+      "bank": 1,
+      "capabilities": [
+        "coverflow",
+        "cheatCodes",
+        "screenshot",
+        "sharedHibernateSavestate"
+      ],
+      "littlefsBlockSize": 4096,
+      "buildFlags": "SD_CARD=0 CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 ENABLE_SCREENSHOT=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 INTFLASH_BANK=1",
+      "bundle": {
+        "bytes": 491010,
+        "sha256": "80d23acdac426e3eec1b412c5ebab1bf7a9a0bcec7068011aecc692246133a6a",
+        "url": "retro-go-sd-v2.0.0-flash-bank1.zip"
+      },
+      "debug": {
+        "bytes": 1545703,
+        "sha256": "1f7dcd480153ba35a448b44794c3e9c2be4893b034fd2c8c86411aba16e4aaa1",
+        "url": "retro-go-sd-v2.0.0-flash-bank1-debug.zip"
+      },
+      "image": {
+        "bytes": 242672,
+        "sha256": "2f84d2f4792929d99a26b71b28debd1d4f77ab97e5315a67bd8474e7adad2402",
+        "path": "gw_retro_go_intflash.bin"
+      },
+      "content": [
+        {
+          "path": "fonts/cp1251_greybeard.bin",
+          "install": "fonts/cp1251_greybeard.bin",
+          "bytes": 2268,
+          "sha256": "63945891afe8ebf2a5bce61516dec14fad5abe0604a0f860c4ce8d45db18dc84"
+        },
+        {
+          "path": "fonts/cp1251_sans_serif.bin",
+          "install": "fonts/cp1251_sans_serif.bin",
+          "bytes": 2256,
+          "sha256": "4d37c05cab6ede4aad57d2d9b45aeb82bde82a8addefd7cdc9259ebe8c04a1c4"
+        },
+        {
+          "path": "fonts/cp1251_sans_serif_bold.bin",
+          "install": "fonts/cp1251_sans_serif_bold.bin",
+          "bytes": 2256,
+          "sha256": "77a7b49849896aa86a18ec07c78a0f40d9d1a2c3d2c7cf3185f8c570a881e20b"
+        },
+        {
+          "path": "fonts/cp1251_serif.bin",
+          "install": "fonts/cp1251_serif.bin",
+          "bytes": 2268,
+          "sha256": "217ddb4af954b524e0b8611f0db2ed70f1d2ef0ecbbd3a3a7aa9a0dc2a4a50bb"
+        },
+        {
+          "path": "fonts/cp1251_serif_bold.bin",
+          "install": "fonts/cp1251_serif_bold.bin",
+          "bytes": 2592,
+          "sha256": "b6bfeb6f8ea85bfbe7143d308dd273b05689c9b4d8125b1d818fec2c5a55d5cf"
+        },
+        {
+          "path": "fonts/cp1252_greybeard.bin",
+          "install": "fonts/cp1252_greybeard.bin",
+          "bytes": 3468,
+          "sha256": "c82d852f83890949a0838e92d19ebe6ed12c0dd8aa4cc89ec206a11e4d40ea54"
+        },
+        {
+          "path": "fonts/cp1252_haeberli12.bin",
+          "install": "fonts/cp1252_haeberli12.bin",
+          "bytes": 3240,
+          "sha256": "575836dd47404607d1455dac7ed54fab61a4a420eff2a37eacc7e347d0dfbbbf"
+        },
+        {
+          "path": "fonts/cp1252_rock12.bin",
+          "install": "fonts/cp1252_rock12.bin",
+          "bytes": 3756,
+          "sha256": "6c3702e1dd8f4f2cca0c77d103f58d0e9970851608dbb48dbf3e49fd183a256b"
+        },
+        {
+          "path": "fonts/cp1252_sans_serif.bin",
+          "install": "fonts/cp1252_sans_serif.bin",
+          "bytes": 3456,
+          "sha256": "4c8e80f2073f8567bd21f251b8e8308bb1a46f8c551b3420d59d028a54f3e77d"
+        },
+        {
+          "path": "fonts/cp1252_sans_serif_bold.bin",
+          "install": "fonts/cp1252_sans_serif_bold.bin",
+          "bytes": 3456,
+          "sha256": "abde17b7e208d205ec88002233b5df4f3f1624c61dbdff2499ff72bb4f1b08df"
+        },
+        {
+          "path": "fonts/cp1252_serif.bin",
+          "install": "fonts/cp1252_serif.bin",
+          "bytes": 3480,
+          "sha256": "e3da582c34cefacb152170a4879779bc2692cb497a9f69856b3ffe2034d5ad7b"
+        },
+        {
+          "path": "fonts/cp1252_serif_bold.bin",
+          "install": "fonts/cp1252_serif_bold.bin",
+          "bytes": 3804,
+          "sha256": "1437d58cc29e430a3f33535ef2a3bfafe9ddfdaff3d63677fe08bdb6a2d5d5ec"
+        },
+        {
+          "path": "fonts/cp1252_serif_cjk.bin",
+          "install": "fonts/cp1252_serif_cjk.bin",
+          "bytes": 3540,
+          "sha256": "2155e49f96a07e050e45f010e1aeedf90c0ebccf284adb914c112d18b24f0728"
+        },
+        {
+          "path": "fonts/cp1252_unbalanced.bin",
+          "install": "fonts/cp1252_unbalanced.bin",
+          "bytes": 3660,
+          "sha256": "1982964aad6b9ccc47aeeebb440e0976488127f0901d447634c246b08a7969c6"
+        },
+        {
+          "path": "fonts/unicode_cjk.bin",
+          "install": "fonts/unicode_cjk.bin",
+          "bytes": 503808,
+          "sha256": "8162c818f692510093f70f26e752415d2157258c04318eefc0af4941cad350e5"
+        },
+        {
+          "path": "fonts/unicode_cjk_punct.bin",
+          "install": "fonts/unicode_cjk_punct.bin",
+          "bytes": 1536,
+          "sha256": "e40ce911478817f0bac3a5da7f5375a0583b3956c10cd61cd5ebdbb2d1f33b3a"
+        },
+        {
+          "path": "fonts/unicode_fullwidth.bin",
+          "install": "fonts/unicode_fullwidth.bin",
+          "bytes": 4680,
+          "sha256": "13ff6bc7e20dce340d04ee03d3cbeb0ecee072be8ba6c363dd1e76aed5acf189"
+        },
+        {
+          "path": "fonts/unicode_general_punct.bin",
+          "install": "fonts/unicode_general_punct.bin",
+          "bytes": 1800,
+          "sha256": "3183504be56a54daa049865be8152845a879a66411401884d2db89debc932b96"
+        },
+        {
+          "path": "fonts/unicode_geometric.bin",
+          "install": "fonts/unicode_geometric.bin",
+          "bytes": 2424,
+          "sha256": "78aebb068fc546cfdf3f6e6fd2bec41a43b61c2bd9bd2cc0329d82fb7f7a771c"
+        },
+        {
+          "path": "fonts/unicode_greek.bin",
+          "install": "fonts/unicode_greek.bin",
+          "bytes": 2700,
+          "sha256": "5c36eb2fe556b9e9439e1220e131c6a8f65765c027c5c96ce3e4fde7b873877e"
+        },
+        {
+          "path": "fonts/unicode_hangul.bin",
+          "install": "fonts/unicode_hangul.bin",
+          "bytes": 268128,
+          "sha256": "c5b55dc91fd5c58cf8cd1d7d85465b4ad93c713077701ee9ccfff66cf387884e"
+        },
+        {
+          "path": "fonts/unicode_hiragana.bin",
+          "install": "fonts/unicode_hiragana.bin",
+          "bytes": 2304,
+          "sha256": "64c646451fc30824f7a8ffc9de54a353a8e25ef2f5d7e819c1acf147f2de5caf"
+        },
+        {
+          "path": "fonts/unicode_katakana.bin",
+          "install": "fonts/unicode_katakana.bin",
+          "bytes": 2304,
+          "sha256": "26350be464671c9e73e144c0932168748d4b019623ddf40c25e171fca26dab4c"
+        },
+        {
+          "path": "fonts/unicode_math_operators.bin",
+          "install": "fonts/unicode_math_operators.bin",
+          "bytes": 6912,
+          "sha256": "4b839f880bc8eba427ff788a86f1eab97f2573323d488997666e7a5418184372"
+        },
+        {
+          "path": "fonts/unicode_misc_symbols.bin",
+          "install": "fonts/unicode_misc_symbols.bin",
+          "bytes": 6840,
+          "sha256": "e4acedd6721c40636cb7a8b2087f126034db892bc3b9aec7f6018022d516786a"
+        },
+        {
+          "path": "lang/de_de.bin",
+          "install": "lang/de_de.bin",
+          "bytes": 1895,
+          "sha256": "cde50f8fb22d43aa06f3868a39a9d63c9e8b3ad60955a2f0b310de69a3ff47b9",
+          "language": "de_de"
+        },
+        {
+          "path": "lang/es_es.bin",
+          "install": "lang/es_es.bin",
+          "bytes": 1816,
+          "sha256": "535ac933416315fe526da792c483d5544cfee87bd8f2192544a537dcabb96f9c",
+          "language": "es_es"
+        },
+        {
+          "path": "lang/fr_fr.bin",
+          "install": "lang/fr_fr.bin",
+          "bytes": 1880,
+          "sha256": "d2498addb6a5aa82b8eb15a948b708c3947a2b41f76f4064d5d93bea2daef3cc",
+          "language": "fr_fr"
+        },
+        {
+          "path": "lang/it_it.bin",
+          "install": "lang/it_it.bin",
+          "bytes": 1853,
+          "sha256": "9491a58da9234bebee0800c28c83b121902a97bcb784969022d07ec370812b5a",
+          "language": "it_it"
+        },
+        {
+          "path": "lang/ja_jp.bin",
+          "install": "lang/ja_jp.bin",
+          "bytes": 2188,
+          "sha256": "714c564be44e925e82f0dcffb08d9255e1a4206c641d296e9cc2827d660c7437",
+          "language": "ja_jp"
+        },
+        {
+          "path": "lang/ko_kr.bin",
+          "install": "lang/ko_kr.bin",
+          "bytes": 2119,
+          "sha256": "347d8d78a4dd81439406a042c2233b96074d9e13a46c7deee36585c276db0ced",
+          "language": "ko_kr"
+        },
+        {
+          "path": "lang/no_nb.bin",
+          "install": "lang/no_nb.bin",
+          "bytes": 1881,
+          "sha256": "76a8d8e0c7613e1e2072b1e50c0cd640d33282e25da33302dfe015bf6654b377",
+          "language": "no_nb"
+        },
+        {
+          "path": "lang/pt_pt.bin",
+          "install": "lang/pt_pt.bin",
+          "bytes": 1874,
+          "sha256": "77106f96e8a5d5fd6d785cdd797b87e79553d5b41e4d32a27d30837199c24af5",
+          "language": "pt_pt"
+        },
+        {
+          "path": "lang/ru_ru.bin",
+          "install": "lang/ru_ru.bin",
+          "bytes": 2466,
+          "sha256": "b9659780ce5667fe3778cab0405b5194ded84ec82e85ac1f812bc386929237bc",
+          "language": "ru_ru"
+        },
+        {
+          "path": "lang/zh_cn.bin",
+          "install": "lang/zh_cn.bin",
+          "bytes": 1985,
+          "sha256": "4efa1d73f4fca709e06bdb9e12b6913796d477e5493ee250b8cc612a59d044bb",
+          "language": "zh_cn"
+        },
+        {
+          "path": "lang/zh_tw.bin",
+          "install": "lang/zh_tw.bin",
+          "bytes": 1989,
+          "sha256": "a75d01fe97c5e12992161e3ec2a2dc2b05a5ed3b11288bb08cdc717c8dd3a534",
+          "language": "zh_tw"
+        },
+        {
+          "path": "bios/logo.bin",
+          "install": "bios/logo.bin",
+          "bytes": 576,
+          "sha256": "f4ff5e4c08405172f8afb0ce3a4858975592cffb868f7144ec5303fd272f9689"
+        }
+      ]
+    },
+    {
+      "id": "flash-bank2",
+      "storage": "flash",
+      "bank": 2,
+      "capabilities": [
+        "coverflow",
+        "cheatCodes",
+        "screenshot",
+        "sharedHibernateSavestate"
+      ],
+      "littlefsBlockSize": 4096,
+      "buildFlags": "SD_CARD=0 CHECK_DIRTY_SUBMODULE=0 COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 CHEAT_CODES=1 MAX_CHEAT_CODES=13 ENABLE_SCREENSHOT=1 ZH_CN=1 ZH_TW=1 KO_KR=1 JA_JP=1 INTFLASH_BANK=2",
+      "bundle": {
+        "bytes": 491711,
+        "sha256": "0d035944e6b21504f0af9ffa46a27d6e8d9cbb82f8187dc07caa6d5eb8450757",
+        "url": "retro-go-sd-v2.0.0-flash-bank2.zip"
+      },
+      "debug": {
+        "bytes": 1548441,
+        "sha256": "45221641f8b8241622dee88de88436ed2d6e0a854a55b3741573dc9c0f16dd3c",
+        "url": "retro-go-sd-v2.0.0-flash-bank2-debug.zip"
+      },
+      "image": {
+        "bytes": 243176,
+        "sha256": "599429725381b8561ff32ea82ed8f9ea4c561d344c3731cda1413963689422b6",
+        "path": "gw_retro_go_intflash.bin"
+      },
+      "content": [
+        {
+          "path": "fonts/cp1251_greybeard.bin",
+          "install": "fonts/cp1251_greybeard.bin",
+          "bytes": 2268,
+          "sha256": "63945891afe8ebf2a5bce61516dec14fad5abe0604a0f860c4ce8d45db18dc84"
+        },
+        {
+          "path": "fonts/cp1251_sans_serif.bin",
+          "install": "fonts/cp1251_sans_serif.bin",
+          "bytes": 2256,
+          "sha256": "4d37c05cab6ede4aad57d2d9b45aeb82bde82a8addefd7cdc9259ebe8c04a1c4"
+        },
+        {
+          "path": "fonts/cp1251_sans_serif_bold.bin",
+          "install": "fonts/cp1251_sans_serif_bold.bin",
+          "bytes": 2256,
+          "sha256": "77a7b49849896aa86a18ec07c78a0f40d9d1a2c3d2c7cf3185f8c570a881e20b"
+        },
+        {
+          "path": "fonts/cp1251_serif.bin",
+          "install": "fonts/cp1251_serif.bin",
+          "bytes": 2268,
+          "sha256": "217ddb4af954b524e0b8611f0db2ed70f1d2ef0ecbbd3a3a7aa9a0dc2a4a50bb"
+        },
+        {
+          "path": "fonts/cp1251_serif_bold.bin",
+          "install": "fonts/cp1251_serif_bold.bin",
+          "bytes": 2592,
+          "sha256": "b6bfeb6f8ea85bfbe7143d308dd273b05689c9b4d8125b1d818fec2c5a55d5cf"
+        },
+        {
+          "path": "fonts/cp1252_greybeard.bin",
+          "install": "fonts/cp1252_greybeard.bin",
+          "bytes": 3468,
+          "sha256": "c82d852f83890949a0838e92d19ebe6ed12c0dd8aa4cc89ec206a11e4d40ea54"
+        },
+        {
+          "path": "fonts/cp1252_haeberli12.bin",
+          "install": "fonts/cp1252_haeberli12.bin",
+          "bytes": 3240,
+          "sha256": "575836dd47404607d1455dac7ed54fab61a4a420eff2a37eacc7e347d0dfbbbf"
+        },
+        {
+          "path": "fonts/cp1252_rock12.bin",
+          "install": "fonts/cp1252_rock12.bin",
+          "bytes": 3756,
+          "sha256": "6c3702e1dd8f4f2cca0c77d103f58d0e9970851608dbb48dbf3e49fd183a256b"
+        },
+        {
+          "path": "fonts/cp1252_sans_serif.bin",
+          "install": "fonts/cp1252_sans_serif.bin",
+          "bytes": 3456,
+          "sha256": "4c8e80f2073f8567bd21f251b8e8308bb1a46f8c551b3420d59d028a54f3e77d"
+        },
+        {
+          "path": "fonts/cp1252_sans_serif_bold.bin",
+          "install": "fonts/cp1252_sans_serif_bold.bin",
+          "bytes": 3456,
+          "sha256": "abde17b7e208d205ec88002233b5df4f3f1624c61dbdff2499ff72bb4f1b08df"
+        },
+        {
+          "path": "fonts/cp1252_serif.bin",
+          "install": "fonts/cp1252_serif.bin",
+          "bytes": 3480,
+          "sha256": "e3da582c34cefacb152170a4879779bc2692cb497a9f69856b3ffe2034d5ad7b"
+        },
+        {
+          "path": "fonts/cp1252_serif_bold.bin",
+          "install": "fonts/cp1252_serif_bold.bin",
+          "bytes": 3804,
+          "sha256": "1437d58cc29e430a3f33535ef2a3bfafe9ddfdaff3d63677fe08bdb6a2d5d5ec"
+        },
+        {
+          "path": "fonts/cp1252_serif_cjk.bin",
+          "install": "fonts/cp1252_serif_cjk.bin",
+          "bytes": 3540,
+          "sha256": "2155e49f96a07e050e45f010e1aeedf90c0ebccf284adb914c112d18b24f0728"
+        },
+        {
+          "path": "fonts/cp1252_unbalanced.bin",
+          "install": "fonts/cp1252_unbalanced.bin",
+          "bytes": 3660,
+          "sha256": "1982964aad6b9ccc47aeeebb440e0976488127f0901d447634c246b08a7969c6"
+        },
+        {
+          "path": "fonts/unicode_cjk.bin",
+          "install": "fonts/unicode_cjk.bin",
+          "bytes": 503808,
+          "sha256": "8162c818f692510093f70f26e752415d2157258c04318eefc0af4941cad350e5"
+        },
+        {
+          "path": "fonts/unicode_cjk_punct.bin",
+          "install": "fonts/unicode_cjk_punct.bin",
+          "bytes": 1536,
+          "sha256": "e40ce911478817f0bac3a5da7f5375a0583b3956c10cd61cd5ebdbb2d1f33b3a"
+        },
+        {
+          "path": "fonts/unicode_fullwidth.bin",
+          "install": "fonts/unicode_fullwidth.bin",
+          "bytes": 4680,
+          "sha256": "13ff6bc7e20dce340d04ee03d3cbeb0ecee072be8ba6c363dd1e76aed5acf189"
+        },
+        {
+          "path": "fonts/unicode_general_punct.bin",
+          "install": "fonts/unicode_general_punct.bin",
+          "bytes": 1800,
+          "sha256": "3183504be56a54daa049865be8152845a879a66411401884d2db89debc932b96"
+        },
+        {
+          "path": "fonts/unicode_geometric.bin",
+          "install": "fonts/unicode_geometric.bin",
+          "bytes": 2424,
+          "sha256": "78aebb068fc546cfdf3f6e6fd2bec41a43b61c2bd9bd2cc0329d82fb7f7a771c"
+        },
+        {
+          "path": "fonts/unicode_greek.bin",
+          "install": "fonts/unicode_greek.bin",
+          "bytes": 2700,
+          "sha256": "5c36eb2fe556b9e9439e1220e131c6a8f65765c027c5c96ce3e4fde7b873877e"
+        },
+        {
+          "path": "fonts/unicode_hangul.bin",
+          "install": "fonts/unicode_hangul.bin",
+          "bytes": 268128,
+          "sha256": "c5b55dc91fd5c58cf8cd1d7d85465b4ad93c713077701ee9ccfff66cf387884e"
+        },
+        {
+          "path": "fonts/unicode_hiragana.bin",
+          "install": "fonts/unicode_hiragana.bin",
+          "bytes": 2304,
+          "sha256": "64c646451fc30824f7a8ffc9de54a353a8e25ef2f5d7e819c1acf147f2de5caf"
+        },
+        {
+          "path": "fonts/unicode_katakana.bin",
+          "install": "fonts/unicode_katakana.bin",
+          "bytes": 2304,
+          "sha256": "26350be464671c9e73e144c0932168748d4b019623ddf40c25e171fca26dab4c"
+        },
+        {
+          "path": "fonts/unicode_math_operators.bin",
+          "install": "fonts/unicode_math_operators.bin",
+          "bytes": 6912,
+          "sha256": "4b839f880bc8eba427ff788a86f1eab97f2573323d488997666e7a5418184372"
+        },
+        {
+          "path": "fonts/unicode_misc_symbols.bin",
+          "install": "fonts/unicode_misc_symbols.bin",
+          "bytes": 6840,
+          "sha256": "e4acedd6721c40636cb7a8b2087f126034db892bc3b9aec7f6018022d516786a"
+        },
+        {
+          "path": "lang/de_de.bin",
+          "install": "lang/de_de.bin",
+          "bytes": 1946,
+          "sha256": "978f1d12ed849e8199a3f88167bda98f0aec87564642dd855b8c8665ec8cc29e",
+          "language": "de_de"
+        },
+        {
+          "path": "lang/es_es.bin",
+          "install": "lang/es_es.bin",
+          "bytes": 1877,
+          "sha256": "b4612cbf7292785c7ecf30e29f3b24552054b7095624d357a73160dc00b19114",
+          "language": "es_es"
+        },
+        {
+          "path": "lang/fr_fr.bin",
+          "install": "lang/fr_fr.bin",
+          "bytes": 1947,
+          "sha256": "8e7749018629064d288d78c5cd11624bfa50f29075f0d31ca6a97934c9761ba2",
+          "language": "fr_fr"
+        },
+        {
+          "path": "lang/it_it.bin",
+          "install": "lang/it_it.bin",
+          "bytes": 1904,
+          "sha256": "1277af51cadaf58024b023c2544fc4eb831360aa5ea99a57d3766e5e2a3ef619",
+          "language": "it_it"
+        },
+        {
+          "path": "lang/ja_jp.bin",
+          "install": "lang/ja_jp.bin",
+          "bytes": 2278,
+          "sha256": "a5e214a381bfe5e0a771777727ccd0f0ae4c4d4b81b637b8535fc79a1a48b993",
+          "language": "ja_jp"
+        },
+        {
+          "path": "lang/ko_kr.bin",
+          "install": "lang/ko_kr.bin",
+          "bytes": 2188,
+          "sha256": "730d89b6571bf6eb4fa20cc087c99a282f7174b18857db1cbde126f082059a2a",
+          "language": "ko_kr"
+        },
+        {
+          "path": "lang/no_nb.bin",
+          "install": "lang/no_nb.bin",
+          "bytes": 1942,
+          "sha256": "10baf654ec776b66ff751c6ed997f8d80fe7011245b59ef195685abfbb61d808",
+          "language": "no_nb"
+        },
+        {
+          "path": "lang/pt_pt.bin",
+          "install": "lang/pt_pt.bin",
+          "bytes": 1940,
+          "sha256": "632509b4bfe7d5f714cde582751d65d978c5d3837c684feaa6437d992962b25d",
+          "language": "pt_pt"
+        },
+        {
+          "path": "lang/ru_ru.bin",
+          "install": "lang/ru_ru.bin",
+          "bytes": 2517,
+          "sha256": "8f380380a9699bf19f20bea1c6baaeee0f9e66d08bb15bc3436e705593aab577",
+          "language": "ru_ru"
+        },
+        {
+          "path": "lang/zh_cn.bin",
+          "install": "lang/zh_cn.bin",
+          "bytes": 2045,
+          "sha256": "9686e7272c417d016e67a2305b607e8dcf9c7d96270375b5c8acd8a0dc509ebf",
+          "language": "zh_cn"
+        },
+        {
+          "path": "lang/zh_tw.bin",
+          "install": "lang/zh_tw.bin",
+          "bytes": 2058,
+          "sha256": "bbc5ccfb86595de186638062a2741885083e421a2d317aa53002a4b13c74662c",
+          "language": "zh_tw"
+        },
+        {
+          "path": "bios/logo.bin",
+          "install": "bios/logo.bin",
+          "bytes": 576,
+          "sha256": "f4ff5e4c08405172f8afb0ce3a4858975592cffb868f7144ec5303fd272f9689"
+        }
+      ]
+    }
+  ],
+  "builtAt": "2026-09-08T19:33:37Z",
+  "projects": {
+    "bytes": 4012,
+    "sha256": "3f8d6fe72053c7d03b4a4fca1ff683a5f02daab7db661a83ca9d69b9a4c09334",
+    "url": "projects.json"
+  }
+}
