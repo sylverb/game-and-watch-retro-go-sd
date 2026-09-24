@@ -958,9 +958,46 @@ void lcd_set_dithering(uint32_t enable) {
     HAL_LTDC_DisableDither(ltdc);
 }
 
-/* set display refresh rate 50Hz or 60Hz  */
+/* PLL3 for an arbitrary refresh rate, with the fractional divider.
+ *
+ * The four presets below are kept bit-for-bit (FRACN 0). Any OTHER rate,
+ * which this function used to ignore silently, is computed:
+ *
+ *   pixel clock = rate * (TotalWidth+1) * (TotalHeigh+1)   (393 x 256)
+ *   VCO         = pixel clock * R, with R chosen to put the VCO near
+ *                 180 MHz, inside the 144..240 MHz the presets already use
+ *   N + FRACN/8192 = VCO / ref,   ref = HSI / DIVM3 (64 MHz / 4 = 16 MHz)
+ *
+ * FRACN has 13 bits, so the step is ~0.0004% of the rate. The PLL source
+ * is HSI, not a crystal, but PLL1 (CPU/SysTick) and PLL2 (audio) come
+ * from the same HSI, so panel, audio and frame timer stay in exact ratio
+ * on every device even though the absolute rate varies slightly.
+ *
+ * Accepts whole Hz (40..80) or milli-Hz (40000..80000, e.g. 57442). */
+static int lcd_pll3_for_rate(uint32_t mhz, uint32_t *n, uint32_t *r, uint32_t *fracn)
+{
+  const double ref = (double)(HSI_VALUE >> ((RCC->CR & RCC_CR_HSIDIV) >> RCC_CR_HSIDIV_Pos)) / 4.0;
+  const double total = (double)(hltdc.Init.TotalWidth + 1) * (double)(hltdc.Init.TotalHeigh + 1);
+  const double pclk = (double)mhz / 1000.0 * total;
+  uint32_t rr = (uint32_t)(180000000.0 / pclk + 0.5);
+  if (rr < 2) rr = 2;
+  if (rr > 128) rr = 128;
+  const double vco = pclk * rr;
+  if (vco < 144000000.0 || vco > 240000000.0)
+    return 0;
+  const double nf = vco / ref;
+  uint32_t nn = (uint32_t)nf;
+  uint32_t ff = (uint32_t)((nf - nn) * 8192.0 + 0.5);
+  if (ff >= 8192) { nn++; ff = 0; }
+  if (nn < 4 || nn > 512)
+    return 0;
+  *n = nn; *r = rr; *fracn = ff;
+  return 1;
+}
+
+/* set display refresh rate: 50/60/72/75 presets, or any rate in 40..80 Hz */
 void lcd_set_refresh_rate(uint32_t frequency) {
-  uint32_t plln = 9, pllr = 24;
+  uint32_t plln = 9, pllr = 24, fracn = 0;
   if (frequency == 60) {
     plln = 9;
     pllr = 24;
@@ -976,6 +1013,14 @@ void lcd_set_refresh_rate(uint32_t frequency) {
   else if (frequency == 75) {
     plln = 15;
     pllr = 32;
+  }
+  else if (((frequency >= 40 && frequency <= 80) ||
+            (frequency >= 40000 && frequency <= 80000)) &&
+           lcd_pll3_for_rate(frequency <= 80 ? frequency * 1000 : frequency,
+                             &plln, &pllr, &fracn)) {
+    printf("lcd: refresh %lu -> PLL3 N=%lu R=%lu FRACN=%lu\n",
+           (unsigned long)frequency, (unsigned long)plln,
+           (unsigned long)pllr, (unsigned long)fracn);
   } else {
     //  printf("wrong lcd refresh rate; 50Hz or 60Hz only\n");
     //  assert(0);
@@ -997,7 +1042,7 @@ void lcd_set_refresh_rate(uint32_t frequency) {
   PeriphClkInitStruct.PLL3.PLL3R = pllr;
   PeriphClkInitStruct.PLL3.PLL3RGE = RCC_PLL3VCIRANGE_3;
   PeriphClkInitStruct.PLL3.PLL3VCOSEL = RCC_PLL3VCOWIDE;
-  PeriphClkInitStruct.PLL3.PLL3FRACN = 0;
+  PeriphClkInitStruct.PLL3.PLL3FRACN = fracn;
 
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK) {
     Error_Handler();
