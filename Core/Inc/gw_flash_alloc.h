@@ -35,6 +35,50 @@ void flash_alloc_reset();
 void flash_alloc_forget_live_files(void);
 uint8_t *store_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap, file_progress_cb_t progress_cb);
 
+/* Derived-data blobs: same flash cache, RAM source, caller-chosen key
+ * string (make it content-addressed). lookup probes the cache without
+ * writing; store writes (or returns the cached copy when the key+size
+ * already match). Both return a memory-mapped read-only pointer, NULL
+ * on miss / no room. */
+const uint8_t *lookup_data_in_flash(const char *key, uint32_t *size_out);
+const uint8_t *store_data_in_flash(const char *key, const uint8_t *data, uint32_t data_size);
+/* Optional progress hook for the NEXT store_data_in_flash() calls: invoked
+ * once per programmed chunk with (bytes done, bytes total).  Building a
+ * 256KB blob takes seconds and the caller may be the only thing on screen,
+ * so it needs a way to say "still working".  NULL disables it. */
+void store_data_set_progress_cb(void (*cb)(uint32_t done, uint32_t total));
+
+/* ---- streaming blob store -------------------------------------------
+ * Same cache, but written incrementally so the producer never needs a RAM
+ * buffer the size of the blob. Written for rom_map()'s inflate: a 512KB
+ * ROM entry used to need 512KB of transient machine pool, which simply
+ * does not fit, and the failure looked like a missing ROM.
+ *
+ * begin() reserves and returns false if there is no room; append() may be
+ * called any number of times with any chunk sizes; finish() commits the
+ * metadata and returns the memory-mapped address (NULL on failure).
+ * abort() throws the reservation away without committing.
+ *
+ * append() toggles memory-mapped mode around each program, so the CALLER
+ * MAY read the external flash between appends -- which the inflate does,
+ * since its compressed input is mapped there. */
+typedef struct {
+    uint32_t key_crc;
+    uint32_t flash_address;      /* mapped base of the blob */
+    uint32_t prog_addr;          /* program cursor, offset in ext flash */
+    uint32_t erase_addr;
+    uint32_t erase_left;
+    uint32_t total;
+    uint32_t done;
+    uint32_t erase_size_total;
+    bool     active;
+} flash_stream_t;
+
+bool store_data_begin(flash_stream_t *st, const char *key, uint32_t total_size);
+bool store_data_append(flash_stream_t *st, const uint8_t *buf, uint32_t len);
+const uint8_t *store_data_finish(flash_stream_t *st);
+void store_data_abort(flash_stream_t *st);
+
 /* As store_file_in_flash(), but relocate_cb (if non-NULL) gets a crack at the
  * data before it is programmed. On a cache hit nothing is written and the
  * callback does not run — the copy in flash was already relocated, to the same
@@ -44,7 +88,7 @@ uint8_t *store_file_in_flash_relocate(const char *file_path, uint32_t *file_size
 
 /* odroid_overlay_cache_file_in_flash() with a relocation pass. Lives in
  * Core/Src/porting/odroid_overlay.c next to its sibling (it draws the "Caching
- * game" bar), but is declared here rather than in the retro-go-stm32 submodule's
- * odroid_overlay.h so that adding it costs no submodule bump. */
+ * game" bar), but is declared here rather than in odroid_overlay.h so the
+ * flash-allocator API stays next to the rest of the flash helpers. */
 uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
                                                      bool byte_swap, flash_relocate_cb_t relocate_cb);

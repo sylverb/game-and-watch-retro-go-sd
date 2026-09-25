@@ -18,7 +18,7 @@ PICO8_GNW_CORES_ZIP_URL = (
 
 PICO8_CACHE_FILENAME = "pico8_gnw_cores-2026-06-07.zip"
 
-# Same as sd_cores_pack: never place the placeholder stub on LittleFS.
+# Same as historical sd_cores_pack: ignore any leftover placeholder stub in the ZIP.
 _SKIP_BASENAMES = frozenset({"pico8_stub.bin"})
 
 

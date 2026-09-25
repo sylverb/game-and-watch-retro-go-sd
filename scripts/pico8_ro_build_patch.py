@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Sentinel relocation for PICO-8 pico8.ro — must match PatchPico8Region in rg_emulators.c.
+Sentinel relocation for PICO-8 pico8.ro (0xBEEF0000-range refs → QSPI XIP).
 """
 from __future__ import annotations
 

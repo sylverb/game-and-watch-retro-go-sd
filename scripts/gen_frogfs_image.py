@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 import argparse
-import hashlib
-import importlib.util
 import json
 import os
 import pathlib
@@ -18,26 +16,6 @@ ROMS_TOP_EXCLUDE_FOR_BIOS_MERGE = frozenset({"bios"})
 ROMS_SKIP_EXTENSIONS = frozenset({".img", ".jpg", ".jpeg", ".png", ".bmp"})
 # Thumbnails from tools/gencovers.py (--dst); merged into FrogFS /covers (not repo ./covers).
 GENERATED_COVERS_SUBDIR = "covers_from_roms"
-
-# Must match external/zelda3/tables/util.py ZELDA3_SHA1_US (US "A Link to the Past").
-ZELDA3_US_SHA1 = "6D4F10A8B10E10DBE624CB23CF03B88BB8252973"
-# Must match external/smw/assets/util.py SMW_SHA1_US.
-SMW_US_SHA1 = "6B47BB75D16514B6A476AA0C73A683A2A4C18765"
-
-FROGFS_HOMEBREW_EXTRA = "frogfs_homebrew_extra"
-# Only pack these from restool staging (frogfs_homebrew_extra); ignore copies under project/sd roms trees
-# when the matching US ROM was not found (prepare_* returned False).
-ROMS_HOMEBREW_RESTOOL_DATS = frozenset(
-    (
-        pathlib.Path("homebrew") / "zelda3_assets.dat",
-        pathlib.Path("homebrew") / "smw_assets.dat",
-    )
-)
-# GNW homebrew payloads tied to restool-built assets; omit from FrogFS if US ROM → assets build skipped.
-ROMS_HOMEBREW_SMW_WORLD_BIN = pathlib.Path("homebrew") / "Super Mario World.bin"
-ROMS_HOMEBREW_ZELDA3_BIN = pathlib.Path("homebrew") / "Zelda 3.bin"
-ROMS_HOMEBREW_ZELDA3_RO = pathlib.Path("homebrew") / "zelda3.ro"
-
 
 def parse_int(value):
     return int(str(value), 0)
@@ -71,316 +49,6 @@ def is_pico8_cartridge_rom(rel_path: pathlib.Path, path: pathlib.Path) -> bool:
     name = path.name.lower()
     return name.endswith(".p8") or name.endswith(".p8.png") or name.endswith(".png")
 
-
-def snes_rom_body_sha1(rom_path: pathlib.Path) -> str:
-    """SHA1 of PRG (SMC 512-byte header strip; same as zelda3/smw util.py)."""
-    data = rom_path.read_bytes()
-    if (len(data) & 0xFFFFF) == 0x200:
-        data = data[0x200:]
-    return hashlib.sha1(data).hexdigest().upper()
-
-
-def homebrew_rels_with_sha1(sha1_expect: str, *roms_roots: pathlib.Path) -> frozenset[pathlib.Path]:
-    """Relative paths under each roms root (e.g. homebrew/x.sfc) whose body matches sha1_expect."""
-    found: set[pathlib.Path] = set()
-    for root in roms_roots:
-        if not root.is_dir():
-            continue
-        hb = root / "homebrew"
-        if not hb.is_dir():
-            continue
-        for p in hb.iterdir():
-            if not p.is_file() or p.suffix.lower() not in (".sfc", ".smc"):
-                continue
-            if snes_rom_body_sha1(p) != sha1_expect:
-                continue
-            found.add(p.resolve().relative_to(root.resolve()))
-    return frozenset(found)
-
-
-def homebrew_rels_with_sha1_in(
-    sha1_expect: frozenset[str], *roms_roots: pathlib.Path
-) -> frozenset[pathlib.Path]:
-    """Relative paths under each roms root whose file body SHA1 is in sha1_expect."""
-    found: set[pathlib.Path] = set()
-    for root in roms_roots:
-        if not root.is_dir():
-            continue
-        hb = root / "homebrew"
-        if not hb.is_dir():
-            continue
-        for p in hb.iterdir():
-            if not p.is_file() or p.suffix.lower() not in (".sfc", ".smc"):
-                continue
-            if snes_rom_body_sha1(p) not in sha1_expect:
-                continue
-            found.add(p.resolve().relative_to(root.resolve()))
-    return frozenset(found)
-
-
-def load_zelda3_sha1_to_lang(tables_dir: pathlib.Path) -> dict[str, str]:
-    """Uppercase SHA1 → restool language code; kept in sync by loading util.py."""
-    util_path = tables_dir / "util.py"
-    spec = importlib.util.spec_from_file_location("zelda3_tables_util", str(util_path))
-    if spec is None or spec.loader is None:
-        raise ImportError(f"Cannot load {util_path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return {k.upper(): v[0] for k, v in mod.ZELDA3_SHA1.items()}
-
-
-def collect_zelda3_alt_lang_roms(
-    sha1_to_lang: dict[str, str],
-    *roms_roots: pathlib.Path,
-) -> dict[str, pathlib.Path]:
-    """
-    One ROM path per non-US language code found under roms/homebrew (first match wins per lang).
-    SHA1 map must use uppercase keys (see load_zelda3_sha1_to_lang).
-    """
-    by_lang: dict[str, pathlib.Path] = {}
-    seen_resolved: set[pathlib.Path] = set()
-    for roms_root in roms_roots:
-        if not roms_root.is_dir():
-            continue
-        hb = roms_root / "homebrew"
-        if not hb.is_dir():
-            continue
-        for p in sorted(
-            x for x in hb.iterdir() if x.is_file() and x.suffix.lower() in (".sfc", ".smc")
-        ):
-            r = p.resolve()
-            if r in seen_resolved:
-                continue
-            seen_resolved.add(r)
-            lang = sha1_to_lang.get(snes_rom_body_sha1(p))
-            if not lang or lang == "us":
-                continue
-            if lang not in by_lang:
-                by_lang[lang] = p
-    return by_lang
-
-
-def collect_us_zelda3_rom_from_homebrew(
-    *roms_roots: pathlib.Path,
-) -> pathlib.Path | None:
-    """
-    Search roms/homebrew under each existing roms root (same layout as SD: /roms/homebrew).
-    Returns absolute path to first US ALTTP ROM found, or None.
-    """
-    candidates_order: list[pathlib.Path] = []
-    seen_resolved: set[pathlib.Path] = set()
-
-    def add_candidate(file_path: pathlib.Path) -> None:
-        r = file_path.resolve()
-        if r in seen_resolved:
-            return
-        seen_resolved.add(r)
-        candidates_order.append(file_path)
-
-    for roms_root in roms_roots:
-        if not roms_root.is_dir():
-            continue
-        hb = roms_root / "homebrew"
-        if not hb.is_dir():
-            continue
-        for name in ("zelda3.sfc", "zelda3.smc"):
-            p = hb / name
-            if p.is_file():
-                add_candidate(p)
-        for p in sorted(
-            x for x in hb.iterdir() if x.is_file() and x.suffix.lower() in (".sfc", ".smc")
-        ):
-            add_candidate(p)
-
-    for rom_path in candidates_order:
-        if snes_rom_body_sha1(rom_path) == ZELDA3_US_SHA1:
-            return rom_path
-
-    if candidates_order:
-        ex = candidates_order[0]
-        print(
-            f"roms/homebrew: no US ALTTP ROM (SHA1 {ZELDA3_US_SHA1}). "
-            f"Checked {len(candidates_order)} file(s); e.g. {ex.name} → {snes_rom_body_sha1(ex)}.",
-            file=sys.stderr,
-        )
-    return None
-
-
-def collect_us_smw_rom_from_homebrew(
-    *roms_roots: pathlib.Path,
-) -> pathlib.Path | None:
-    """
-    Search roms/homebrew under each existing roms root.
-    Returns absolute path to first US Super Mario World ROM found, or None.
-    """
-    candidates_order: list[pathlib.Path] = []
-    seen_resolved: set[pathlib.Path] = set()
-
-    def add_candidate(file_path: pathlib.Path) -> None:
-        r = file_path.resolve()
-        if r in seen_resolved:
-            return
-        seen_resolved.add(r)
-        candidates_order.append(file_path)
-
-    for roms_root in roms_roots:
-        if not roms_root.is_dir():
-            continue
-        hb = roms_root / "homebrew"
-        if not hb.is_dir():
-            continue
-        for name in ("smw.sfc", "smw.smc"):
-            p = hb / name
-            if p.is_file():
-                add_candidate(p)
-        for p in sorted(
-            x for x in hb.iterdir() if x.is_file() and x.suffix.lower() in (".sfc", ".smc")
-        ):
-            add_candidate(p)
-
-    for rom_path in candidates_order:
-        if snes_rom_body_sha1(rom_path) == SMW_US_SHA1:
-            return rom_path
-
-    if candidates_order:
-        ex = candidates_order[0]
-        print(
-            f"roms/homebrew: no US SMW ROM (SHA1 {SMW_US_SHA1}). "
-            f"Checked {len(candidates_order)} file(s); e.g. {ex.name} → {snes_rom_body_sha1(ex)}.",
-            file=sys.stderr,
-        )
-    return None
-
-
-def prepare_zelda3_frogfs_assets(
-    repo: pathlib.Path,
-    build_dir: pathlib.Path,
-    project_roms: pathlib.Path,
-    sd_roms: pathlib.Path,
-) -> tuple[bool, frozenset[pathlib.Path]]:
-    """
-    If roms/homebrew contains a US ALTTP ROM (expected SHA1), build zelda3_assets.dat via restool
-    and stage it for FrogFS at /roms/homebrew/zelda3_assets.dat (see main_zelda3.c).
-    Additional localized ROMs listed in external/zelda3/tables/util.py under roms/homebrew trigger
-    --extract-dialogue and --languages=... like a manual restool multi-language build.
-    All recognized Zelda 3 ROM bodies are excluded from FrogFS packing.
-    """
-    rom_path = collect_us_zelda3_rom_from_homebrew(project_roms, sd_roms)
-    if not rom_path:
-        return False, frozenset()
-
-    tables = repo / "external" / "zelda3" / "tables"
-    restool = tables / "restool.py"
-    if not restool.is_file():
-        print(f"Zelda3 restool not found: {restool}", file=sys.stderr)
-        return False, frozenset()
-
-    try:
-        sha1_to_lang = load_zelda3_sha1_to_lang(tables)
-    except ImportError as e:
-        print(str(e), file=sys.stderr)
-        return False, frozenset()
-
-    alt_by_lang = collect_zelda3_alt_lang_roms(sha1_to_lang, project_roms, sd_roms)
-    for lang in sorted(alt_by_lang.keys()):
-        alt_rom = alt_by_lang[lang]
-        try:
-            subprocess.check_call(
-                [
-                    sys.executable,
-                    str(restool),
-                    "--extract-dialogue",
-                    "-r",
-                    str(alt_rom.resolve()),
-                ],
-                cwd=str(tables),
-            )
-        except subprocess.CalledProcessError as e:
-            print(
-                f"zelda3 restool.py --extract-dialogue failed for {lang} ({alt_rom.name}), exit {e.returncode}",
-                file=sys.stderr,
-            )
-            return False, frozenset()
-        print(f"Zelda3: extracted dialogue for language '{lang}' from {alt_rom.name}")
-
-    extract_cmd = [
-        sys.executable,
-        str(restool),
-        "--extract-from-rom",
-        "-r",
-        str(rom_path.resolve()),
-    ]
-    if alt_by_lang:
-        langs_csv = ",".join(sorted(alt_by_lang.keys()))
-        extract_cmd.extend(["--languages", langs_csv])
-        print(f"Zelda3: building assets with extra languages: {langs_csv}")
-
-    try:
-        subprocess.check_call(extract_cmd, cwd=str(tables))
-    except subprocess.CalledProcessError as e:
-        print(f"zelda3 restool.py failed (exit {e.returncode})", file=sys.stderr)
-        return False, frozenset()
-
-    dat = tables / "zelda3_assets.dat"
-    if not dat.is_file():
-        print(f"zelda3_assets.dat not produced at {dat}", file=sys.stderr)
-        return False, frozenset()
-
-    hb = build_dir / FROGFS_HOMEBREW_EXTRA / "homebrew"
-    hb.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(dat, hb / "zelda3_assets.dat")
-    print("Zelda3: built zelda3_assets.dat from US ROM in roms/homebrew → FrogFS /roms/homebrew/zelda3_assets.dat")
-    skip = homebrew_rels_with_sha1_in(frozenset(sha1_to_lang.keys()), project_roms, sd_roms)
-    if skip:
-        listed = ", ".join(sorted(p.as_posix() for p in skip))
-        print(f"Zelda3: excluding recognized Zelda 3 ROM(s) from FrogFS (not packed): {listed}")
-    return True, skip
-
-
-def prepare_smw_frogfs_assets(
-    repo: pathlib.Path,
-    build_dir: pathlib.Path,
-    project_roms: pathlib.Path,
-    sd_roms: pathlib.Path,
-) -> tuple[bool, frozenset[pathlib.Path]]:
-    """
-    If roms/homebrew contains a US SMW ROM (expected SHA1), build smw_assets.dat via restool
-    and stage it for FrogFS at /roms/homebrew/smw_assets.dat (see main_smw.c).
-    The matched ROM file is not packed into FrogFS.
-    """
-    rom_path = collect_us_smw_rom_from_homebrew(project_roms, sd_roms)
-    if not rom_path:
-        return False, frozenset()
-
-    smw_root = repo / "external" / "smw"
-    restool = smw_root / "assets" / "restool.py"
-    if not restool.is_file():
-        print(f"SMW restool not found: {restool}", file=sys.stderr)
-        return False, frozenset()
-
-    try:
-        subprocess.check_call(
-            [sys.executable, str(restool), "--extract-from-rom", "-r", str(rom_path.resolve())],
-            cwd=str(smw_root),
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"smw assets/restool.py failed (exit {e.returncode})", file=sys.stderr)
-        return False, frozenset()
-
-    dat = smw_root / "smw_assets.dat"
-    if not dat.is_file():
-        print(f"smw_assets.dat not produced at {dat}", file=sys.stderr)
-        return False, frozenset()
-
-    hb = build_dir / FROGFS_HOMEBREW_EXTRA / "homebrew"
-    hb.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(dat, hb / "smw_assets.dat")
-    print("SMW: built smw_assets.dat from US ROM in roms/homebrew → FrogFS /roms/homebrew/smw_assets.dat")
-    skip = homebrew_rels_with_sha1(SMW_US_SHA1, project_roms, sd_roms)
-    if skip:
-        listed = ", ".join(sorted(p.as_posix() for p in skip))
-        print(f"SMW: excluding US ROM from FrogFS (not packed): {listed}")
-    return True, skip
 
 
 def run_gencovers(repo: pathlib.Path, build_dir: pathlib.Path, rom_dirs):
@@ -446,17 +114,6 @@ def copy_byteswapped_16(src, dst):
     shutil.copystat(src, dst)
 
 
-def _roms_homebrew_zelda_smw_skip(
-    rel_path: pathlib.Path, *, zelda3_built: bool, smw_built: bool
-) -> bool:
-    """True if this roms-relative path must not be packed (orphan homebrew file without assets)."""
-    if rel_path == ROMS_HOMEBREW_SMW_WORLD_BIN and not smw_built:
-        return True
-    if rel_path == ROMS_HOMEBREW_ZELDA3_BIN and not zelda3_built:
-        return True
-    if rel_path == ROMS_HOMEBREW_ZELDA3_RO and not zelda3_built:
-        return True
-    return False
 
 
 def stage_input_dirs(
@@ -466,22 +123,20 @@ def stage_input_dirs(
     roms_skip_rel_paths=None,
     *,
     skip_bios_msx=False,
-    frogfs_homebrew_dat_root: pathlib.Path | None = None,
-    zelda3_frogfs_built: bool = False,
-    smw_frogfs_built: bool = False,
 ):
-    """Merge multiple (src, dest) with the same dest into one staged tree.
-
-    frogfs_homebrew_dat_root: when set, only this source dir may contribute
-    homebrew/zelda3_assets.dat and homebrew/smw_assets.dat (restool output).
-    zelda3_frogfs_built / smw_frogfs_built: gate homebrew/Zelda3*.bin|ro and Super Mario World.bin.
-    """
+    """Merge multiple (src, dest) with the same dest into one staged tree."""
     if stage_dir.exists():
         shutil.rmtree(stage_dir)
     stage_dir.mkdir(parents=True)
 
     roms_exclude_top = roms_exclude_top or frozenset()
     roms_skip_rel_paths = roms_skip_rel_paths or frozenset()
+    # SHA1-matched source ROMs under roms/homebrew → also skip when packing /homebrews.
+    homebrews_skip_rels = frozenset(
+        p.relative_to(pathlib.Path("homebrew"))
+        for p in roms_skip_rel_paths
+        if len(p.parts) >= 2 and p.parts[0] == "homebrew"
+    )
     by_dest = OrderedDict()
     for src, dest in collect_dirs:
         by_dest.setdefault(dest, []).append(src)
@@ -505,24 +160,24 @@ def stage_input_dirs(
                     continue
                 if dest == "roms" and skip_under_roms_top(rel_path, roms_exclude_top):
                     continue
-                if dest == "roms" and rel_path in ROMS_HOMEBREW_RESTOOL_DATS:
-                    allow = (
-                        frogfs_homebrew_dat_root is not None
-                        and src.resolve() == frogfs_homebrew_dat_root.resolve()
-                    )
-                    if not allow:
-                        continue
-                if dest == "roms" and _roms_homebrew_zelda_smw_skip(
-                    rel_path,
-                    zelda3_built=zelda3_frogfs_built,
-                    smw_built=smw_frogfs_built,
-                ):
+                # Do not also pack roms/homebrew/* into /roms — those go to /homebrews.
+                if dest == "roms" and rel_path.parts and rel_path.parts[0] == "homebrew":
                     continue
                 staged_path = staged_root / rel_path
                 if path.is_dir():
                     staged_path.mkdir(parents=True, exist_ok=True)
                 elif path.is_file():
                     if dest == "roms" and rel_path in roms_skip_rel_paths:
+                        continue
+                    if dest == "homebrews" and rel_path in homebrews_skip_rels:
+                        continue
+                    # Do not pack raw SNES ROMs into /homebrews (homebrew payloads only).
+                    if dest == "homebrews" and path.suffix.lower() in (
+                        ".sfc",
+                        ".smc",
+                        ".fig",
+                        ".swc",
+                    ):
                         continue
                     if skip_roms_file_by_extension(dest, path, rel_path):
                         continue
@@ -639,23 +294,22 @@ def main():
         sd_roms if sd_roms.is_dir() else None,
     )
 
-    frogfs_hb_extra = build_dir / FROGFS_HOMEBREW_EXTRA
-    if frogfs_hb_extra.exists():
-        shutil.rmtree(frogfs_hb_extra)
-
-    zelda3_frogfs_built, zelda3_rom_skip_rels = prepare_zelda3_frogfs_assets(
-        repo, build_dir, project_roms, sd_roms
-    )
-    smw_frogfs_built, smw_rom_skip_rels = prepare_smw_frogfs_assets(
-        repo, build_dir, project_roms, sd_roms
-    )
-
     if "covers" in requested_dirs and not args.no_gencovers:
         if not run_gencovers(repo, build_dir, (project_roms, sd_roms)):
             return 1
 
     if project_roms.is_dir():
         collect_dirs.append((project_roms, "roms"))
+
+    # /homebrews: GWHB .bin (+ sibling assets). May stage from project roms/homebrew/.
+    proj_hb = project_roms / "homebrew"
+    if proj_hb.is_dir():
+        collect_dirs.append((proj_hb, "homebrews"))
+    sd_hb = sd_content / "homebrews"
+    if sd_hb.is_dir():
+        collect_dirs.append((sd_hb, "homebrews"))
+    elif (sd_roms / "homebrew").is_dir():
+        collect_dirs.append((sd_roms / "homebrew", "homebrews"))
 
     # /bios: sd_content/bios + sd_content/roms/bios + project roms/bios (FrogFS path is /bios, not /roms/bios).
     bios_sources = []
@@ -695,9 +349,6 @@ def main():
     if sd_roms.is_dir():
         collect_dirs.append((sd_roms, "roms"))
 
-    if zelda3_frogfs_built or smw_frogfs_built:
-        collect_dirs.append((build_dir / FROGFS_HOMEBREW_EXTRA, "roms"))
-
     pico8_ro_in_frogfs = False
     if args.bundle_pico8_ro_in_frogfs and "pico8" in active_systems:
         import pico8_gnw_cores  # noqa: E402
@@ -731,10 +382,6 @@ def main():
     roms_exclude = set(ROMS_TOP_EXCLUDE_FOR_BIOS_MERGE)
 
     roms_skip_merged = frozenset()
-    if zelda3_frogfs_built:
-        roms_skip_merged = roms_skip_merged | zelda3_rom_skip_rels
-    if smw_frogfs_built:
-        roms_skip_merged = roms_skip_merged | smw_rom_skip_rels
 
     skip_bios_msx = "msx" not in active_systems
     if skip_bios_msx:
@@ -743,21 +390,12 @@ def main():
             file=sys.stderr,
         )
 
-    hb_dat_root = (
-        (build_dir / FROGFS_HOMEBREW_EXTRA)
-        if (zelda3_frogfs_built or smw_frogfs_built)
-        and (build_dir / FROGFS_HOMEBREW_EXTRA).is_dir()
-        else None
-    )
     staged_dirs, byteswapped_count = stage_input_dirs(
         collect_dirs,
         build_dir / "input",
         roms_exclude_top=frozenset(roms_exclude),
         roms_skip_rel_paths=roms_skip_merged,
         skip_bios_msx=skip_bios_msx,
-        frogfs_homebrew_dat_root=hb_dat_root,
-        zelda3_frogfs_built=zelda3_frogfs_built,
-        smw_frogfs_built=smw_frogfs_built,
     )
 
     if args.rom_compression == "lzma":

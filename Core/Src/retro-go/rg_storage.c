@@ -348,7 +348,19 @@ static size_t rg_storage_copy_file_to_ram_impl(char *file_path, uint8_t *ram_des
         wdog_refresh();
         total_written += bytes_read;
         if (file_progress_cb) {
-            file_progress_cb(total_size, total_written, (uint8_t)((total_written * 100) / (total_size)));
+            /* Same as circular_flash_write: no done*100 overflow, no uint64 div. */
+            uint32_t pct;
+            if (total_size == 0)
+                pct = 0;
+            else if (total_written >= total_size)
+                pct = 100;
+            else if (total_written <= 0xffffffffu / 100u)
+                pct = (total_written * 100u) / total_size;
+            else
+                pct = total_written / (total_size / 100u);
+            if (pct > 100)
+                pct = 100;
+            file_progress_cb(total_size, total_written, (uint8_t)pct);
         }
     }
 
@@ -407,7 +419,18 @@ size_t rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest, uin
         wdog_refresh();
         total_written += bytes_read;
         if (file_progress_cb) {
-            file_progress_cb(length, total_written, (uint8_t)((total_written * 100) / length));
+            uint32_t pct;
+            if (length == 0)
+                pct = 0;
+            else if (total_written >= length)
+                pct = 100;
+            else if (total_written <= 0xffffffffu / 100u)
+                pct = (total_written * 100u) / length;
+            else
+                pct = total_written / (length / 100u);
+            if (pct > 100)
+                pct = 100;
+            file_progress_cb(length, total_written, (uint8_t)pct);
         }
     }
 

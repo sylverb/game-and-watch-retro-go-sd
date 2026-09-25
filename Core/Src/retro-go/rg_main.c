@@ -567,6 +567,8 @@ static void GLOBAL_DATA handle_time_menu()
 
 tab_t* gui_get_prepared_tab(int tab_index) {
     tab_t* tab = gui_get_tab(tab_index);
+    if (tab == NULL)
+        return NULL;
     if (!tab->initialized) {
         gui_init_tab(tab);
     } else {
@@ -578,12 +580,15 @@ tab_t* gui_get_prepared_tab(int tab_index) {
 
 
 bool gui_is_tab_valid(tab_t* tab) {
-    return gui.show_empty || !tab->is_empty;
+    return tab != NULL && (gui.show_empty || !tab->is_empty);
 }
 
 bool gui_change_tab(int direction) {
     int old_selected_tab = gui.selected;
     int new_selected_tab;
+
+    if (gui.tabcount <= 0)
+        return false;
 
     int traversed_tabs_count = 0;
     int current_tab = gui.selected;
@@ -604,7 +609,6 @@ bool gui_change_tab(int direction) {
 
         tab_t* tab = gui_get_prepared_tab(current_tab);
         bool is_tab_valid = gui_is_tab_valid(tab);
-        //printf("Current tab: %d - %s, initialized: %d, valid: %d\n", current_tab, tab->name, tab->initialized, is_tab_valid);
 
         if (is_tab_valid) {
             new_selected_tab = current_tab;
@@ -653,6 +657,8 @@ void retro_loop()
             last_key = i;
 
     gui.selected = odroid_settings_MainMenuSelectedTab_get();
+    if (gui.selected < 0 || gui.selected >= gui.tabcount)
+        gui.selected = 0;
 
     tab = gui_get_prepared_tab(gui.selected);
     if (!gui_is_tab_valid(tab)) {
@@ -819,8 +825,7 @@ void retro_loop()
                 }
                 else {
                     odroid_system_sleep_ex(SLEEP_ENTER_SLEEP_WITH_ANIMATION, NULL);
-                    if (!rg_emulator_validate_browse_path_for_tab(tab))
-                        gui_refresh_tab(tab);
+                    emulators_resync_after_wake();
                     power_key_pressed = true;
                 }
             }
@@ -843,39 +848,22 @@ void retro_loop()
         {
             printf("Idle timeout expired\n");
             odroid_system_sleep();
-            if (!rg_emulator_validate_browse_path_for_tab(tab))
-                gui_refresh_tab(tab);
+            emulators_resync_after_wake();
         }
 
         gui_redraw();
     }
 }
 
-#define ODROID_APPID_LAUNCHER 0
-
 #if DISABLE_SPLASH_SCREEN == 0
 void GLOBAL_DATA app_start_logo()
 {
-    const int16_t logos[] =   {RG_LOGO_NINTENDO,  RG_LOGO_SEGA,          RG_LOGO_NINTENDO,   RG_LOGO_SEGA,      RG_LOGO_NINTENDO,  RG_LOGO_PCE,        RG_LOGO_SEGA,       RG_LOGO_COLECO,     RG_LOGO_MICROSOFT,  RG_LOGO_WATARA,     RG_LOGO_SEGA,       RG_LOGO_ATARI,        RG_LOGO_AMSTRAD,        RG_LOGO_TAMA};
-    const int16_t headers[] = {RG_LOGO_HEADER_GB, RG_LOGO_HEADER_SG1000, RG_LOGO_HEADER_NES, RG_LOGO_HEADER_GG, RG_LOGO_HEADER_GW, RG_LOGO_HEADER_PCE, RG_LOGO_HEADER_SMS, RG_LOGO_HEADER_COL, RG_LOGO_HEADER_MSX, RG_LOGO_HEADER_WSV, RG_LOGO_HEADER_GEN, RG_LOGO_HEADER_A7800, RG_LOGO_HEADER_AMSTRAD, RG_LOGO_HEADER_TAMA};
-    retro_logo_image *logo;
-    odroid_overlay_draw_fill_rect(0, 0, ODROID_SCREEN_WIDTH, ODROID_SCREEN_HEIGHT, curr_colors->bg_c);
-    for (int i = 0; i < 14; i++)
-    {
-        odroid_overlay_draw_fill_rect(0, 0, ODROID_SCREEN_WIDTH, ODROID_SCREEN_HEIGHT, curr_colors->bg_c);
-        logo = rg_get_logo(headers[i]);
-        if (logo)
-            odroid_overlay_draw_logo((ODROID_SCREEN_WIDTH - logo->width) / 2, 90, headers[i], curr_colors->sel_c);
-        logo = rg_get_logo(logos[i]);
-        if (logo)
-            odroid_overlay_draw_logo((ODROID_SCREEN_WIDTH - logo->width) / 2, 160 + (40 - logo->height) / 2, logos[i], curr_colors->dis_c);
-        lcd_sync();
-        lcd_swap();
-        for (int j = 0; j < 5; j++)
-        {
-            wdog_refresh();
-            HAL_Delay(10);
-        }
+    /* Per-system splash logos lived in /bios/logo.bin; cores now ship their
+     * own art. Fall back to the intflash brand logos. */
+    app_logo();
+    for (int j = 0; j < 30; j++) {
+        wdog_refresh();
+        HAL_Delay(10);
     }
 }
 #endif
@@ -1009,7 +997,7 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
     // Show basic boot logo early on cold boot
     if (boot_mode != BOOT_MODE_HOT)
     {
-        odroid_system_init(ODROID_APPID_LAUNCHER, 32000);
+        odroid_system_init(APPID_LAUNCHER, 32000);
         uint8_t lcd_brightness = lcd_backlight_get();
         lcd_backlight_off();
 
@@ -1028,8 +1016,9 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
     }
 
     // Init ram start for pseudo dynamic mem allocation
-    ahb_init();
+    ram_init();
     itc_init();
+    dtc_init();
     ram_start = (uint32_t)&__RAM_EMU_START__;
 
     // Initialize GUI colors based on OFW type
@@ -1046,7 +1035,7 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
 #endif
 
     // Re-initialize system now that the filesystem is mounted
-    odroid_system_init(ODROID_APPID_LAUNCHER, 32000);
+    odroid_system_init(APPID_LAUNCHER, 32000);
 
     // Show logo with the correct colors when loading from emulator
     if (boot_mode == BOOT_MODE_HOT) {
