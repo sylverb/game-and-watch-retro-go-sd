@@ -17,6 +17,7 @@
 #include "gw_flash.h"
 #include "gw_sdcard.h"
 #include "rg_rtc.h"
+#include "rg_install.h"
 #include "rg_i18n.h"
 #include "odroid_overlay.h"
 #include "odroid_settings.h"
@@ -1036,6 +1037,12 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
 
     // Re-initialize system now that the filesystem is mounted
     odroid_system_init(APPID_LAUNCHER, 32000);
+
+    // Record what is installed, and drop the ROM cache if this is a different
+    // firmware than the one that filled it. Must run while the filesystem is
+    // mounted and before emulators_init(), i.e. before anything can reach the
+    // flash allocator and trust its metadata.
+    rg_install_check();
 
     // Show logo with the correct colors when loading from emulator
     if (boot_mode == BOOT_MODE_HOT) {

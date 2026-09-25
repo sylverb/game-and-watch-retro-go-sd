@@ -89,7 +89,8 @@ def copy_tree_cores_filtered(fs, src, dest, active_systems, sd_cores_pack, skip_
             continue
         if rel_path in skip_relpaths:
             continue
-        if not sd_cores_pack.core_relative_path_allowed(rel_path, active_systems):
+        if not sd_cores_pack.core_relative_path_allowed(
+                rel_path, active_systems, cores_root=src):
             continue
         fs_path = "/" + dest if not rel_path else "/" + dest + "/" + rel_path
         copy_file(fs, path, fs_path)

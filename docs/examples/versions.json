@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "project": "retro-go-sd",
+  "title": "Retro-Go SD",
+  "repo": "slash-proc/game-and-watch-retro-go-sd",
+  "releasesUrl": "https://github.com/slash-proc/game-and-watch-retro-go-sd/releases",
+  "retained": 5,
+  "versions": [
+    {
+      "tag": "v2.0.0",
+      "manifest": "v2.0.0/manifest.json",
+      "publishedAt": "2026-09-08T19:33:37Z",
+      "prerelease": false,
+      "gitTag": "Retro-Go SD v1.4.1-124-g1dfd6f95b+",
+      "providesAbi": {
+        "version": 2,
+        "size": 844
+      },
+      "coreMetaVersion": 3
+    }
+  ]
+}

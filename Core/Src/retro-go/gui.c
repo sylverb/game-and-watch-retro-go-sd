@@ -310,6 +310,36 @@ void gui_refresh_tab(tab_t *tab)
     gui_event(TAB_REFRESH_LIST, tab);
 }
 
+/* The listbox item array lives in RAM_EMU (ram_malloc below), which
+ * emulator_start() hands to a core: ram_init() forgets the allocation and the
+ * core is loaded over it. Every tab's listbox.items points into that buffer,
+ * and each item's text points at a rom name allocated the same way, so after a
+ * core has run the launcher would redraw from memory the core overwrote --
+ * garbage glyphs where the game list should be.
+ *
+ * rg_reset_logo_buffers() already does exactly this for the logo caches, with
+ * the same reasoning; the listbox buffer was simply missed. Called from the
+ * same place, right after ram_init()/itc_init(). */
+void gui_reset_list_buffers(void)
+{
+    global_items = NULL;
+#if COVERFLOW != 0
+    /* Same hazard: both are ram_malloc'd once behind a == NULL guard, so
+     * without this they keep pointing into RAM_EMU after a core has run, and
+     * pJPEG_Buffer is handed straight to the hardware JPEG decoder. */
+    pJPEG_Buffer = NULL;
+    pCover_Buffer = NULL;
+#endif
+    for (int i = 0; i < gui.tabcount; i++) {
+        tab_t *tab = gui.tabs ? gui.tabs[i] : NULL;
+        if (!tab)
+            continue;
+        tab->listbox.items = NULL;
+        tab->listbox.length = 0;
+        tab->listbox.cursor = 0;
+    }
+}
+
 tab_t *gui_get_tab(int index)
 {
     return (index >= 0 && index < gui.tabcount) ? gui.tabs[index] : NULL;
@@ -383,8 +413,10 @@ void gui_resize_list(tab_t *tab, int new_size)
     }
     int cur_size = tab->listbox.length;
 
-    if (new_size == cur_size)
-        return;
+    /* Not a no-op when the size matches: every tab shares global_items, so a tab
+     * with the same length as the last one would otherwise inherit its text
+     * pointers verbatim. Clearing unconditionally below costs one memset of a
+     * list that is about to be repopulated anyway. */
 
     if (new_size == 0)
     {
@@ -393,8 +425,7 @@ void gui_resize_list(tab_t *tab, int new_size)
     else
     {
         tab->listbox.items = global_items; // We use the global buffer
-        for (int i = cur_size; i < new_size; i++)
-            memset(&tab->listbox.items[i], 0, sizeof(listbox_item_t));
+        memset(tab->listbox.items, 0, (size_t)new_size * sizeof(listbox_item_t));
     }
 
     tab->listbox.length = new_size;

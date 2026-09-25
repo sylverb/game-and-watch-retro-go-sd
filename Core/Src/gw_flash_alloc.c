@@ -14,6 +14,7 @@
 #include "gw_malloc.h"
 #include "gw_flash_alloc.h"
 #include "gw_ofw.h"
+#include "gw_layout_superblock.h"
 
 /* V2 INDEX, DELIBERATELY UNDER A NEW NAME.
  *
@@ -127,6 +128,7 @@ static uint32_t align_to_next_block(uint32_t pointer)
 #define MAX_LIVE_FILES 288
 
 static uint32_t get_extflash_base(void);
+static uint32_t get_extflash_total_size(void);
 
 typedef struct {
     uint32_t address;
@@ -180,7 +182,7 @@ static bool find_write_slot(uint32_t start_pointer, uint32_t erase_size_total,
                             uint32_t *out_pointer)
 {
     const uint32_t base = get_extflash_base();
-    const uint32_t limit = (uint32_t)&__EXTFLASH_BASE__ + OSPI_GetFlashSize();
+    const uint32_t limit = (uint32_t)&__EXTFLASH_BASE__ + get_extflash_total_size();
     uint32_t p = start_pointer;
 
     if (erase_size_total > limit - base)
@@ -204,16 +206,17 @@ static bool find_write_slot(uint32_t start_pointer, uint32_t erase_size_total,
  * write. We honor the LARGER of two reservations:
  *   1. get_ofw_extflash_size() - the active OFW's own external-flash footprint, read
  *      from its vector-table metadata (the stock retro-go behavior); and
- *   2. __EXTFLASH_OFFSET__ - the chainloader's reserved bottom region (its build-time
- *      EXTFLASH_OFFSET, passed in via --defsym).
- * The chainloader packs BOTH games' asset blocks, BOTH OFW backups, and the FAT module
- * store into the bottom __EXTFLASH_OFFSET__ bytes; get_ofw_extflash_size() only describes
- * the single booted game, so on its own it lets the ROM cache erase straight over the OFW
- * backups and FAT store. Using the max keeps the cache clear of all of it, and degrades to
- * the stock behavior when EXTFLASH_OFFSET is 0. */
+ *   2. __EXTFLASH_OFFSET__ - the reserved bottom region.
+ * get_ofw_extflash_size() only describes the single booted game, so on its own it lets the 
+ * ROM cache erase straight over anything else there. Using the max keeps the cache clear of 
+ * all of it, and degrades to the stock behavior when EXTFLASH_OFFSET is 0. */
 static uint32_t get_reserved_extflash_size()
 {
+#if SD_CARD == 1
+    uint32_t ofw = gw_layout_reserved_size();
+#else
     uint32_t ofw = get_ofw_extflash_size();
+#endif
     uint32_t reserved = (uint32_t)&__EXTFLASH_OFFSET__;
     return ofw > reserved ? ofw : reserved;
 }
@@ -221,6 +224,15 @@ static uint32_t get_reserved_extflash_size()
 static uint32_t get_extflash_base(void)
 {
     return align_to_next_block(((uint32_t)&__EXTFLASH_BASE__) + get_reserved_extflash_size());
+}
+
+static uint32_t get_extflash_total_size(void)
+{
+#if SD_CARD == 1
+    return gw_layout_extflash_size();
+#else
+    return OSPI_GetFlashSize();
+#endif
 }
 
 static void reset_metadata(uint32_t flash_write_base) {

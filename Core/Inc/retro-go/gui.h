@@ -86,6 +86,9 @@ extern colors_t gui_colors[];
  *  called before the first gui_add_tab(). */
 void gui_ensure_tab_capacity(int capacity);
 tab_t *gui_add_tab(const char *name, int16_t logo_idx, int16_t header_idx, void *arg, void *event_handler);
+/* Drop the RAM_EMU-backed listbox buffers before a core reuses that memory.
+ * Pairs with rg_reset_logo_buffers(). */
+void gui_reset_list_buffers(void);
 tab_t *gui_get_tab(int index);
 tab_t *gui_get_current_tab();
 tab_t *gui_set_current_tab(int index);

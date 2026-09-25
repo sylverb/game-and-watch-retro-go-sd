@@ -64,9 +64,29 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
       sdcard_error_screen();
   }
 
+  // As a small workaround, let the running firmware, which knows its bank via
+  // VTOR, promote the matching bank-specific file to the regular name before
+  // handoff. A future design might instead coordinate the target bank between
+  // Retro-Go and the transient updater through backup registers, allowing one
+  // archive to carry both bank updates; that would require updater changes.
+  #define UPDATE_ARCHIVE_FILE "/retro-go_update.bin"
+  #define UPDATE_BANK1_FILE   "/retro-go_update-bank1.bin"
+  #define UPDATE_BANK2_FILE   "/retro-go_update-bank2.bin"
+  FILINFO update_info;
+  if (f_stat(UPDATE_ARCHIVE_FILE, &update_info) != FR_OK) {
+      const char *bank_update =
+          (SCB->VTOR >= FLASH_BANK2_BASE) ? UPDATE_BANK2_FILE : UPDATE_BANK1_FILE;
+      if (f_stat(bank_update, &update_info) == FR_OK) {
+          FRESULT rename_res = f_rename(bank_update, UPDATE_ARCHIVE_FILE);
+          if (rename_res != FR_OK) {
+              printf("update: cannot rename %s to %s (%d)\n",
+                     bank_update, UPDATE_ARCHIVE_FILE, rename_res);
+          }
+      }
+  }
+
   // Check if update file is present and reboot so bootloader can pick it up.
   // We do it here to reduce sleep resume delay in typical case
-  #define UPDATE_ARCHIVE_FILE "/retro-go_update.bin"
   FIL update_file;
   FRESULT update_file_res = f_open(&update_file, UPDATE_ARCHIVE_FILE, FA_READ);
   if (update_file_res == FR_OK) {

@@ -220,6 +220,15 @@ def main():
         "Use when firmware is built with COVERFLOW!=1.",
     )
     parser.add_argument(
+        "--mapped-artifact",
+        action="append",
+        default=[],
+        metavar="SRC:DESTREL:BASE",
+        help="Place SRC into FrogFS as cores/DESTREL, stored uncompressed, and "
+             "relocate its BASE-range sentinels to wherever it lands. BASE is the "
+             "address the blob was linked at (a project's relocBase). Repeatable.",
+    )
+    parser.add_argument(
         "--bundle-pico8-ro-in-frogfs",
         action="store_true",
         help="When roms/pico8 is active: add pico8.ro from GNW ZIP to FrogFS /cores and post-patch XiP sentinels.",
@@ -349,6 +358,31 @@ def main():
     if sd_roms.is_dir():
         collect_dirs.append((sd_roms, "roms"))
 
+    # Mapped (XiP) sidecars: staged into FrogFS individually rather than by
+    # directory, because their sibling .bin must stay in LittleFS -- one /cores
+    # directory spanning both filesystems. See docs/RELEASE_2_0.md.
+    mapped_artifacts = []
+    if args.mapped_artifact:
+        mst = build_dir / "frogfs_mapped_staging"
+        if mst.exists():
+            shutil.rmtree(mst)
+        mst.mkdir(parents=True)
+        for spec in args.mapped_artifact:
+            try:
+                src, destrel, base_s = spec.rsplit(":", 2)
+                base = int(base_s, 0)
+            except ValueError:
+                print(f"frogfs: bad --mapped-artifact {spec!r}; want SRC:DESTREL:BASE",
+                      file=sys.stderr)
+                return 1
+            srcp = pathlib.Path(src)
+            if not srcp.is_file():
+                print(f"frogfs: --mapped-artifact source not found: {src}", file=sys.stderr)
+                return 1
+            shutil.copy2(srcp, mst / destrel)
+            mapped_artifacts.append((f"cores/{destrel}", base))
+        collect_dirs.append((mst, "cores"))
+
     pico8_ro_in_frogfs = False
     if args.bundle_pico8_ro_in_frogfs and "pico8" in active_systems:
         import pico8_gnw_cores  # noqa: E402
@@ -422,6 +456,11 @@ def main():
         if pico8_ro_in_frogfs:
             config.write("  'cores/pico8.ro':\n")
             config.write("    - no compress\n")
+        for logical, _base in mapped_artifacts:
+            # Mapped blobs are executed/dereferenced in place, so they must be
+            # contiguous and uncompressed in the image.
+            config.write(f"  '{logical}':\n")
+            config.write("    - no compress\n")
 
     cmd = [
         sys.executable,
@@ -433,6 +472,19 @@ def main():
         str(output),
     ]
     subprocess.check_call(cmd)
+
+    if mapped_artifacts:
+        import frogfs_pico8_ro  # noqa: E402
+
+        for logical, base in mapped_artifacts:
+            if not frogfs_pico8_ro.patch_frogfs_mapped_inplace(
+                output,
+                logical_path=logical,
+                reloc_base=base,
+                extflash_base=args.extflash_base,
+                extflash_offset=args.extflash_offset,
+            ):
+                return 1
 
     if pico8_ro_in_frogfs:
         import frogfs_pico8_ro  # noqa: E402

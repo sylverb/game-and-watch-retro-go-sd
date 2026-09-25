@@ -163,7 +163,7 @@ const char *font_files_cp1251[] = {
     "/fonts/cp1251_serif.bin",
     "/fonts/cp1251_sans_serif.bin",
     "/fonts/cp1251_sans_serif_bold.bin",
-    "/fonts/cp1251_greybeard.bin"
+    "/fonts/cp1251_greybeard.bin",
     "/fonts/cp1251_serif_bold.bin",
     "/fonts/cp1251_serif_bold.bin",
     "/fonts/cp1251_serif_bold.bin",

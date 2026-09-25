@@ -429,13 +429,49 @@ static bool path_has_prefix_dir(const char *path, const char *dir)
     return strncmp(path, dir, len) == 0 && (path[len] == '\0' || path[len] == '/');
 }
 
-static bool is_cores_pico8_ro_frogfs_path(const char *path)
+/* Which directories a flash build reads out of the packed FrogFS image rather
+ * than LittleFS. Everything the installer bakes in belongs here.
+ *
+ * Directory listing does NOT consult this: rg_frogfs.c's f_opendir/f_readdir
+ * serve any path from FrogFS. So a directory missing from this list still shows
+ * its contents in the launcher, and only fails when something opens a file --
+ * which is how homebrew presented as "Not a GWHB .bin" (fopen returned NULL and
+ * the probe could not tell that apart from bad magic).
+ *
+ * "homebrews" was missing, which is the bug above.
+ *
+ * "cores" is deliberately NOT a prefix here. A core's .bin is read into RAM and
+ * lives in LittleFS; only its mapped sidecars come from FrogFS, which
+ * is_mapped_core_sidecar() picks out by extension. Routing the whole prefix
+ * would make every /cores/*.bin unopenable.
+ *
+ * FrogFS is read-only, so anything listed here can only be installed by the
+ * builder, never at runtime. That already matches the firmware: nothing writes
+ * under these paths, and the file manager's delete entry is #if'd out for
+ * SD_CARD=0 with the comment "Can't delete file on FrogFS". Saves and settings
+ * live under /data, which stays on LittleFS and stays writable. */
+/* A mapped (XiP) sidecar under /cores: executed or dereferenced in place out of
+ * the memory-mapped FrogFS image, rather than read into RAM like its sibling
+ * .bin. So one /cores directory spans both filesystems on a flash build -- the
+ * .bin from LittleFS, the sidecar from FrogFS.
+ *
+ * Selected by extension rather than by name. This used to be a strcmp against
+ * "cores/pico8.ro", which meant every new core shipping mapped data needed a
+ * firmware change; gba.xip would have been the second. .ro and .xip are the two
+ * extensions projects use for this (see "mapped"/"relocBase" in a project's
+ * distribution manifest). */
+static bool is_mapped_core_sidecar(const char *path)
 {
     if (!path)
         return false;
     if (path[0] == '/')
         path++;
-    return strcmp(path, "cores/pico8.ro") == 0;
+    if (!path_has_prefix_dir(path, "cores"))
+        return false;
+    const char *dot = strrchr(path, '.');
+    if (!dot)
+        return false;
+    return strcmp(dot, ".ro") == 0 || strcmp(dot, ".xip") == 0;
 }
 
 static bool is_frogfs_path(const char *path)
@@ -445,7 +481,8 @@ static bool is_frogfs_path(const char *path)
            path_has_prefix_dir(path, "bios") ||
            path_has_prefix_dir(path, "fonts") ||
            path_has_prefix_dir(path, "font") ||
-           is_cores_pico8_ro_frogfs_path(path);
+           path_has_prefix_dir(path, "homebrews") ||
+           is_mapped_core_sidecar(path);
 }
 
 static const char *normalize_frogfs_path(const char *name, char *buffer, size_t buffer_size)
@@ -492,7 +529,7 @@ int _open(const char *name, int flags, int mode)
             return -1;
         }
 
-        const frogfs_entry_t *entry = frogfs_get_entry(fs, frogfs_name);
+        const frogfs_entry_t *entry = rg_frogfs_lookup(frogfs_name);
         if (!entry || !frogfs_is_file(entry)) {
             errno = ENOENT;
             return -1;
@@ -690,7 +727,7 @@ int stat(const char *path, struct stat *st)
             return -1;
         }
 
-        const frogfs_entry_t *entry = frogfs_get_entry(fs, frogfs_path);
+        const frogfs_entry_t *entry = rg_frogfs_lookup(frogfs_path);
         if (!entry) {
             errno = ENOENT;
             return -1;

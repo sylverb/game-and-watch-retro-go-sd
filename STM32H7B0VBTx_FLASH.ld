@@ -70,9 +70,22 @@ _Min_Stack_Size = 20 * 1024 - _Stack_Redzone_Size;
 __NULLPTR_LENGTH__  = 0x0;
 __ITCMRAM_LENGTH__  = 64K;
 __DTCMRAM_LENGTH__  = 128K;
-__RAM_UC_LENGTH__   = 300K;
+/* __RAM_UC_LENGTH__ / __RAM_EMU_LENGTH__ / __RAM_START__ / __RAM_EMU_START__ /
+ * __RAM_EMU_END__ come from ld/gnw_ram_emu.ld, shared with every standalone
+ * core's linker script so the VMA a core is built for can never drift from
+ * where the firmware actually loads it (see run_dynamic_core()). The values
+ * are identical to the ones this file used to hand-roll; taking them from the
+ * shared file is what stops flash and SD firmware loading the same
+ * /cores/*.bin at different addresses. */
+INCLUDE ld/gnw_ram_emu.ld
+/* __ITCM_CORE_START__/__ITCM_CORE_LENGTH__ come from ld/gnw_itcm_core.ld
+ * (shared with cores that place hot code in ITCM). */
+INCLUDE ld/gnw_itcm_core.ld
+/* __RAM_UC_CORE_* (LUT8 LCD-bonus window) from ld/gnw_ram_uc_core.ld. */
+INCLUDE ld/gnw_ram_uc_core.ld
+/* Legacy zero-length region: the MEMORY block's RAM entry and the ._ram
+ * NOLOAD section that targets it still reference these. */
 __RAM_CORE_LENGTH__ = 0K;
-__RAM_EMU_LENGTH__  = 1024K - __RAM_UC_LENGTH__ - __RAM_CORE_LENGTH__;
 __RAM_FCEUMM_MAPPER_LENGTH__ = 48K; /* Current FCEUMM mapper code */
 __AHBRAM_LENGTH__   = 128K;
 __AHBRAM_PERSISTENT_RESERVE__ = 8K; /* MPU non-cacheable: boot_magic/logbuf + remote-input */
@@ -84,16 +97,11 @@ __EXTFLASH_OFFSET__ = DEFINED(__EXTFLASH_OFFSET__) ? __EXTFLASH_OFFSET__ : 0;
 __EXTFLASH_BASE__ = 0x90000000;  /* Beginning of addressable extflash addresses */
 __EXTFLASH_START__ = __EXTFLASH_BASE__ + __EXTFLASH_OFFSET__;  /* Beginning of where we're going to store emulator and rom data */
 
-__RAM_START__       = 0x24000000;
 __RAM_UC_START__    = __RAM_START__;
-__RAM_CORE_START__  = __RAM_START__ + __RAM_UC_LENGTH__;
-__RAM_EMU_START__   = __RAM_CORE_START__ + __RAM_CORE_LENGTH__;
+__RAM_CORE_START__  = __RAM_EMU_START__;
 __RAM_FCEUMM_START__ = __RAM_EMU_START__ + __RAM_FCEUMM_MAPPER_LENGTH__;
 
-__RAM_EMU_END__     = __RAM_EMU_START__ + __RAM_EMU_LENGTH__;
 __RAM_END__         = __RAM_START__ + 1024K;
-
-INCLUDE ld/gnw_ram_uc_core.ld
 
 /****
  * External Flash Layout
@@ -169,6 +177,13 @@ SECTIONS
     __itcram_hot_end__ = .;
     __itcram_end__ = .;
   } >ITCMRAM
+
+  /* Same guard as STM32H7B0VBTx_SDCARD.ld: a core's fixed ITCM segment starts
+   * at __ITCM_CORE_START__ (0), which is only safe while the firmware itself
+   * places nothing in ITCM. Fail the build loudly rather than silently
+   * corrupting a loaded core's ITCM segment. */
+  ASSERT(__ITCM_CORE_START__ == __itcram_hot_start__,
+         "Error: ld/gnw_itcm_core.ld's __ITCM_CORE_START__ no longer matches __itcram_hot_start__ — a core's fixed ITCM segment would overlap firmware-resident ITCM data")
 
   /* LCD framebuffer pool (300 KiB). RGB565 fills it with two 150 KiB
    * framebuffers. LUT8 shrinks that footprint to 150 KiB; the upper
@@ -265,7 +280,17 @@ SECTIONS
     KEEP(*(.sdcard_logo))
   } > CORES
 
-
+  /* Every classic emulator's .overlay_<system>/.overlay_<system>_bss RAM
+   * overlay (tgb, msx, wsv, gw, a2600, a7800, amstrad, videopac, celeste,
+   * tama, pkmini, zelda3/rodata_zelda3, smw) has been removed while
+   * migrating those systems to standalone cores/<system>/ builds loaded
+   * from /cores/*.bin at runtime. They all shared the same
+   * __RAM_EMU_START__ VMA (only one core is ever resident at a time), so
+   * removing them is safe; re-adding one is a copy of an old git revision
+   * of this file, not a from-scratch design. The LUT8 core window
+   * (__RAM_UC_CORE_START__, ld/gnw_ram_uc_core.ld) and the graphics/font
+   * sections are untouched. Mirrors the same removal already done in
+   * STM32H7B0VBTx_SDCARD.ld. */
 
   ._ram (NOLOAD) :
   {

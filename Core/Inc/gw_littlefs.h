@@ -34,6 +34,7 @@ fs_file_t *fs_open(const char *path, bool write_mode, bool use_compression);
 fs_file_t *fs_open_flags(const char *path, int flags);
 int fs_write(fs_file_t *file, unsigned char *data, size_t size);
 int fs_delete(const char *path);
+int fs_rename(const char *old_path, const char *new_path);
 int fs_read(fs_file_t *file, unsigned char *buffer, size_t size);
 int fs_seek(fs_file_t *file, lfs_soff_t off, int whence);
 int fs_sync(fs_file_t *file);

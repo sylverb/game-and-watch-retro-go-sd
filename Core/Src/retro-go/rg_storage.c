@@ -11,6 +11,7 @@
 #include "ff.h"
 #else
 #include "rg_frogfs.h"
+#include "gw_littlefs.h"
 #endif
 #include "rg_storage.h"
 #include <unistd.h>
@@ -98,6 +99,23 @@ static int delete_cb(const rg_scandir_t *file, void *arg)
 {
     rg_storage_delete(file->path);
     return RG_SCANDIR_CONTINUE;
+}
+
+/* newlib's rename() is _link()+_unlink(), and _link() is an always-fail stub in
+ * this toolchain, so it can never work here — go straight at the backend. */
+bool rg_storage_rename(const char *old_path, const char *new_path)
+{
+    CHECK_PATH(old_path);
+    CHECK_PATH(new_path);
+
+    /* Neither backend replaces an existing destination, so clear it first. */
+    remove(new_path);
+
+#if SD_CARD == 1
+    return f_rename(old_path, new_path) == FR_OK;
+#else
+    return fs_rename(old_path, new_path) == 0;
+#endif
 }
 
 bool rg_storage_delete(const char *path)
@@ -224,7 +242,7 @@ bool rg_storage_scandir(const char *path, rg_scandir_cb_t *callback, void *arg, 
     if (!fs)
         return false;
 
-    const frogfs_entry_t *dir_entry = frogfs_get_entry(fs, path);
+    const frogfs_entry_t *dir_entry = rg_frogfs_lookup(path);
     if (!dir_entry || !frogfs_is_dir(dir_entry))
         return false;
 
@@ -246,23 +264,18 @@ bool rg_storage_scandir(const char *path, rg_scandir_cb_t *callback, void *arg, 
     {
         wdog_refresh();
 
-        char *name = frogfs_get_name(entry);
-        if (!name)
+        char name[RG_FROGFS_NAME_MAX];
+        if (!rg_frogfs_entry_name(entry, name, sizeof(name)))
             continue;
 
         if (name[0] == '.' && (!name[1] || name[1] == '.'))
-        {
-            free(name);
             continue;
-        }
 
         int written;
         if (strcmp(path, "/") == 0)
             written = snprintf(result->path, sizeof(result->path), "/%s", name);
         else
             written = snprintf(result->path, sizeof(result->path), "%s/%s", path, name);
-
-        free(name);
 
         if (written < 0 || (size_t)written >= sizeof(result->path))
         {
@@ -513,7 +526,7 @@ bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next
     if (!fs)
         return false;
 
-    const frogfs_entry_t *dir_entry = frogfs_get_entry(fs, dir);
+    const frogfs_entry_t *dir_entry = rg_frogfs_lookup(dir);
     if (!dir_entry || !frogfs_is_dir(dir_entry))
         return false;
 
@@ -528,14 +541,12 @@ bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next
         if (!frogfs_is_file(entry))
             continue;
 
-        char *name = frogfs_get_name(entry);
-        if (!name)
+        char name[RG_FROGFS_NAME_MAX];
+        if (!rg_frogfs_entry_name(entry, name, sizeof(name)))
             continue;
 
-        if (name[0] == '.') {
-            free(name);
+        if (name[0] == '.')
             continue;
-        }
 
         const char *file_ext = rg_extension(name);
         if (file_ext && strcasecmp(file_ext, ext) == 0) {
@@ -553,8 +564,6 @@ bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next
                 }
             }
         }
-
-        free(name);
     }
 
     frogfs_closedir(dir_obj);
