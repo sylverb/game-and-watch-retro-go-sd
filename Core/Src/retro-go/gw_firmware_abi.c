@@ -15,7 +15,6 @@
 #include <locale.h>
 #include <time.h>
 #include <math.h>
-#include <errno.h>
 
 #include "gw_lcd.h"
 #include "gw_audio.h"
@@ -45,6 +44,8 @@
 #include "lz4_depack.h"
 #include "error_screens.h"
 #include "gw_flash_alloc.h"
+#include "gw_flash.h"
+#include "gw_linker.h"
 #include "gui.h"
 #include "gw_sdcard.h"
 #include "bitmaps.h"
@@ -263,25 +264,74 @@ extern int     __popcountsi2(unsigned);
  * no references to the symbol. Plugins reach it via the fixed address
  * macro, not by symbol name.
  */
-/* ---- ours: derived-blob flash cache ---------------------------------
- * flash_stream_t is published in gw_flash_alloc.h and the core allocates
- * it; the ABI takes void * so the slot signature does not drag a
- * firmware-private header into every core.
- *
- * SD ONLY. gw_flash_alloc.c is compiled only for SD_CARD=1
- * (Makefile.common), so on a flash-only build these symbols do not
- * exist and referencing them from the table is seven undefined
- * references at link time. The SLOTS still exist there and are NULL:
- * removing the struct members instead would shift every later entry and
- * silently give the two build variants different ABIs.
- *
- * Nothing is lost on flash-only. The store caches data DERIVED at
- * runtime in RAM, which a flash build has no reason to do: its
- * equivalent already sits in FrogFS as an uncompressed file, and
- * odroid_overlay_cache_file_in_flash() maps it in place with no copy
- * (see the SD_CARD == 0 arm in odroid_overlay.c). A core must therefore
- * test these slots for NULL and fall back to the file, which is the
- * cheaper path anyway. */
+/* ---- derived-data lookup and streaming cache ------------------------
+ * The lookup slot exists in both builds: SD uses the writable NOR-cache
+ * index, while flash-only hashes the same opaque ABI key and resolves it
+ * through LittleFS /data/mappedsidecars.bin. Store slots remain
+ * SD-only because flash-only installs have no writable cache; their prebuilt
+ * mapped data is already in FrogFS.
+ * Keep every ABI struct member in place in both variants. */
+#if SD_CARD == 0
+/* Flash-only lookup index generated after FrogFS placement and stored in
+ * LittleFS at /data/mappedsidecars.bin. It is an array of the same fixed-size
+ * key/address/size records used by gw_flash_alloc.c, without the surrounding
+ * SD cache's device identity and write state. The sidecar remains in FrogFS. */
+#define MAPPED_SIDECAR_INDEX ODROID_BASE_PATH_SAVES "/mappedsidecars.bin"
+#define MAPPED_SIDECAR_MAX_RECORDS GW_FLASH_CACHE_MAX_FILES
+static const uint8_t *lookup_mapped_data_in_flash(const char *key,
+                                                  uint32_t *size_out)
+{
+    if (!key)
+        return NULL;
+
+    uint32_t key_crc = crc32_le(0, (const unsigned char *)key, strlen(key));
+
+    FILE *index = fopen(MAPPED_SIDECAR_INDEX, "rb");
+    if (!index)
+        return NULL;
+
+    if (fseek(index, 0, SEEK_END) != 0) {
+        fclose(index);
+        return NULL;
+    }
+    long index_bytes = ftell(index);
+    if (index_bytes < 0 ||
+        index_bytes % (long)sizeof(gw_flash_file_metadata_t) != 0 ||
+        (unsigned long)index_bytes / sizeof(gw_flash_file_metadata_t) >
+            MAPPED_SIDECAR_MAX_RECORDS ||
+        fseek(index, 0, SEEK_SET) != 0) {
+        fclose(index);
+        return NULL;
+    }
+
+    uint64_t flash_base = (uintptr_t)&__EXTFLASH_BASE__;
+    uint64_t flash_end = flash_base + OSPI_GetFlashSize();
+    gw_flash_file_metadata_t record;
+    while (fread(&record, sizeof(record), 1, index) == 1) {
+        if (!record.valid || record.file_crc32 != key_crc)
+            continue;
+
+        uint64_t data_end = (uint64_t)record.flash_address + record.file_size;
+        if (!record.file_size || record.flash_address < flash_base ||
+            data_end > flash_end) {
+            fclose(index);
+            return NULL;
+        }
+
+        fclose(index);
+        if (size_out)
+            *size_out = record.file_size;
+        printf("flash_alloc: mapped key CRC %08lx -> 0x%08lx (%lu bytes)\n",
+               (unsigned long)key_crc, (unsigned long)record.flash_address,
+               (unsigned long)record.file_size);
+        return (const uint8_t *)(uintptr_t)record.flash_address;
+    }
+
+    fclose(index);
+    return NULL;
+}
+#endif
+
 #if SD_CARD == 1
 static bool gw_abi_store_data_begin(void *st, const char *key, uint32_t total_size)
 {
@@ -608,9 +658,13 @@ const gw_firmware_abi_t g_firmware_abi = {
     /* v2 append: soft bilinear blit (OpenMV imlib) */
     .imlib_draw_image            = imlib_draw_image,
 
-    /* ours: derived-blob flash cache + four small slots */
+    /* SD cache lookup or flash-only LittleFS-indexed XIP lookup. */
 #if SD_CARD == 1
     .lookup_data_in_flash        = lookup_data_in_flash,
+#else
+    .lookup_data_in_flash        = lookup_mapped_data_in_flash,
+#endif
+#if SD_CARD == 1
     .store_data_in_flash         = store_data_in_flash,
     .store_data_set_progress_cb  = store_data_set_progress_cb,
     .store_data_begin            = gw_abi_store_data_begin,

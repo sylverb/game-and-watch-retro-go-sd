@@ -44,27 +44,19 @@
  * fails validation. */
 #define METADATA_FILE ODROID_BASE_PATH_SAVES "/flashcachedata.bin"
 #define METADATA_VERSION 2
-#define MAX_FILES 256
+#define MAX_FILES GW_FLASH_CACHE_MAX_FILES
 
 typedef struct {
     uint32_t uid[3];
 } CpuUniqueId;
 
 // Metadata for each file
-typedef struct
-{
-    uint32_t file_crc32;
-    uint32_t flash_address;
-    uint32_t file_size;
-    bool valid;
-} FileMetadata;
-
 // Global Metadata
 typedef struct
 {
     uint32_t version;
     CpuUniqueId cpu_unique_id;
-    FileMetadata files[MAX_FILES];
+    gw_flash_file_metadata_t files[MAX_FILES];
     uint32_t flash_write_pointer;  // A value like 0x9YYYYYYY; the current location we should write to.
     uint32_t flash_write_base;     // A value like 0x9YYYYYYY; the starting point we are allowed to write to.
     uint16_t last_written_slot_index;
@@ -623,7 +615,7 @@ const uint8_t *store_data_finish(flash_stream_t *st)
     if (!updated) {
         metadata->last_written_slot_index =
             (metadata->last_written_slot_index + 1) % MAX_FILES;
-        FileMetadata *f = &metadata->files[metadata->last_written_slot_index];
+        gw_flash_file_metadata_t *f = &metadata->files[metadata->last_written_slot_index];
         f->file_crc32 = st->key_crc;
         f->flash_address = st->flash_address;
         f->file_size = st->total;
@@ -724,7 +716,7 @@ const uint8_t *store_data_in_flash(const char *key, const uint8_t *data,
     {
         metadata->last_written_slot_index =
             (metadata->last_written_slot_index + 1) % MAX_FILES;
-        FileMetadata *f = &metadata->files[metadata->last_written_slot_index];
+        gw_flash_file_metadata_t *f = &metadata->files[metadata->last_written_slot_index];
         f->file_crc32 = key_crc;
         f->flash_address = flash_address;
         f->file_size = data_size;

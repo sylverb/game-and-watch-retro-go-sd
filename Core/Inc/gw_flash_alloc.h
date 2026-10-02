@@ -3,6 +3,22 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* One persisted key -> XIP range record. The explicit reserved bytes keep
+ * the record stable at 16 bytes: three little-endian uint32_t values, a
+ * valid byte, then three zero bytes. The mapped-sidecar index is an array of
+ * these records, with no Metadata header or device-specific cache state. */
+#define GW_FLASH_CACHE_MAX_FILES 256
+typedef struct {
+    uint32_t file_crc32;
+    uint32_t flash_address;
+    uint32_t file_size;
+    uint8_t valid;
+    uint8_t reserved[3];
+} gw_flash_file_metadata_t;
+
+typedef char gw_flash_file_metadata_size_check[
+    sizeof(gw_flash_file_metadata_t) == 16 ? 1 : -1];
+
 typedef void (*file_progress_cb_t)(uint32_t total_size, uint32_t total_processed, uint8_t progress);
 
 /* Called on each buffer of file data on its way to the flash, after the file's
