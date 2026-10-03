@@ -140,22 +140,7 @@ typedef struct {
     uint8_t version_patch;
     char core_name[24];
 
-    /* Autofire (turbo A/B) timing applied by the firmware while this core
-     * runs. Counted in calls to common_emu_input_loop_handle_turbo() —
-     * typically once per emulated frame — so the pulse stays phase-locked
-     * to the emulator's input poll instead of wall-clock ms.
-     *
-     *   turbo_period_frames == 0 → firmware default (wall-clock ~10 Hz,
-     *                              50% duty), same as pre-this-field cores.
-     *   turbo_period_frames  > 0 → cycle length in input polls; button is
-     *                              held for turbo_on_frames of them.
-     *   turbo_on_frames      == 0 with period > 0 → period/2 (min 1).
-     *
-     * Example at ~60 fps: period=6, on=3 → clean 10 Hz autofire.
-     * Taken from the former reserved[5]; layout size unchanged. */
-    uint8_t turbo_period_frames;
-    uint8_t turbo_on_frames;
-    uint8_t reserved[3];
+    uint8_t reserved[5];
 } gnw_core_meta_t;
 
 #ifdef __cplusplus

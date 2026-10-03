@@ -27,38 +27,10 @@ static sleep_pre_sleep_hook_t pre_sleep_hook = NULL;
 
 #define TURBOS_SPEED 10
 
-/* 0 → wall-clock default; else cycle length in input-poll ticks. */
-static uint8_t s_turbo_period_frames;
-static uint8_t s_turbo_on_frames;
-static uint8_t s_turbo_tick;
-
-void odroid_system_set_turbo_params(uint8_t period_frames, uint8_t on_frames)
-{
-    s_turbo_period_frames = period_frames;
-    if (period_frames == 0) {
-        s_turbo_on_frames = 0;
-    } else {
-        if (on_frames == 0 || on_frames > period_frames)
-            on_frames = (uint8_t)(period_frames / 2u);
-        if (on_frames == 0)
-            on_frames = 1;
-        s_turbo_on_frames = on_frames;
-    }
-    s_turbo_tick = 0;
-}
-
 bool odroid_button_turbos(void)
 {
-    if (s_turbo_period_frames == 0) {
-        int turbos = 1000 / TURBOS_SPEED;
-        return (get_elapsed_time() % turbos) < (turbos / 2);
-    }
-
-    /* Advance once per call — common_emu_input_loop_handle_turbo() must
-     * invoke this at most once per emulated frame / input poll. */
-    uint8_t phase = s_turbo_tick % s_turbo_period_frames;
-    s_turbo_tick++;
-    return phase < s_turbo_on_frames;
+    int turbos = 1000 / TURBOS_SPEED;
+    return (get_elapsed_time() % turbos) < (turbos / 2);
 }
 
 void odroid_system_panic(const char *reason, const char *function, const char *file)
@@ -74,10 +46,8 @@ void odroid_system_init(int appId, int sampleRate)
 
     /* appId is APPID_LAUNCHER / APPID_CORE / APPID_HOMEBREW.
      * Per-core settings live in /data/<stem>.cfg, not APPID slots. */
-    if (appId == APPID_LAUNCHER) {
+    if (appId == APPID_LAUNCHER)
         odroid_settings_unbind_core_cfg();
-        odroid_system_set_turbo_params(0, 0);
-    }
 
     odroid_settings_init();
     odroid_audio_init(sampleRate);
@@ -486,6 +456,15 @@ IRAM_ATTR void odroid_system_tick(uint skippedFrame, uint fullFrame, uint busyTi
     }
 
     statistics.lastTickTime = get_elapsed_time();
+}
+
+void odroid_system_abort_to_launcher(void)
+{
+    /* Cores often register sram_save/shutdown in emu_init() before the ROM
+     * is cached/loaded. Cancel mid-cache must not invoke those handlers. */
+    currentApp.handlers.sram_save = NULL;
+    currentApp.handlers.shutdown = NULL;
+    odroid_system_switch_app(0);
 }
 
 void odroid_system_switch_app(int app)

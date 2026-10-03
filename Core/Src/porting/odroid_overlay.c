@@ -1990,7 +1990,7 @@ uint8_t *odroid_overlay_cache_file_in_flash_relocate_cancellable(const char *fil
     uint8_t *result = store_file_in_flash_relocate(file_path, file_size_p, byte_swap,
                                                    progress_cb, relocate_cb);
     if (cancelled)
-        odroid_system_switch_app(0);
+        odroid_system_abort_to_launcher();
     return result;
 #endif
 }

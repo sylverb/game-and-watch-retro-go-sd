@@ -1912,9 +1912,6 @@ static void run_dynamic_core(const char *core_path, uint8_t load_state, uint8_t 
     strncpy(g_running_core_path, core_path, sizeof(g_running_core_path) - 1);
     g_running_core_path[sizeof(g_running_core_path) - 1] = '\0';
 
-    /* Core-supplied autofire timing (0/0 = firmware wall-clock default). */
-    odroid_system_set_turbo_params(meta.turbo_period_frames, meta.turbo_on_frames);
-
     uint32_t file_offset = CORE_HEADER_MIN_SIZE + (uint32_t)header_length;
 
     if (!load_gnw_segments(core_path, file_offset, meta.segments, meta.segments_count,

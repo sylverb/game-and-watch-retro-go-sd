@@ -117,10 +117,10 @@ assert SYSTEM_STRUCT_SIZE == 116, SYSTEM_STRUCT_SIZE
 # Must mirror gnw_core_meta_t exactly: 4x uint32_t (required_abi_version,
 # required_abi_min_size, flags, segments_count), segments[4], uint32_t
 # systems_count, systems[4], version_major/minor/patch (3 bytes),
-# core_name[24], turbo_period_frames, turbo_on_frames, reserved[3].
+# core_name[24], uint8_t[5] reserved.
 META_STRUCT_SIZE = (4 * 4 + GNW_CORE_MAX_SEGMENTS * SEGMENT_STRUCT_SIZE
                      + 4 + GNW_CORE_MAX_SYSTEMS * SYSTEM_STRUCT_SIZE
-                     + 3 + 24 + 2 + 3)
+                     + 3 + 24 + 5)
 assert META_STRUCT_SIZE == 564, META_STRUCT_SIZE
 CORE_NAME_MAX = 23  # stored as char[24] including NUL
 
@@ -556,13 +556,6 @@ def main():
                      help="short core pack name stored in gnw_core_meta_t "
                           f"(max {CORE_NAME_MAX} chars). Default: --out stem "
                           "(e.g. sms.bin → 'sms')")
-    ap.add_argument("--turbo-period-frames", type=int, default=0,
-                     help="autofire cycle length in input polls (0 = firmware "
-                          "wall-clock default ~10 Hz). See gnw_core_meta_t.")
-    ap.add_argument("--turbo-on-frames", type=int, default=0,
-                     help="autofire pressed polls within --turbo-period-frames "
-                          "(0 with period>0 → period/2). Example at ~60 fps: "
-                          "--turbo-period-frames 6 --turbo-on-frames 3")
     ap.add_argument("--nm", default="arm-none-eabi-nm", help="nm tool to use (default: %(default)s)")
     ap.add_argument("--objcopy", default=None,
                      help="objcopy tool (default: derived from --nm, e.g. arm-none-eabi-objcopy)")
@@ -707,22 +700,9 @@ def main():
             meta_bytes += pack_system(systems[i], *system_logo_info[i])
         else:
             meta_bytes += b"\x00" * SYSTEM_STRUCT_SIZE
-    turbo_period = args.turbo_period_frames
-    turbo_on = args.turbo_on_frames
-    if not 0 <= turbo_period <= 255:
-        sys.exit(f"error: --turbo-period-frames out of range 0..255: {turbo_period}")
-    if not 0 <= turbo_on <= 255:
-        sys.exit(f"error: --turbo-on-frames out of range 0..255: {turbo_on}")
-    if turbo_period > 0 and turbo_on > turbo_period:
-        sys.exit(
-            f"error: --turbo-on-frames ({turbo_on}) > "
-            f"--turbo-period-frames ({turbo_period})"
-        )
-
     meta_bytes += struct.pack("<BBB", version_major, version_minor, version_patch)
     meta_bytes += core_name.encode() + b"\x00" * (24 - len(core_name.encode()))
-    meta_bytes += struct.pack("<BB", turbo_period, turbo_on)
-    meta_bytes += b"\x00" * 3  # reserved
+    meta_bytes += b"\x00" * 5  # reserved
 
     assert len(meta_bytes) == META_STRUCT_SIZE, len(meta_bytes)
 
@@ -739,10 +719,6 @@ def main():
     print(f"pack_core: {args.out} ({len(out_bytes)} bytes)")
     print(f"  core_name={core_name!r} version=v{version_major}.{version_minor}.{version_patch}")
     print(f"  required_abi_version={required_abi_version} required_abi_min_size={required_abi_min_size}")
-    if turbo_period:
-        print(f"  turbo: period={turbo_period} frames, on={turbo_on or turbo_period // 2} frames")
-    else:
-        print("  turbo: firmware default (wall-clock ~10 Hz)")
     for i, s in enumerate(systems):
         print(f"  system[{i}]: name={s.name!r} dirname={s.dirname!r} extensions={s.extensions!r} parse_type={s.parse_type}")
     for i, (region, code_size, bss_size) in enumerate(segments):

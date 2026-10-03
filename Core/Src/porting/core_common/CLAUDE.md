@@ -112,16 +112,6 @@ legacy single-system sugar) to the on-disk suffix under `/cheats/` —
 `ggcodes`, `pceplus`, or `mcf`. Leave empty if the core has no cheat
 support; the launcher then skips probing entirely.
 
-Autofire (turbo A/B): optional `--turbo-period-frames` /
-`--turbo-on-frames` on `pack_core.py` (stored in
-`gnw_core_meta_t.turbo_*_frames`). Both default to 0 — old cores that
-never set these fields (former `reserved[5]` zeros) keep the firmware
-wall-clock ~10 Hz timing with no rebuild. When period is non-zero, the
-firmware advances the autofire phase once per
-`common_emu_input_loop_handle_turbo()` call so pulses stay locked to the
-emulator's input poll. Example at ~60 fps for a clean 10 Hz autofire:
-`--turbo-period-frames 6 --turbo-on-frames 3`.
-
 ## Per-core settings (`.cfg`)
 
 Emulator display/region options are **not** stored in the global `/CONFIG`
