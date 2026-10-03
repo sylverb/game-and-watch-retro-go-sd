@@ -1737,12 +1737,21 @@ static uint32_t cores_set_fingerprint(int *out_systems)
     return fp;
 }
 
+static int core_bin_name_cmp(const void *a, const void *b)
+{
+    return strcasecmp((const char *)a, (const char *)b);
+}
+
+/* Register /cores/*.bin in alphabetical filename order. Directory
+ * enumeration order is filesystem-dependent (often create/FAT order). */
 static void emulators_scan_cores(void)
 {
     gnw_core_meta_t meta;
     char path[128];
     char name[CORES_DIR_NAME_MAX];
     bool is_dir;
+    int count = 0;
+    int i;
 
     if (!cores_dir_open())
         return;
@@ -1753,13 +1762,43 @@ static void emulators_scan_cores(void)
         const char *ext = get_extension(name);
         if (!ext || strcasecmp(ext, "bin") != 0)
             continue;
+        count++;
+    }
+    cores_dir_close();
 
-        snprintf(path, sizeof(path), "/cores/%s", name);
+    if (count == 0)
+        return;
+
+    /* One CORES_DIR_NAME_MAX row per .bin; lives in the DTCM bump for the
+     * duration of this scan (freed on the next dtc_init). */
+    char (*names)[CORES_DIR_NAME_MAX] =
+        (char (*)[CORES_DIR_NAME_MAX])dtc_calloc((size_t)count, CORES_DIR_NAME_MAX);
+    if (!names)
+        return;
+
+    if (!cores_dir_open())
+        return;
+
+    i = 0;
+    while (i < count && cores_dir_next(name, sizeof(name), &is_dir)) {
+        if (is_dir)
+            continue;
+        const char *ext = get_extension(name);
+        if (!ext || strcasecmp(ext, "bin") != 0)
+            continue;
+        snprintf(names[i], CORES_DIR_NAME_MAX, "%s", name);
+        i++;
+    }
+    cores_dir_close();
+    count = i;
+
+    qsort(names, (size_t)count, CORES_DIR_NAME_MAX, core_bin_name_cmp);
+
+    for (i = 0; i < count; i++) {
+        snprintf(path, sizeof(path), "/cores/%s", names[i]);
         if (gnw_core_probe(path, &meta, NULL))
             add_emulator_dynamic(&meta, path);
     }
-
-    cores_dir_close();
 }
 
 
