@@ -731,11 +731,41 @@ static void emulator_scan_cdrom_folder(retro_emulator_t *emu, const char *folder
 }
 #endif /* SD_CARD == 1 */
 
+/* True if `dir_path` contains at least one probeable GWHB .bin (any depth). */
+static int homebrew_find_gwhb_cb(const rg_scandir_t *entry, void *arg)
+{
+    bool *found = (bool *)arg;
+
+    if (*found)
+        return RG_SCANDIR_STOP;
+    if (entry->basename[0] == '.')
+        return RG_SCANDIR_SKIP;
+    if (entry->is_file) {
+        const char *ext = rg_extension(entry->basename);
+        if (ext && strcasecmp(ext, "bin") == 0) {
+            gwhb_meta_t hb;
+            if (gwhb_probe(entry->path, &hb, NULL)) {
+                *found = true;
+                return RG_SCANDIR_STOP;
+            }
+        }
+    }
+    return RG_SCANDIR_CONTINUE;
+}
+
+static bool homebrew_dir_has_gwhb(const char *dir_path)
+{
+    bool found = false;
+    rg_storage_scandir(dir_path, homebrew_find_gwhb_cb, &found, RG_SCANDIR_RECURSIVE);
+    return found;
+}
+
 static int scan_folder_cb(const rg_scandir_t *entry, void *arg)
 {
     retro_emulator_t *emu = (retro_emulator_t *)arg;
     uint8_t is_valid = false;
     char ext_buf[32];
+    const bool is_homebrew = emu->dirname[0] && strcmp(emu->dirname, "homebrew") == 0;
 
     if (entry->basename[0] == '.')
         return RG_SCANDIR_SKIP;
@@ -751,7 +781,11 @@ static int scan_folder_cb(const rg_scandir_t *entry, void *arg)
     }
     else if (entry->is_dir)
     {
-        is_valid = true;
+        /* Homebrew: hide folders that only hold data / non-GWHB files. */
+        if (is_homebrew)
+            is_valid = homebrew_dir_has_gwhb(entry->path);
+        else
+            is_valid = true;
     }
 
     if (!is_valid)
