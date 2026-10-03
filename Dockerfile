@@ -99,7 +99,6 @@ COPY --from=arm-toolchain-builder \
     ${ARM_COMPILER_DIR}
 
 COPY ./requirements.txt /requirements.txt
-COPY ./external/zelda3/requirements.txt /external/zelda3/requirements.txt
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
@@ -113,7 +112,7 @@ RUN apt-get update -y && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-compile --no-cache-dir -r /requirements.txt \
-    && rm -rf /requirements.txt /external \
+    && rm -rf /requirements.txt \
     && gnwmanager install openocd
 
 RUN useradd -m \

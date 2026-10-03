@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
 
 #include "rg_emulators.h"
 #include "rg_utils.h"
@@ -15,7 +16,9 @@
 #include "gw_malloc.h"
 #include "bitmaps.h"
 #include "gui.h"
-#include "ff.h" /* f_unlink/f_rename: newlib rename() has no syscall here */
+/* Deletes go through remove() (backed per-variant by syscalls.c); the rename
+ * goes through rg_storage_rename(). Calling f_unlink/f_rename directly would
+ * fail to link in SD_CARD=0 builds, which omit FatFs entirely. */
 
 #define FAVORITES_FILE ODROID_BASE_PATH_CONFIG "/favorites.txt"
 /* Temp for the rewrite-on-remove; committed with f_rename so a mid-write
@@ -92,32 +95,39 @@ bool rg_favorites_remove(const char *path)
     fclose(out);
 
     if (!ok) {
-        f_unlink(FAVORITES_TMP);
+        remove(FAVORITES_TMP);
         return false;
     }
-    f_unlink(FAVORITES_FILE); /* may not exist; f_rename needs the name free */
-    return f_rename(FAVORITES_TMP, FAVORITES_FILE) == FR_OK;
+    return rg_storage_rename(FAVORITES_TMP, FAVORITES_FILE);
 }
 
 bool rg_favorites_reset(void)
 {
-    FRESULT res = f_unlink(FAVORITES_FILE);
-    return res == FR_OK || res == FR_NO_FILE;
+    return remove(FAVORITES_FILE) == 0 || errno == ENOENT;
 }
 
-/** Map "/roms/<dirname>/..." to its registered system, or NULL. */
+/** Map "/roms/<dirname>/..." or "/homebrews/..." to its registered system. */
 static const rom_system_t *system_for_path(const char *path)
 {
-    static const char prefix[] = RG_BASE_PATH_ROMS "/";
-    const size_t prefix_len = sizeof(prefix) - 1;
+    static const char roms_prefix[] = RG_BASE_PATH_ROMS "/";
+    static const char hb_prefix[] = RG_BASE_PATH_HOMEBREWS "/";
+    const size_t roms_prefix_len = sizeof(roms_prefix) - 1;
+    const size_t hb_prefix_len = sizeof(hb_prefix) - 1;
 
-    if (strncmp(path, prefix, prefix_len) != 0)
+    if (strncmp(path, hb_prefix, hb_prefix_len) == 0)
+        return rg_emulators_system_for_dir("homebrew", strlen("homebrew"));
+
+    if (strncmp(path, roms_prefix, roms_prefix_len) != 0)
         return NULL;
-    const char *dirname = path + prefix_len;
+    const char *dirname = path + roms_prefix_len;
     const char *slash = strchr(dirname, '/');
     if (slash == NULL || slash == dirname)
         return NULL;
-    return rg_emulators_system_for_dir(dirname, (size_t)(slash - dirname));
+    size_t dlen = (size_t)(slash - dirname);
+    /* Legacy /roms/homebrew/ — homebrews live at /homebrews/ only. */
+    if (dlen == 8 && strncmp(dirname, "homebrew", 8) == 0)
+        return NULL;
+    return rg_emulators_system_for_dir(dirname, dlen);
 }
 
 /** Build one launchable list entry from a favorite path (mirrors the file

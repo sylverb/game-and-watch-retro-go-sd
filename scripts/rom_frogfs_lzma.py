@@ -21,7 +21,6 @@ MAX_COMPRESSED_SG_COL_SIZE = 60 * 1024
 MAX_COMPRESSED_A2600_SIZE = 131072
 MAX_COMPRESSED_A7800_SIZE = 131200
 MAX_COMPRESSED_MSX_SIZE = 136 * 1024
-MAX_COMPRESSED_VIDEOPAC_SIZE = 136 * 1024
 
 DONT_COMPRESS = object()
 
@@ -109,14 +108,11 @@ def compress_payload_lzma(mode: str, raw: bytes, *, compress_gb_speed: bool = Fa
     elif mode == "a7800":
         if len(raw) > MAX_COMPRESSED_A7800_SIZE:
             return None
-    elif mode == "videopac":
-        if len(raw) > MAX_COMPRESSED_VIDEOPAC_SIZE:
-            return None
     elif mode in ("col", "sg"):
         if len(raw) > MAX_COMPRESSED_SG_COL_SIZE:
             return None
 
-    if mode in ("nes", "pce", "msx_rom", "wsv", "a2600", "a7800", "videopac", "col", "sg"):
+    if mode in ("nes", "pce", "msx_rom", "wsv", "a2600", "a7800", "col", "sg"):
         return compress_lzma_raw(raw)
 
     return None
@@ -152,11 +148,9 @@ def _compression_mode_for_path(rel: Path) -> str | None:
         return "a2600"
     if top == "a7800" and suf in (".a78", ".bin"):
         return "a7800"
-    if top == "videopac" and suf == ".bin":
-        return "videopac"
     if top == "msx" and suf in (".rom", ".mx1", ".mx2"):
         return "msx_rom"
-    # Skip: dsk (cdk conversion), homebrew, pico8, tama, pkmini, gw, etc.
+    # Skip: dsk (cdk conversion), homebrew, pico8, pkmini, gw, etc.
     if name_l.endswith(".lzma") or name_l.endswith(".cdk"):
         return None
     return None
@@ -223,7 +217,7 @@ def pack_staged_roms(
     compressed = 0
     skipped = 0
 
-    # MSX / Amstrad: jeu.dsk → jeu.cdk (ext cdk; main_msx treats cdk like dsk)
+    # MSX / Amstrad: jeu.dsk → jeu.cdk (ext cdk; MSX core treats cdk like dsk)
     for p in list(sorted(roms_staging_root.rglob("*.dsk"))):
         if not p.is_file():
             continue

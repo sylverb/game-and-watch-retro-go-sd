@@ -42,7 +42,6 @@ def make_arguments(config: BuildConfig) -> list[str]:
         (config.coverflow,      "COVERFLOW"),
         (config.single_font,    "SINGLE_FONT"),
         (config.cheat_codes,    "CHEAT_CODES"),
-        (config.msx_use_bank_2, "MSX_USE_BANK_2"),
         (config.ko_kr,          "KO_KR"),
         (config.ja_jp,          "JA_JP"),
         (config.zh_cn,          "ZH_CN"),

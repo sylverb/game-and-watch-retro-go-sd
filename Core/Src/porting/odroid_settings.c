@@ -6,16 +6,22 @@
 
 #include "odroid_system.h"
 #include "odroid_settings.h"
+#include "odroid_display.h"
 #include "main.h"
 #include "rg_i18n.h"
 #include "rg_storage.h"
+#include "rg_utils.h"
 #include "appid.h"
 #include "gui.h"
 #include "rom_manager.h"
 #include "gw_sdcard.h"
+#include "crc32.h"
 
 #define CONFIG_MAGIC 0xcafef00d
-#define ODROID_APPID_COUNT 4
+#define CORE_CFG_MAGIC 0x52474346u /* 'RGCF' */
+#define CORE_CFG_VERSION 1
+#define CORE_CFG_USER_SLOTS 16
+#define CORE_CFG_USER_KEY_MAX 12 /* matches ESP "%.12s" app_int32 key budget */
 
 #if !defined  (COVERFLOW)
   #define COVERFLOW 0
@@ -33,8 +39,19 @@
 static const char* Key_RomFilePath  = "RomFilePath";
 static const char* Key_AudioSink    = "AudioSink";
 
-// Per-app
+// Per-app (legacy key names for app_int32_* mapping into core .cfg)
 static const char* Key_DispRotation = "DistRotation";
+static const char* Key_Palette = "Palette";
+static const char* Key_SpriteLimit = "SpriteLimit";
+static const char* Key_Region = "Region";
+static const char* Key_DispScaling = "DispScaling";
+static const char* Key_DispFilter = "DispFilter";
+static const char* Key_DispOverscan = "DispOverscan";
+
+typedef struct {
+    char key[CORE_CFG_USER_KEY_MAX]; /* empty key[0] = free slot */
+    int32_t value;
+} core_cfg_user_entry_t;
 
 typedef struct app_config {
     uint8_t region;
@@ -43,7 +60,18 @@ typedef struct app_config {
     uint8_t disp_filter;
     uint8_t disp_overscan;
     uint8_t sprite_limit;
+    uint8_t disp_rotation;
+    uint8_t reserved;
+    core_cfg_user_entry_t user[CORE_CFG_USER_SLOTS];
 } app_config_t;
+
+typedef struct {
+    uint32_t magic;
+    uint8_t  version;
+    uint8_t  reserved[3];
+    app_config_t cfg;
+    uint32_t crc32;
+} rg_core_config_file_t;
 
 #if CHEAT_CODES == 1
 typedef struct {
@@ -82,14 +110,27 @@ typedef struct persistent_config {
     /** Welcome prompt: 0 = not anchored, 1 = message already shown, else YYYYMMDD anchor (RTC >= 2026). */
     uint32_t welcome_prompt;
 
-    app_config_t app[APPID_COUNT];
+    /* Per-emulator settings live in /data/<core>.cfg — not in this blob. */
+    uint8_t reserved_app[32];
 
     uint32_t crc32;
 } persistent_config_t;
 
+static const app_config_t app_config_defaults = {
+    .region = 0,
+    .palette = 0,
+    .disp_scaling = ODROID_DISPLAY_SCALING_FULL,
+    .disp_filter = ODROID_DISPLAY_FILTER_OFF,
+    .disp_overscan = 1,
+    .sprite_limit = 1,
+    .disp_rotation = ODROID_DISPLAY_ROTATION_AUTO,
+    .reserved = 0,
+    .user = {{0}},
+};
+
 static const persistent_config_t persistent_config_default = {
     .magic = CONFIG_MAGIC,
-    .version = 8,
+    .version = 9,
 
     .backlight = ODROID_BACKLIGHT_LEVEL6,
     .start_action = ODROID_START_ACTION_RESUME,
@@ -132,32 +173,172 @@ static const persistent_config_t persistent_config_default = {
     .main_menu_browse_subpath = {0},
     .debug_clock_always_on = false,
     .welcome_prompt = 0,
-    .app = {
-        {0}, // Launcher
-        {
-            .region = 0,
-            .palette = 2,
-            .disp_scaling = ODROID_DISPLAY_SCALING_FULL,
-            .disp_filter = ODROID_DISPLAY_FILTER_SHARP,
-            .disp_overscan = 0,
-            .sprite_limit = 0,
-        }, // GB
-        {
-            .disp_scaling = ODROID_DISPLAY_SCALING_CUSTOM,
-            .disp_filter = ODROID_DISPLAY_FILTER_SHARP,
-        }, // NES
-        {0}, // SMS
-        {0}, // PCE
-        {0}, // GW
-        {0}, // MD Genesis
-    },
+    .reserved_app = {0},
 };
 
 persistent_config_t persistent_config_ram;
 
+static char core_cfg_path[RG_PATH_MAX + 1];
+static app_config_t core_cfg_cache;
+static bool core_cfg_bound;
+static bool core_cfg_dirty;
+
 static bool file_exists(const char *file_path) {
     struct stat st;
     return stat(file_path, &st) == 0;
+}
+
+static void core_cfg_apply_defaults(void)
+{
+    core_cfg_cache = app_config_defaults;
+    core_cfg_dirty = false;
+}
+
+static bool core_cfg_load_file(const char *path)
+{
+    FILE *file = fopen(path, "rb");
+    if (!file)
+        return false;
+
+    rg_core_config_file_t disk;
+    size_t n = fread(&disk, 1, sizeof(disk), file);
+    fclose(file);
+    if (n != sizeof(disk) || disk.magic != CORE_CFG_MAGIC || disk.version != CORE_CFG_VERSION)
+        return false;
+
+    uint32_t got = disk.crc32;
+    disk.crc32 = 0;
+    uint32_t expect = crc32_le(0, (unsigned char *)&disk, sizeof(disk));
+    if (got != expect)
+        return false;
+
+    core_cfg_cache = disk.cfg;
+    core_cfg_dirty = false;
+    return true;
+}
+
+static void core_cfg_save_file(void)
+{
+    if (!core_cfg_bound || !core_cfg_dirty || !core_cfg_path[0] || !fs_mounted)
+        return;
+
+    char dirbuf[RG_PATH_MAX];
+    strncpy(dirbuf, rg_dirname(core_cfg_path), sizeof(dirbuf) - 1);
+    dirbuf[sizeof(dirbuf) - 1] = '\0';
+    rg_storage_mkdir(dirbuf);
+
+    rg_core_config_file_t disk = {
+        .magic = CORE_CFG_MAGIC,
+        .version = CORE_CFG_VERSION,
+        .cfg = core_cfg_cache,
+        .crc32 = 0,
+    };
+    disk.crc32 = crc32_le(0, (unsigned char *)&disk, sizeof(disk));
+
+    FILE *file = fopen(core_cfg_path, "wb");
+    if (file) {
+        fwrite(&disk, 1, sizeof(disk), file);
+        fclose(file);
+        core_cfg_dirty = false;
+    }
+}
+
+static void core_cfg_bind_path(const char *path)
+{
+    if (core_cfg_bound && core_cfg_dirty)
+        core_cfg_save_file();
+
+    core_cfg_path[0] = '\0';
+    core_cfg_bound = false;
+    core_cfg_apply_defaults();
+
+    if (!path || !path[0])
+        return;
+
+    strncpy(core_cfg_path, path, sizeof(core_cfg_path) - 1);
+    core_cfg_path[sizeof(core_cfg_path) - 1] = '\0';
+    core_cfg_bound = true;
+    if (!core_cfg_load_file(core_cfg_path))
+        core_cfg_apply_defaults();
+}
+
+void odroid_settings_unbind_core_cfg(void)
+{
+    if (core_cfg_bound && core_cfg_dirty)
+        core_cfg_save_file();
+    core_cfg_path[0] = '\0';
+    core_cfg_bound = false;
+    core_cfg_apply_defaults();
+}
+
+void odroid_settings_bind_core_cfg(const char *core_stem)
+{
+    if (!core_stem || !core_stem[0]) {
+        odroid_settings_unbind_core_cfg();
+        return;
+    }
+    char path[RG_PATH_MAX + 1];
+    snprintf(path, sizeof(path), "%s/%s.cfg", ODROID_BASE_PATH_CONFIG, core_stem);
+    core_cfg_bind_path(path);
+}
+
+void odroid_settings_bind_homebrew_cfg(const char *game_stem)
+{
+    if (!game_stem || !game_stem[0]) {
+        odroid_settings_unbind_core_cfg();
+        return;
+    }
+    char path[RG_PATH_MAX + 1];
+    snprintf(path, sizeof(path), "%s/homebrew/%s.cfg", ODROID_BASE_PATH_CONFIG, game_stem);
+    core_cfg_bind_path(path);
+}
+
+static app_config_t *core_cfg_slot(void)
+{
+    if (!core_cfg_bound) {
+        /* Launcher / unbound: ephemeral defaults (not persisted). */
+        static app_config_t ephemeral;
+        ephemeral = app_config_defaults;
+        return &ephemeral;
+    }
+    return &core_cfg_cache;
+}
+
+static void core_cfg_mark_dirty(void)
+{
+    if (core_cfg_bound)
+        core_cfg_dirty = true;
+}
+
+/* Find a user KV slot by key; optionally allocate an empty slot. */
+static int core_cfg_user_find(app_config_t *cfg, const char *key, bool create)
+{
+    int free_slot = -1;
+    char truncated[CORE_CFG_USER_KEY_MAX];
+
+    if (!cfg || !key || !key[0])
+        return -1;
+
+    strncpy(truncated, key, CORE_CFG_USER_KEY_MAX - 1);
+    truncated[CORE_CFG_USER_KEY_MAX - 1] = '\0';
+
+    for (int i = 0; i < CORE_CFG_USER_SLOTS; i++) {
+        if (cfg->user[i].key[0] == '\0') {
+            if (create && free_slot < 0)
+                free_slot = i;
+            continue;
+        }
+        if (strcmp(cfg->user[i].key, truncated) == 0)
+            return i;
+    }
+
+    if (create && free_slot >= 0) {
+        strncpy(cfg->user[free_slot].key, truncated, CORE_CFG_USER_KEY_MAX - 1);
+        cfg->user[free_slot].key[CORE_CFG_USER_KEY_MAX - 1] = '\0';
+        cfg->user[free_slot].value = 0;
+        return free_slot;
+    }
+    return -1;
 }
 
 void odroid_settings_init()
@@ -206,6 +387,9 @@ void odroid_settings_init()
 
 void odroid_settings_commit()
 {
+    /* Flush per-core .cfg first (independent of global /CONFIG). */
+    core_cfg_save_file();
+
     // Calculate crc32 of the whole struct with the crc32 value set to 0
     persistent_config_ram.crc32 = 0;
     persistent_config_ram.crc32 = crc32_le(0, (unsigned char *) &persistent_config_ram, sizeof(persistent_config_t));
@@ -409,14 +593,59 @@ void odroid_settings_theme_set(int8_t theme)
 
 int32_t odroid_settings_app_int32_get(const char *key, int32_t default_value)
 {
+    app_config_t *cfg = core_cfg_slot();
+    if (!key)
+        return default_value;
+    if (strcmp(key, Key_Palette) == 0)
+        return cfg->palette;
+    if (strcmp(key, Key_SpriteLimit) == 0)
+        return cfg->sprite_limit;
+    if (strcmp(key, Key_Region) == 0)
+        return cfg->region;
+    if (strcmp(key, Key_DispScaling) == 0)
+        return cfg->disp_scaling;
+    if (strcmp(key, Key_DispFilter) == 0)
+        return cfg->disp_filter;
+    if (strcmp(key, Key_DispOverscan) == 0)
+        return cfg->disp_overscan;
+    if (strcmp(key, Key_DispRotation) == 0)
+        return cfg->disp_rotation;
+
+    /* Arbitrary per-core / homebrew keys (ESP NVS parity). */
+    int slot = core_cfg_user_find(cfg, key, false);
+    if (slot >= 0)
+        return cfg->user[slot].value;
     return default_value;
 }
 
 void odroid_settings_app_int32_set(const char *key, int32_t value)
 {
-    char app_key[16];
-    sprintf(app_key, "%.12s.%ld", key, odroid_system_get_app()->id);
-    odroid_settings_int32_set(app_key, value);
+    app_config_t *cfg = core_cfg_slot();
+    if (!key)
+        return;
+    if (strcmp(key, Key_Palette) == 0)
+        cfg->palette = (uint8_t)value;
+    else if (strcmp(key, Key_SpriteLimit) == 0)
+        cfg->sprite_limit = (uint8_t)value;
+    else if (strcmp(key, Key_Region) == 0)
+        cfg->region = (uint8_t)value;
+    else if (strcmp(key, Key_DispScaling) == 0)
+        cfg->disp_scaling = (uint8_t)value;
+    else if (strcmp(key, Key_DispFilter) == 0)
+        cfg->disp_filter = (uint8_t)value;
+    else if (strcmp(key, Key_DispOverscan) == 0)
+        cfg->disp_overscan = (uint8_t)value;
+    else if (strcmp(key, Key_DispRotation) == 0)
+        cfg->disp_rotation = (uint8_t)value;
+    else {
+        int slot = core_cfg_user_find(cfg, key, true);
+        if (slot < 0) {
+            printf("odroid_settings_app_int32_set: no free user slot for '%s'\n", key);
+            return;
+        }
+        cfg->user[slot].value = value;
+    }
+    core_cfg_mark_dirty();
 }
 
 
@@ -567,51 +796,56 @@ bool odroid_settings_MainMenuBrowseSubpath_get(char *buf, size_t buf_size)
 
 int32_t odroid_settings_Palette_get()
 {
-    return persistent_config_ram.app[odroid_system_get_app()->id].palette;
+    return core_cfg_slot()->palette;
 }
 void odroid_settings_Palette_set(int32_t value)
 {
-    persistent_config_ram.app[odroid_system_get_app()->id].palette = value;
+    core_cfg_slot()->palette = (uint8_t)value;
+    core_cfg_mark_dirty();
 }
 
 
 int32_t odroid_settings_SpriteLimit_get()
 {
-    return persistent_config_ram.app[odroid_system_get_app()->id].sprite_limit;
+    return core_cfg_slot()->sprite_limit;
 }
 void odroid_settings_SpriteLimit_set(int32_t value)
 {
-    persistent_config_ram.app[odroid_system_get_app()->id].sprite_limit = value;
+    core_cfg_slot()->sprite_limit = (uint8_t)value;
+    core_cfg_mark_dirty();
 }
 
 
 ODROID_REGION odroid_settings_Region_get()
 {
-    return persistent_config_ram.app[odroid_system_get_app()->id].region;
+    return (ODROID_REGION)core_cfg_slot()->region;
 }
 void odroid_settings_Region_set(ODROID_REGION value)
 {
-    persistent_config_ram.app[odroid_system_get_app()->id].region = value;
+    core_cfg_slot()->region = (uint8_t)value;
+    core_cfg_mark_dirty();
 }
 
 
 int32_t odroid_settings_DisplayScaling_get()
 {
-    return persistent_config_ram.app[odroid_system_get_app()->id].disp_scaling;
+    return core_cfg_slot()->disp_scaling;
 }
 void odroid_settings_DisplayScaling_set(int32_t value)
 {
-    persistent_config_ram.app[odroid_system_get_app()->id].disp_scaling = value;
+    core_cfg_slot()->disp_scaling = (uint8_t)value;
+    core_cfg_mark_dirty();
 }
 
 
 int32_t odroid_settings_DisplayFilter_get()
 {
-    return persistent_config_ram.app[odroid_system_get_app()->id].disp_filter;
+    return core_cfg_slot()->disp_filter;
 }
 void odroid_settings_DisplayFilter_set(int32_t value)
 {
-    persistent_config_ram.app[odroid_system_get_app()->id].disp_filter = value;
+    core_cfg_slot()->disp_filter = (uint8_t)value;
+    core_cfg_mark_dirty();
 }
 
 
@@ -627,11 +861,12 @@ void odroid_settings_DisplayRotation_set(int32_t value)
 
 int32_t odroid_settings_DisplayOverscan_get()
 {
-    return persistent_config_ram.app[odroid_system_get_app()->id].disp_overscan;
+    return core_cfg_slot()->disp_overscan;
 }
 void odroid_settings_DisplayOverscan_set(int32_t value)
 {
-    persistent_config_ram.app[odroid_system_get_app()->id].disp_overscan = value;
+    core_cfg_slot()->disp_overscan = (uint8_t)value;
+    core_cfg_mark_dirty();
 }
 
 

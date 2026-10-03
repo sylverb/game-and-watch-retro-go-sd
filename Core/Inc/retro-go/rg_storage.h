@@ -12,8 +12,9 @@
 #define RG_BASE_PATH_CONFIG RG_BASE_PATH "/config"
 #define RG_BASE_PATH_COVERS RG_STORAGE_ROOT "/romart"
 #define RG_BASE_PATH_MUSIC  RG_STORAGE_ROOT "/music"
-#define RG_BASE_PATH_ROMS   RG_STORAGE_ROOT "/roms"
-#define RG_BASE_PATH_SAVES  RG_BASE_PATH "/saves"
+#define RG_BASE_PATH_ROMS      RG_STORAGE_ROOT "/roms"
+#define RG_BASE_PATH_HOMEBREWS RG_STORAGE_ROOT "/homebrews"
+#define RG_BASE_PATH_SAVES     RG_BASE_PATH "/saves"
 #define RG_BASE_PATH_THEMES RG_BASE_PATH "/themes"
 #define RG_BASE_PATH_BORDERS RG_BASE_PATH "/borders"
 
@@ -65,6 +66,7 @@ bool rg_storage_get_activity_led(void);
 bool rg_storage_read_file(const char *path, void **data_ptr, size_t *data_len);
 bool rg_storage_write_file(const char *path, const void *data_ptr, const size_t data_len);
 bool rg_storage_delete(const char *path);
+bool rg_storage_rename(const char *old_path, const char *new_path);
 bool rg_storage_exists(const char *path);
 bool rg_storage_mkdir(const char *dir);
 bool rg_storage_scandir(const char *path, rg_scandir_cb_t *callback, void *arg, uint32_t flags);

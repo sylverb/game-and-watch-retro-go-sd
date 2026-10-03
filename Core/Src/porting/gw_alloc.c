@@ -1,12 +1,44 @@
 #include <stdlib.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <string.h>
 #include <assert.h>
 #include <stdio.h>
 
 #include "gw_linker.h"
+#include "gw_malloc.h"
 
 static char *heap_end = 0;
+
+/* newlib-nano free-list node (libc/stdlib/nano-mallocr.c). size is the
+ * whole chunk including the header; usable bytes are size minus the
+ * 8-byte aligned header. */
+struct nano_malloc_chunk {
+    size_t size;
+    struct nano_malloc_chunk *next;
+};
+extern struct nano_malloc_chunk *__malloc_free_list;
+
+#define AHB_MALLOC_OVERHEAD 8u
+
+static size_t ahb_usable(size_t raw)
+{
+    return (raw > AHB_MALLOC_OVERHEAD) ? (raw - AHB_MALLOC_OVERHEAD) : 0;
+}
+
+size_t ahb_get_free_size(void)
+{
+    char *cur = heap_end ? heap_end : (char *)&_heap_start;
+    char *lim = (char *)&_heap_end;
+    size_t largest = (cur < lim) ? ahb_usable((size_t)(lim - cur)) : 0;
+
+    for (struct nano_malloc_chunk *p = __malloc_free_list; p; p = p->next) {
+        size_t usable = ahb_usable(p->size);
+        if (usable > largest)
+            largest = usable;
+    }
+    return largest;
+}
 
 void *
 _sbrk (int incr)
@@ -20,7 +52,9 @@ _sbrk (int incr)
         printf("HEAP OOM: need=%d used=%d/%d\n",
                incr, (int)(heap_end - (char *)&_heap_start),
                (int)((char *)&_heap_end - (char *)&_heap_start));
-        assert(0);
+        return (void *)-1;
+// Do not assert
+//        assert(0);
     }
 
     prev_heap_end = heap_end;

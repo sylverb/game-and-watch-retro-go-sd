@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "projects": [
+    {
+      "project": "nes-fceu",
+      "title": "FCEUmm",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/fceumm-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "tgb",
+      "title": "TGB Dual",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/tgb-dual-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "sms",
+      "title": "SMS Plus GX",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/SMSPlusGX-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "pce",
+      "title": "PCE-GO",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/pce-go-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "md",
+      "title": "Gwenesis",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/gwenesis-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "snes",
+      "title": "lakesnes",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/snes-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "gba",
+      "title": "gpSP",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/gba-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "msx",
+      "title": "blueMSX",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/blueMSX-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "lynx",
+      "title": "Handy",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/lynx-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "a2600",
+      "title": "Stella 2014",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/stella2014-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "a7800",
+      "title": "ProSystem",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/prosystem-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "wsv",
+      "title": "Potator",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/potator-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "amstrad",
+      "title": "Caprice32",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/caprice32-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "pkmini",
+      "title": "PokeMini",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/PokeMini-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "tama",
+      "title": "TamaLIB",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/tama-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "gw",
+      "title": "LCD Game Emulator",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/LCD-Game-Emulator-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "doom",
+      "title": "Doom",
+      "kind": "core",
+      "versionsUrl": "https://slash-proc.github.io/doom-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "zelda3",
+      "title": "The Legend of Zelda: A Link to the Past",
+      "kind": "homebrew",
+      "versionsUrl": "https://slash-proc.github.io/zelda3-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "ccleste",
+      "title": "Celeste Classic",
+      "kind": "homebrew",
+      "versionsUrl": "https://slash-proc.github.io/ccleste-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "music",
+      "title": "Music",
+      "kind": "homebrew",
+      "versionsUrl": "https://slash-proc.github.io/music-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "snake",
+      "title": "Snake",
+      "kind": "homebrew",
+      "versionsUrl": "https://slash-proc.github.io/snake-retro-go-sd/dist/versions.json"
+    },
+    {
+      "project": "pong",
+      "title": "Pong",
+      "kind": "homebrew",
+      "versionsUrl": "https://slash-proc.github.io/pong-retro-go-sd/dist/versions.json"
+    }
+  ]
+}
