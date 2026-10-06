@@ -386,6 +386,27 @@ jobs:
         with:
           path: _pages
 
+      # deploy-pages 404s if the repo has never had Pages enabled (or still uses
+      # a legacy branch source). Create / switch the site to build_type=workflow
+      # before deploy so a fresh beta tag does not fail the whole release.
+      - name: Ensure GitHub Pages uses Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if status=$(gh api "repos/${GITHUB_REPOSITORY}/pages" 2>/dev/null); then
+            build_type=$(printf '%s' "$status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("build_type") or "")')
+            if [ "$build_type" != "workflow" ]; then
+              echo "Pages build_type=$build_type → switching to workflow"
+              gh api --method PUT "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow
+            else
+              echo "Pages already configured for Actions"
+            fi
+          else
+            echo "Pages not enabled → creating site with build_type=workflow"
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow
+          fi
+
       - name: Deploy
         id: deploy
         uses: actions/deploy-pages@v4
