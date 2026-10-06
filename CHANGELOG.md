@@ -10,8 +10,8 @@ cores on the SD card; the launcher discovers them at boot.
 #### Architecture
 - Emulator systems ship as `/cores/*.bin`
 - Homebrew GWHB binaries live under `/homebrews/`
-- Official updates bundle `/homebrews/installer.bin` (core installer) so other
-  cores can be installed from the device after the firmware update
+- Official `retro-go_update.bin` embeds `/homebrews/installer.bin` (core
+  installer); bank-specific `retro-go_update-bank*.bin` archives do not
 - New out-of-tree SDK / template: [retro-go-sd-templates](https://github.com/sylverb/retro-go-sd-templates)
 
 #### Launcher / UI

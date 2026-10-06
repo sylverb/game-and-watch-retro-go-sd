@@ -5,12 +5,12 @@ and two bank-specific updater archives.
 
 See docs/RELEASE_2_0.md — this script implements the format described there.
 
-Cores are decoupled and ship from their own projects. One exception is bundled
-at release time: /homebrews/installer.bin (from sylverb/installer-retro-go-sd),
-so a fresh install can pull other cores. Nothing under cores/, covers/ or
-cheats/ appears here; the firmware release otherwise carries only the intflash
-image and the static content the launcher itself needs (fonts, language blobs,
-the boot logo).
+Cores are decoupled and ship from their own projects. The human-facing
+`retro-go_update.bin` additionally embeds `/homebrews/installer.bin` (from
+sylverb/installer-retro-go-sd); bank-specific updater archives and build zips
+do not. Nothing under cores/, covers/ or cheats/ appears here; the firmware
+release otherwise carries only the intflash image and the static content the
+launcher itself needs (fonts, language blobs, the boot logo).
 
 Per build (storage x bank, four of them):
 
@@ -73,10 +73,10 @@ PATHS = {
     "data": "/data",
 }
 
-# Subtrees of sd_content that belong in a firmware release. cores/, covers/,
-# and cheats/ stay out (decoupled / user content). homebrews/ is included so the
-# bundled installer.bin from the release CI can ship with the firmware.
-CONTENT_DIRS = ("fonts", "lang", "bios", "homebrews")
+# Subtrees of sd_content that belong in a firmware release. cores/, homebrews/,
+# covers/, and cheats/ stay out (decoupled / user content). The installer
+# homebrew is injected only into retro-go_update.bin by the release CI, not here.
+CONTENT_DIRS = ("fonts", "lang", "bios")
 
 # GIT_TAG is baked as the string literal "Retro-Go SD <describe>" (see
 # scripts/update_gittag.sh). This is the same pattern the web builder scans a

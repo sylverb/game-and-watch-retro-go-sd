@@ -9,12 +9,14 @@ to implement an installer; read that one to understand a decision.
 
 Cores are **not** part of a firmware release (they are separate projects under
 the [GWRG distribution spec](https://github.com/slash-proc/gwrg-dist-spec)).
-One exception is bundled at release time: `/homebrews/installer.bin` from
-[installer-retro-go-sd](https://github.com/sylverb/installer-retro-go-sd), so a
-fresh SD update can install other cores from the device. Everything else under
-`/homebrews` and `/cores` still ships from those projects. A firmware release
-otherwise carries the intflash image and the static content the launcher itself
-needs: fonts, language blobs, and the boot logo.
+The human-facing `retro-go_update.bin` additionally embeds
+`/homebrews/installer.bin` from
+[installer-retro-go-sd](https://github.com/sylverb/installer-retro-go-sd);
+`retro-go_update-bank1.bin` / `retro-go_update-bank2.bin` on the Pages mirror
+do not. Everything else under `/homebrews` and `/cores` still ships from those
+projects. A firmware release otherwise carries the intflash image and the
+static content the launcher itself needs: fonts, language blobs, and the boot
+logo.
 
 That is why this format is a sibling of the GWRG spec rather than a `kind`
 inside it. The spec describes installing files into a directory. Firmware is
@@ -186,6 +188,13 @@ Each archive contains the transient updater and a complete SD-card update tar.
 Retro-Go 2.0+ selects the matching filename at runtime. Older installations
 require renaming the selected file to `retro-go_update.bin` before copying it to
 the SD-card root.
+
+These bank-specific files (and the per-build zips) are published on the Pages
+`dist/<tag>/` mirror. The GitHub release download list intentionally only
+includes `retro-go_update.bin` (bank-2 content **plus** `/homebrews/installer.bin`)
+so humans see one file; tools must use the Pages URLs from `versions.json` /
+`manifest.json`, not scrape the GitHub Assets list. The bank1/bank2 archives
+on Pages do not embed the installer.
 
 ### `paths`
 

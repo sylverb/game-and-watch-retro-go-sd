@@ -42,14 +42,21 @@ blobs are therefore per-build.
 
 ### Release assets
 
-Six required release assets: one self-contained build zip per variant and two
-bank-specific SD updater archives. A separate `debug-all-<tag>.zip` is an
-optional developer convenience and is not part of the manifest.
+The **GitHub release** ships one human-facing file: `retro-go_update.bin`
+(bank-2 updater **plus** `/homebrews/installer.bin`). Bank-specific updaters
+(without the installer), per-build install zips, and `debug-all-<tag>.zip` are
+published on the **Pages mirror** (`dist/<tag>/`) for automated tools —
+GitHub Releases has no way to hide or section assets.
 
 ```
+# GitHub release (humans)
+retro-go_update.bin                                bank2 SD updater + installer
+
+# Pages dist/<tag>/ (tools; also holds the human file)
 retro-go-sd-<tag>-{sd,flash}-bank{1,2}.zip         image + debug ELF + content
-retro-go_update-bank1.bin                          SD updater for bank 1
-retro-go_update-bank2.bin                          SD updater for bank 2
+retro-go_update-bank1.bin                          SD updater for bank 1 (no installer)
+retro-go_update-bank2.bin                          SD updater for bank 2 (no installer)
+debug-all-<tag>.zip                                optional developer convenience
 ```
 
 Each build zip is self-contained — its intflash image, debug ELF, `lang/` blobs and a
