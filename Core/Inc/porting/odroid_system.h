@@ -190,6 +190,7 @@ typedef enum
 #define PANIC_TRACE_MAGIC 0x12345678
 
 void odroid_system_init(int app_id, int sampleRate);
+
 char* odroid_system_get_path(emu_path_type_t type, const char *romPath);
 /* Build /cheats/<rom-relative-stem>.<cheat_ext>. cheat_ext has no leading '.'. */
 void odroid_system_get_cheat_path_to_buf(const char *romPath, const char *cheat_ext,
@@ -210,6 +211,9 @@ void odroid_system_set_pre_sleep_hook(sleep_pre_sleep_hook_t callback);
 void odroid_system_sleep();
 void odroid_system_sleep_ex(system_sleep_flags_t flags, sleep_pre_wakeup_callback_t pre_wakeup_callback);
 void odroid_system_switch_app(int app) __attribute__((noreturn));
+/* Hot-boot launcher without sram_save/shutdown — for abort before the
+ * game is fully up (e.g. cancelled ROM flash-cache). */
+void odroid_system_abort_to_launcher(void) __attribute__((noreturn));
 void odroid_system_reload_app() __attribute__((noreturn));
 void odroid_system_set_boot_app(int slot);
 void odroid_system_set_led(int value);

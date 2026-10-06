@@ -1389,6 +1389,40 @@ void core_odroid_overlay_draw_progress_bar(const char *header, uint8_t progress)
 {
     gw_firmware_abi()->odroid_overlay_draw_progress_bar(header, progress);
 }
+bool core_odroid_overlay_progress_poll_cancel(void)
+{
+    const gw_firmware_abi_t *abi = gw_firmware_abi();
+    if (!abi->odroid_overlay_progress_poll_cancel)
+        return false;
+    return abi->odroid_overlay_progress_poll_cancel();
+}
+bool core_odroid_overlay_draw_progress_bar_cancellable(const char *header, uint8_t progress)
+{
+    const gw_firmware_abi_t *abi = gw_firmware_abi();
+    if (!abi->odroid_overlay_draw_progress_bar_cancellable)
+        return true; /* old firmware: keep going */
+    return abi->odroid_overlay_draw_progress_bar_cancellable(header, progress);
+}
+uint8_t *core_odroid_overlay_cache_file_in_flash_cancellable(const char *file_path,
+                                                             uint32_t *file_size_p,
+                                                             bool byte_swap)
+{
+    const gw_firmware_abi_t *abi = gw_firmware_abi();
+    if (!abi->odroid_overlay_cache_file_in_flash_cancellable)
+        return abi->odroid_overlay_cache_file_in_flash(file_path, file_size_p, byte_swap);
+    return abi->odroid_overlay_cache_file_in_flash_cancellable(file_path, file_size_p, byte_swap);
+}
+uint8_t *core_odroid_overlay_cache_file_in_flash_relocate_cancellable(
+    const char *file_path, uint32_t *file_size_p, bool byte_swap,
+    gw_flash_relocate_cb_t relocate_cb)
+{
+    const gw_firmware_abi_t *abi = gw_firmware_abi();
+    if (!abi->odroid_overlay_cache_file_in_flash_relocate_cancellable)
+        return abi->odroid_overlay_cache_file_in_flash_relocate(
+            file_path, file_size_p, byte_swap, relocate_cb);
+    return abi->odroid_overlay_cache_file_in_flash_relocate_cancellable(
+        file_path, file_size_p, byte_swap, relocate_cb);
+}
 bool core_rg_storage_mkdir(const char *dir)
 {
     return gw_firmware_abi()->rg_storage_mkdir(dir);

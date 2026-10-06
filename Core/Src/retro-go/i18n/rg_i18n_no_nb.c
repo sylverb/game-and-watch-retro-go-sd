@@ -73,6 +73,7 @@ const lang_t lang_no_nb LANG_DATA = {
     .s_Theme_CoverLightV = "CoverLight V",
     .s_Theme_CoverLightH = "CoverLight H",
     .s_Caching_Game = "Bufrer spillfil",
+    .s_Caching_Cancel = "B: Avbryt",
     .s_Loading_Banner = "Laster",
     .s_Pause_Banner = "PAUSE",
     //=====================================================================

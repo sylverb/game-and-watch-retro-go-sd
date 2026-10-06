@@ -8,9 +8,12 @@
 #
 # See docs/RELEASE_2_0.md for the format and why it is shaped this way.
 #
-# No cores and no homebrew ship here: they are decoupled projects publishing under
-# the GWRG distribution spec, bound to this firmware only by the firmware ABI. The
-# curated list of them is generated from docs/CURATED_PROJECTS.md into projects.json.
+# No cores ship here: they are decoupled projects publishing under the GWRG
+# distribution spec. One exception is bundled at release time: the core installer
+# homebrew (/homebrews/installer.bin) from sylverb/installer-retro-go-sd, so a
+# fresh SD update can install other cores without a second download.
+# The curated list of other cores/homebrews is generated from
+# docs/CURATED_PROJECTS.md into projects.json.
 #
 # Pages is the mirror because a GitHub release asset sends no CORS header — `curl`
 # gets the bytes, a browser does not. Releases stay the archival source of truth;
@@ -65,6 +68,8 @@ env:
     ZH_TW=1
     KO_KR=1
     JA_JP=1
+  # SD-layout install zip (not *-debug.zip — that one is ELF/map only).
+  INSTALLER_HOMEBREW_ZIP_URL: https://github.com/sylverb/installer-retro-go-sd/releases/download/v1.0.0/installer-v1.0.0.zip
 
 jobs:
   build:
@@ -188,6 +193,18 @@ jobs:
             bash -l -c 'make -j$(nproc) -C external/firmware_update'
           mkdir -p _dl/updater
           cp external/firmware_update/build/firmware_update.bin _dl/updater/
+
+      - name: Bundle installer homebrew into SD content
+        run: |
+          set -euo pipefail
+          # Lands as /homebrews/installer.bin inside retro-go_update-bank*.bin
+          # and in each build zip's content[] for the web flasher.
+          python3 scripts/flasher/bundle_installer_homebrew.py \
+            --url "$INSTALLER_HOMEBREW_ZIP_URL" \
+            --content _dl/sd-bank1/content \
+            --content _dl/sd-bank2/content \
+            --content _dl/flash-bank1/content \
+            --content _dl/flash-bank2/content
 
       - name: Build bank-specific update archives
         run: |
@@ -385,6 +402,27 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: _pages
+
+      # deploy-pages 404s if the repo has never had Pages enabled (or still uses
+      # a legacy branch source). Create / switch the site to build_type=workflow
+      # before deploy so a fresh beta tag does not fail the whole release.
+      - name: Ensure GitHub Pages uses Actions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if status=$(gh api "repos/${GITHUB_REPOSITORY}/pages" 2>/dev/null); then
+            build_type=$(printf '%s' "$status" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("build_type") or "")')
+            if [ "$build_type" != "workflow" ]; then
+              echo "Pages build_type=$build_type → switching to workflow"
+              gh api --method PUT "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow
+            else
+              echo "Pages already configured for Actions"
+            fi
+          else
+            echo "Pages not enabled → creating site with build_type=workflow"
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/pages" -f build_type=workflow
+          fi
 
       - name: Deploy
         id: deploy

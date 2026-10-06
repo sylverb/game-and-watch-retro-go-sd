@@ -14,10 +14,12 @@
 #include "main.h"
 #include "rg_i18n.h"
 #include "rg_emulators.h"
-#include "favorites.h"
 #include "gw_malloc.h"
 #include "appid.h"
 #include "gwhb.h"
+#if SD_CARD == 1
+#include "gw_flash_alloc.h"
+#endif
 
 #if !defined(COVERFLOW)
 #define COVERFLOW 0
@@ -60,15 +62,6 @@ static listbox_item_t *global_items = NULL;
 
 static uint8_t *pJPEG_Buffer = NULL;
 static uint16_t *pCover_Buffer = NULL;
-
-/* The ★ tab mixes systems, so square homebrew art sits next to poster box
- * art and the carousel rows/columns drift with each cover's native size.
- * On that tab only, every decoded cover is letterboxed into one fixed
- * poster-shaped slot (scaled to fit, centered on a black mat) and reported
- * at the slot size, so all four themes lay out identical frames. */
-#define COVER_SLOT_WIDTH ((uint32_t)75)
-#define COVER_SLOT_HEIGHT ((uint32_t)100)
-#define COVER_SLOT_BYTES ((uint32_t)(COVER_SLOT_WIDTH * COVER_SLOT_HEIGHT * 2))
 
 const uint8_t cover_light[5] = {60, 120, 255, 120, 60};
 const uint8_t cover_light3[3] = {255, 120, 60};
@@ -208,10 +201,22 @@ static bool gui_tab_is_in_rom_subfolder(const tab_t *tab)
     return emu->browse_subpath[0] != '\0';
 }
 
+static void gui_list_viewport_metrics(const tab_t *tab, int *y0, int *h)
+{
+    *y0 = LIST_Y_OFFSET;
+    *h = LIST_HEIGHT;
+
+    if (gui_tab_is_in_rom_subfolder(tab) && tab->status[0] != '\0')
+    {
+        int ph = i18n_get_text_height() + 4;
+        *y0 = LIST_Y_OFFSET + ph;
+        *h = LIST_HEIGHT - ph;
+    }
+}
+
 static void gui_list_begin_viewport(tab_t *tab)
 {
-    gui_list_view_y0 = LIST_Y_OFFSET;
-    gui_list_view_h = LIST_HEIGHT;
+    gui_list_viewport_metrics(tab, &gui_list_view_y0, &gui_list_view_h);
 
     if (gui_tab_is_in_rom_subfolder(tab) && tab->status[0] != '\0')
     {
@@ -220,16 +225,218 @@ static void gui_list_begin_viewport(tab_t *tab)
 
         odroid_overlay_draw_fill_rect(0, LIST_Y_OFFSET, LIST_WIDTH, ph, strip_bg);
         i18n_draw_text_line(6, LIST_Y_OFFSET + 2, LIST_WIDTH - 12, tab->status, curr_colors->sel_c, strip_bg, 0);
-
-        gui_list_view_y0 = LIST_Y_OFFSET + ph;
-        gui_list_view_h = LIST_HEIGHT - ph;
     }
 }
+
+#if SD_CARD == 1
+listbox_item_t *gui_get_item_by_index(tab_t *tab, int *index);
+static bool gui_rom_flash_cache_probe(const retro_emulator_file_t *file);
+
+/* Fill flash_cached for ROMs currently on screen. Runs at most once per
+ * uptime second so the SD metadata fopen + per-file stat stay cheap. */
+static void gui_idle_probe_flash_cache(tab_t *tab)
+{
+    static uint32_t last_probe_s;
+
+    if (!tab || tab->is_empty || !tab->listbox.items || tab->listbox.length <= 0)
+        return;
+
+    uint32_t now = uptime_get();
+    if (now == last_probe_s)
+        return;
+    last_probe_s = now;
+
+    int view_y0, view_h;
+    gui_list_viewport_metrics(tab, &view_y0, &view_h);
+    (void)view_y0;
+
+    int cursor = tab->listbox.cursor;
+    int lo = cursor;
+    int hi = cursor;
+#if COVERFLOW != 0
+    int theme = odroid_settings_theme_get();
+    switch (theme) {
+    case 1: /* coverflow V */
+    case 4: /* coverlight V */
+        lo = cursor - 2;
+        hi = cursor + 1;
+        break;
+    case 2: /* coverflow H */
+    case 3: /* coverlight H */
+        lo = cursor - 2;
+        hi = cursor + 2;
+        break;
+    default: {
+        int font_height = i18n_get_text_height();
+        int max_line = (view_h - font_height) / font_height / 2;
+        if (max_line < 1)
+            max_line = 1;
+        lo = cursor - max_line;
+        hi = cursor + max_line;
+        break;
+    }
+    }
+#else
+    {
+        int font_height = i18n_get_text_height();
+        int max_line = (view_h - font_height) / font_height / 2;
+        if (max_line < 1)
+            max_line = 1;
+        lo = cursor - max_line;
+        hi = cursor + max_line;
+    }
+#endif
+
+    bool need_probe = false;
+    for (int i = lo; i <= hi && !need_probe; i++) {
+        int idx = i;
+        listbox_item_t *item = gui_get_item_by_index(tab, &idx);
+        if (!item || !item->arg || rg_rom_list_arg_is_parent(item->arg))
+            continue;
+        retro_emulator_file_t *file = (retro_emulator_file_t *)item->arg;
+        if (file->ext && file->path[0] && file->flash_cached == FLASH_CACHE_UNKNOWN)
+            need_probe = true;
+    }
+    if (!need_probe)
+        return;
+
+    flash_cache_lookup_begin();
+    for (int i = lo; i <= hi; i++) {
+        int idx = i;
+        listbox_item_t *item = gui_get_item_by_index(tab, &idx);
+        if (!item || !item->arg || rg_rom_list_arg_is_parent(item->arg))
+            continue;
+        retro_emulator_file_t *file = (retro_emulator_file_t *)item->arg;
+        if (!file->ext || !file->path[0] || file->flash_cached != FLASH_CACHE_UNKNOWN)
+            continue;
+        file->flash_cached = gui_rom_flash_cache_probe(file)
+                                 ? FLASH_CACHE_HIT
+                                 : FLASH_CACHE_MISS;
+    }
+    flash_cache_lookup_end();
+}
+
+/* Whole-file cache, or gngeo ZIP blobs under neogeo/<stem>/{p2,m,...}. */
+static bool gui_rom_flash_cache_probe(const retro_emulator_file_t *file)
+{
+    if (!file || !file->path[0])
+        return false;
+
+    if (flash_file_is_cached(file->path))
+        return true;
+
+    /* gngeo extracts ZIP members into keyed blobs — the .zip itself is never
+     * stored. A hit on the P ROM (first region written) means the game was
+     * cached. Keys must match neo_zip_flash.c:make_key(). */
+    if (!file->ext)
+        return false;
+    const char *ext = file->ext;
+    if (!((ext[0] == 'z' || ext[0] == 'Z') &&
+          (ext[1] == 'i' || ext[1] == 'I') &&
+          (ext[2] == 'p' || ext[2] == 'P') &&
+          ext[3] == '\0'))
+        return false;
+    if (strstr(file->path, "/neogeo/") == NULL)
+        return false;
+
+    const char *base = strrchr(file->path, '/');
+    base = base ? base + 1 : file->path;
+    const char *dot = strrchr(base, '.');
+    size_t stem_len = dot ? (size_t)(dot - base) : strlen(base);
+    if (stem_len == 0 || stem_len >= 32)
+        return false;
+
+    char stem[32];
+    memcpy(stem, base, stem_len);
+    stem[stem_len] = '\0';
+
+    char key[48];
+    snprintf(key, sizeof(key), "neogeo/%s/p2", stem);
+    return flash_data_is_cached(key);
+}
+
+static bool gui_file_flash_cached(const retro_emulator_file_t *file)
+{
+    return file && file->ext && file->flash_cached == FLASH_CACHE_HIT;
+}
+
+#if COVERFLOW != 0
+/* Frosted-glass "C" badge: every pixel is a blend over the cover art. */
+static void gui_draw_flash_cache_label(int x, int y, int w, int h)
+{
+    const int badge = 14;
+    if (w < badge + 4 || h < badge + 4)
+        return;
+
+    int bx = x + w - badge - 3;
+    int by = y + 3;
+    uint16_t *fb = lcd_get_active_buffer();
+    uint16_t glass[14 * 14];
+
+    for (int yy = 0; yy < badge; yy++) {
+        for (int xx = 0; xx < badge; xx++) {
+            int i = (by + yy) * ODROID_SCREEN_WIDTH + (bx + xx);
+
+            /* Soft rounded corners — leave the extreme corners alone. */
+            if ((xx == 0 || xx == badge - 1) && (yy == 0 || yy == badge - 1)) {
+                glass[yy * badge + xx] = fb[i];
+                continue;
+            }
+
+            bool rim = (xx <= 1 || yy <= 1 || xx >= badge - 2 || yy >= badge - 2);
+            if (rim) {
+                /* Light translucent frame */
+                fb[i] = get_darken_pixel_d(C_WHITE, fb[i], 45);
+            } else {
+                /* Light frosted glass — keep most of the cover colour */
+                fb[i] = get_darken_pixel(fb[i], 70);
+            }
+            glass[yy * badge + xx] = fb[i];
+        }
+    }
+
+    int cw = i18n_get_text_width("C");
+    int ch = i18n_get_text_height();
+    int tx = bx + (badge - cw) / 2;
+    int ty = by + (badge - ch) / 2;
+    if (tx < bx + 2) tx = bx + 2;
+    if (ty < by + 1) ty = by + 1;
+
+    /* Draw solid "C", then mix glyph pixels back into the glass (translucent). */
+    i18n_draw_text_line((uint16_t)tx, (uint16_t)ty, (uint16_t)(badge - 3),
+                        "C", C_WHITE, 0, 1);
+    for (int yy = 0; yy < badge; yy++) {
+        for (int xx = 0; xx < badge; xx++) {
+            int i = (by + yy) * ODROID_SCREEN_WIDTH + (bx + xx);
+            uint16_t g = glass[yy * badge + xx];
+            if (fb[i] != g)
+                fb[i] = get_darken_pixel_d(C_WHITE, g, 70);
+        }
+    }
+}
+#endif
+
+/* "* Name" when the ROM is in the flash cache; otherwise just the name. */
+static void gui_format_cached_title(const retro_emulator_file_t *file,
+                                    char *buf, size_t buflen)
+{
+    if (!file || !buf || buflen == 0)
+        return;
+    if (gui_file_flash_cached(file))
+        snprintf(buf, buflen, "* %s", file->name);
+    else
+        snprintf(buf, buflen, "%s", file->name);
+}
+#endif /* SD_CARD == 1 */
 
 void gui_event(gui_event_t event, tab_t *tab)
 {
     if (tab->event_handler)
         (*tab->event_handler)(event, tab);
+#if SD_CARD == 1
+    if (event == TAB_IDLE)
+        gui_idle_probe_flash_cache(tab);
+#endif
 }
 
 void gui_ensure_tab_capacity(int capacity)
@@ -671,6 +878,23 @@ void gui_draw_item_postion_v(int posx, int starty, int endy, int cur, int size)
             curr_colors->sel_c);
 }
 
+#if SD_CARD == 1
+/* List-row label: "* Name" when the ROM is in the flash cache. */
+static const char *gui_list_item_label(const listbox_item_t *item, char *buf, size_t buflen)
+{
+    if (!item)
+        return "";
+    if (!item->arg || rg_rom_list_arg_is_parent(item->arg))
+        return item->text ? item->text : "";
+    const retro_emulator_file_t *file = (const retro_emulator_file_t *)item->arg;
+    if (file->ext && gui_file_flash_cached(file)) {
+        gui_format_cached_title(file, buf, buflen);
+        return buf;
+    }
+    return item->text ? item->text : file->name;
+}
+#endif
+
 void gui_draw_simple_list(int posx, tab_t *tab)
 {
     listbox_t *list = &tab->listbox;
@@ -680,8 +904,15 @@ void gui_draw_simple_list(int posx, tab_t *tab)
         int w = ODROID_SCREEN_WIDTH - posx - 12;
         listbox_item_t *item = &list->items[list->cursor];
         int h1 = gui_list_view_y0 + (gui_list_view_h - font_height) / 2;
-        if (item)
-            i18n_draw_text_line(posx, h1, w, list->items[list->cursor].text, curr_colors->sel_c, curr_colors->bg_c, 0);
+        if (item) {
+#if SD_CARD == 1
+            char label[260];
+            const char *text = gui_list_item_label(item, label, sizeof(label));
+#else
+            const char *text = list->items[list->cursor].text;
+#endif
+            i18n_draw_text_line(posx, h1, w, text, curr_colors->sel_c, curr_colors->bg_c, 0);
+        }
 
         int index_next = list->cursor + 1;
         int index_proior = list->cursor - 1;
@@ -695,26 +926,40 @@ void gui_draw_simple_list(int posx, tab_t *tab)
             h2 = h2 - font_height - max_line + i;
             if (h2 < gui_list_view_y0) //out range;
                 break;
-            if (next_item)
+            if (next_item) {
+#if SD_CARD == 1
+                char label[260];
+                const char *text = gui_list_item_label(next_item, label, sizeof(label));
+#else
+                const char *text = list->items[index_next].text;
+#endif
                 i18n_draw_text_line(
                     posx,
                     h1,
                     w,
-                    list->items[index_next].text,
+                    text,
                     get_darken_pixel_d(curr_colors->dis_c, curr_colors->bg_c, (max_line - i) * 100 / max_line),
                     curr_colors->bg_c,
                     0);
+            }
             index_next++;
             listbox_item_t *prior_item = gui_get_item_by_index(tab, &index_proior);
-            if (prior_item)
+            if (prior_item) {
+#if SD_CARD == 1
+                char label[260];
+                const char *text = gui_list_item_label(prior_item, label, sizeof(label));
+#else
+                const char *text = list->items[index_proior].text;
+#endif
                 i18n_draw_text_line(
                     posx,
                     h2,
                     w,
-                    list->items[index_proior].text,
+                    text,
                     get_darken_pixel_d(curr_colors->dis_c, curr_colors->bg_c, (max_line - i) * 100 / max_line),
                     curr_colors->bg_c,
                     0);
+            }
             index_proior--;
         }
         //draw currpostion
@@ -980,57 +1225,13 @@ void gui_draw_item_postion_h(int posy, int startx, int endx, int cur, int size)
         curr_colors->bg_c);
 }
 
-static bool cover_slot_active(void)
-{
-    return rg_favorites_is_current_tab();
-}
-
-/* Rescale the freshly decoded cover in pCover_Buffer into the fixed slot
- * (nearest-neighbour, aspect kept, black letterbox) and report slot dims.
- * No-op outside the ★ tab. */
-static void cover_slot_apply(uint32_t *width, uint32_t *height)
-{
-    static uint16_t *pSlot_Buffer = NULL;
-    uint32_t src_w = *width, src_h = *height;
-
-    if (!cover_slot_active() || src_w == 0 || src_h == 0)
-        return;
-    if ((src_w == COVER_SLOT_WIDTH) && (src_h == COVER_SLOT_HEIGHT))
-        return;
-    if (pSlot_Buffer == NULL)
-        pSlot_Buffer = (uint16_t *)ram_malloc(COVER_SLOT_BYTES);
-
-    uint32_t dst_w = COVER_SLOT_WIDTH;
-    uint32_t dst_h = (src_h * COVER_SLOT_WIDTH) / src_w;
-    if (dst_h > COVER_SLOT_HEIGHT)
-    {
-        dst_h = COVER_SLOT_HEIGHT;
-        dst_w = (src_w * COVER_SLOT_HEIGHT) / src_h;
-    }
-
-    memset(pSlot_Buffer, 0, COVER_SLOT_BYTES);
-
-    uint32_t x0 = (COVER_SLOT_WIDTH - dst_w) / 2;
-    uint32_t y0 = (COVER_SLOT_HEIGHT - dst_h) / 2;
-    for (uint32_t y = 0; y < dst_h; y++)
-    {
-        const uint16_t *src_row = &pCover_Buffer[((y * src_h) / dst_h) * src_w];
-        uint16_t *dst_row = &pSlot_Buffer[(y0 + y) * COVER_SLOT_WIDTH + x0];
-        for (uint32_t x = 0; x < dst_w; x++)
-            dst_row[x] = src_row[(x * src_w) / dst_w];
-    }
-
-    memcpy(pCover_Buffer, pSlot_Buffer, COVER_SLOT_BYTES);
-    *width = COVER_SLOT_WIDTH;
-    *height = COVER_SLOT_HEIGHT;
-}
 
 static bool gui_get_cover_size(retro_emulator_file_t *file, uint32_t *cov_width, uint32_t *cov_height)
 {
     uint32_t jpeg_cov_width = 0, jpeg_cov_height = 0;
 
-    *cov_width = cover_slot_active() ? COVER_SLOT_WIDTH : NOCOVER_WIDTH;
-    *cov_height = cover_slot_active() ? COVER_SLOT_HEIGHT : NOCOVER_HEIGHT;
+    *cov_width = NOCOVER_WIDTH;
+    *cov_height = NOCOVER_HEIGHT;
 
     if (file == NULL)
         return false;
@@ -1039,17 +1240,8 @@ static bool gui_get_cover_size(retro_emulator_file_t *file, uint32_t *cov_width,
     {
         if (JPEG_DecodeGetSize((uint32_t)(file->img_address), &jpeg_cov_width, &jpeg_cov_height) == 0)
         {
-            /* ★ tab: layout always sees the fixed slot, not the native size */
-            if (cover_slot_active())
-            {
-                *cov_width = COVER_SLOT_WIDTH;
-                *cov_height = COVER_SLOT_HEIGHT;
-            }
-            else
-            {
-                *cov_width = jpeg_cov_width;
-                *cov_height = jpeg_cov_height;
-            }
+            *cov_width = jpeg_cov_width;
+            *cov_height = jpeg_cov_height;
             return true;
         }
     }
@@ -1081,16 +1273,10 @@ void gui_draw_coverlight_h(retro_emulator_file_t *file, int cover_position)
     if (file->img_state == IMG_STATE_COVER)
     {
         JPEG_DecodeToBuffer((uint32_t)(file->img_address), (uint32_t)pCover_Buffer, &cover_width, &cover_height, cover_light[cover_position + 2]);
-        cover_slot_apply(&cover_width, &cover_height);
         if (nocover_width > cover_width)
             nocover_width = cover_width;
         if (nocover_height > cover_height)
             nocover_height = cover_height;
-    }
-    else if (cover_slot_active())
-    {
-        cover_width = COVER_SLOT_WIDTH;
-        cover_height = COVER_SLOT_HEIGHT;
     }
     else
     {
@@ -1149,6 +1335,12 @@ void gui_draw_coverlight_h(retro_emulator_file_t *file, int cover_position)
     else
         odroid_display_write_rect(cover_x + COVER_BORDER, cover_y + COVER_BORDER, cover_width, cover_height, cover_width, pCover_Buffer);
 
+#if SD_CARD == 1
+    if (gui_file_flash_cached(file))
+        gui_draw_flash_cache_label(cover_x + COVER_BORDER, cover_y + COVER_BORDER,
+                                   (int)cover_width, (int)cover_height);
+#endif
+
     /* add decoration around the cover art */
     /* current cover */
     if (cover_position == 0)
@@ -1156,38 +1348,12 @@ void gui_draw_coverlight_h(retro_emulator_file_t *file, int cover_position)
         odroid_overlay_draw_rect(cover_x, cover_y, cover_width + 2 * COVER_BORDER, cover_height + 2 * COVER_BORDER, COVER_BORDER, curr_colors->bg_c);
         odroid_overlay_draw_rect(2 + cover_x, 2 + cover_y, cover_width + 8, cover_height + 8, 2, curr_colors->sel_c);
 
-        /* TODO add shadowing */
-        //left side
-        /*
-        uint16_t *pix = lcd_get_active_buffer();
-        int pix_pos=0;
-
-        for ( int xs = cover_x -12 ; xs < cover_x; xs++)
-            for ( int ys = cover_y-6 ; ys < cover_y+cover_height+6; ys++)
-            {
-                pix_pos= ys*GW_LCD_WIDTH + xs;
-                pix[pix_pos] = get_darken_pixel(pix[pix_pos], 100 - 80*(xs - cover_x + 12)/12);                
-            }
-
-         for ( int xs = cover_x+cover_width+2*COVER_BORDER + 12 ; xs < cover_x+cover_width+2*COVER_BORDER; xs--)
-            for ( int ys = cover_y-6 ; ys < cover_y+cover_height+6; ys++)
-            {
-                pix_pos= ys*GW_LCD_WIDTH + xs;
-                pix[pix_pos] = get_darken_pixel(pix[pix_pos], 100 - 80*(xs - cover_x-cover_width-2*COVER_BORDER)/12);                
-            }
-
-            }
-
-        for ( int xs = cover_x ; xs < cover_x+cover_width-12; xs++)
-            for ( int ys = cover_y-6 ; ys < cover_y; ys++)
-            {
-                pix_pos= ys*GW_LCD_WIDTH + xs;
-                pix[pix_pos] = get_darken_pixel(pix[pix_pos], 100 - 80*(ys - cover_y+6)/6);                
-            } 
-*/
-
-        /* add game titleof the current cover art */
+        /* add game title of the current cover art */
+#if SD_CARD == 1
+        gui_format_cached_title(file, str_buffer, 128);
+#else
         snprintf(str_buffer, 128, "%s", file->name);
+#endif
         draw_centered_local_text_line(169,
                                       str_buffer,
                                       0,
@@ -1228,16 +1394,10 @@ void gui_draw_coverlight_v(retro_emulator_file_t *file, int cover_position)
     if (file->img_state == IMG_STATE_COVER)
     {
         JPEG_DecodeToBuffer((uint32_t)(file->img_address), (uint32_t)pCover_Buffer, &cover_width, &cover_height, cover_light3[-cover_position]);
-        cover_slot_apply(&cover_width, &cover_height);
         if (nocover_width > cover_width)
             nocover_width = cover_width;
         if (nocover_height > cover_height)
             nocover_height = cover_height;
-    }
-    else if (cover_slot_active())
-    {
-        cover_width = COVER_SLOT_WIDTH;
-        cover_height = COVER_SLOT_HEIGHT;
     }
     else
     {
@@ -1279,6 +1439,12 @@ void gui_draw_coverlight_v(retro_emulator_file_t *file, int cover_position)
     else
         odroid_display_write_rect(cover_x + COVER_BORDER, cover_y + COVER_BORDER, cover_width, cover_height, cover_width, pCover_Buffer);
 
+#if SD_CARD == 1
+    if (gui_file_flash_cached(file))
+        gui_draw_flash_cache_label(cover_x + COVER_BORDER, cover_y + COVER_BORDER,
+                                   (int)cover_width, (int)cover_height);
+#endif
+
     /* add decoration around the cover art */
     /* current cover */
     if (cover_position == 0)
@@ -1317,11 +1483,6 @@ static bool gui_coverflow_h_load(listbox_item_t *item, retro_emulator_file_t **f
         *height = NOCOVER_HEIGHT;
         return false;
     }
-    if (cover_slot_active())
-    {
-        *width = COVER_SLOT_WIDTH;
-        *height = COVER_SLOT_HEIGHT;
-    }
     return true;
 }
 
@@ -1336,7 +1497,6 @@ static void gui_coverflow_h_card(listbox_item_t *item, int center_x, int center_
     {
         JPEG_DecodeToBuffer((uint32_t)file->img_address, (uint32_t)pCover_Buffer,
                             &jpeg_width, &jpeg_height, 255);
-        cover_slot_apply(&jpeg_width, &jpeg_height);
         src_width = jpeg_width;
         src_height = jpeg_height;
     }
@@ -1369,6 +1529,10 @@ static void gui_coverflow_h_card(listbox_item_t *item, int center_x, int center_
                                       gui_no_cover_text_for_item(item), x0, x0 + draw_width,
                                       selected ? curr_colors->main_c : curr_colors->dis_c,
                                       C_BLACK);
+#if SD_CARD == 1
+        if (gui_file_flash_cached(file))
+            gui_draw_flash_cache_label(x0, y0, (int)draw_width, (int)draw_height);
+#endif
         return;
     }
 
@@ -1391,6 +1555,10 @@ static void gui_coverflow_h_card(listbox_item_t *item, int center_x, int center_
             dst[screen_y * ODROID_SCREEN_WIDTH + screen_x] = pixel;
         }
     }
+#if SD_CARD == 1
+    if (gui_file_flash_cached(file))
+        gui_draw_flash_cache_label(x0, y0, (int)draw_width, (int)draw_height);
+#endif
 }
 
 void gui_draw_coverflow_h(tab_t *tab)
@@ -1447,7 +1615,11 @@ void gui_draw_coverflow_h(tab_t *tab)
         if (rg_rom_list_arg_is_parent(selected->arg))
             snprintf(title, sizeof(title), "%s", selected->text ? selected->text : "");
         else if ((selected_file = gui_item_rom_file(selected)) != NULL)
+#if SD_CARD == 1
+            gui_format_cached_title(selected_file, title, sizeof(title));
+#else
             snprintf(title, sizeof(title), "%s", selected_file->name);
+#endif
         else
             snprintf(title, sizeof(title), "%s", selected->text ? selected->text : "");
         size_t width = i18n_get_text_width(title);
@@ -1541,9 +1713,13 @@ void gui_draw_coverflow_v(tab_t *tab, int start_posx) // ||||||||
         else
         {
             JPEG_DecodeToBuffer((uint32_t)(file->img_address), (uint32_t)pCover_Buffer, &jpeg_cover_width, &jpeg_cover_height, 255);
-            cover_slot_apply(&jpeg_cover_width, &jpeg_cover_height);
             odroid_display_write_rect(start_posx + 3 + (cover_width - jpeg_cover_width) / 2, start_ypos + p_height + 16 + (cover_height - jpeg_cover_height) / 2, jpeg_cover_width, jpeg_cover_height, jpeg_cover_width, pCover_Buffer);
         };
+#if SD_CARD == 1
+        if (gui_file_flash_cached(file))
+            gui_draw_flash_cache_label(start_posx + 3, start_ypos + p_height + 16,
+                                       (int)cover_width, (int)cover_height);
+#endif
     }
     if (p_height)
     {
@@ -1570,8 +1746,7 @@ void gui_draw_coverflow_v(tab_t *tab, int start_posx) // ||||||||
             {
                 //draw the cover
                 JPEG_DecodeToBuffer((uint32_t)(file->img_address), (uint32_t)pCover_Buffer, &jpeg_cover_width, &jpeg_cover_height, 255);
-                cover_slot_apply(&jpeg_cover_width, &jpeg_cover_height);
-                for (int y = 0; y < p_height; y++)
+                    for (int y = 0; y < p_height; y++)
                     for (int x = 0; x < p_width1; x++)
                         dst_img[(start_ypos + p_height + cover_height + 21 + y) * ODROID_SCREEN_WIDTH + start_posx + (cover_width - p_width1) * 3 / 4 + 3 + x] =
                             get_darken_pixel(pCover_Buffer[((r_height - p_height + y) * 8 / 7) * cover_width + x + x / 8], 40 + y * 20 / p_height);
@@ -1604,8 +1779,7 @@ void gui_draw_coverflow_v(tab_t *tab, int start_posx) // ||||||||
                 {
                     //draw the cover
                     JPEG_DecodeToBuffer((uint32_t)(file->img_address), (uint32_t)pCover_Buffer, &jpeg_cover_width, &jpeg_cover_height, 255);
-                    cover_slot_apply(&jpeg_cover_width, &jpeg_cover_height);
-
+        
                     for (int y = 0; y < p_height; y++)
                         for (int x = 0; x < p_width1; x++)
                             dst_img[(start_ypos + 11 + y) * ODROID_SCREEN_WIDTH + start_posx + (cover_width - p_width1) * 3 / 4 + 3 + x] =

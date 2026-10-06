@@ -15,6 +15,9 @@ void sdcard_init_ospi1();
 void sdcard_deinit_ospi1();
 void switch_ospi_gpio(uint8_t ToOspi);
 
+/* Close every open FatFS FILE (syscalls file_table) before unmount. */
+void file_table_close_all(void);
+
 /* Optional: called from HW-SPI DMA wait loops so a homebrew (video) can keep
  * feeding its PCM ring while FatFs blocks on a sector. Soft-SPI ignores this.
  * Callback MUST NOT call FatFs / fread / f_* — not reentrant. */

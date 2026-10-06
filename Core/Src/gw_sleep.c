@@ -119,17 +119,17 @@ void GW_EnterDeepSleep(bool standby, sleep_pre_wakeup_callback_t pre_wakeup_call
   // Stop SAI DMA (audio)
   audio_stop_playing();
 
+#if SD_CARD == 1
+  /* Close/sync the volume before cutting LCD rails / SD VCC. */
+  sdcard_deinit();
+#endif
+
   // Deinit the LCD, save power.
   lcd_backlight_off();
   lcd_deinit(&hspi2);
 
   // Enable wakup by PIN1, the power button
   HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1_LOW);
-
-#if SD_CARD == 1
-  // Unmount Fs and Deinit SD Card if needed
-  sdcard_deinit();
-#endif
 
   // Delay 500ms to give us a chance to attach a debugger in case
   // we end up in a suspend-loop.

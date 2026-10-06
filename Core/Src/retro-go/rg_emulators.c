@@ -731,11 +731,41 @@ static void emulator_scan_cdrom_folder(retro_emulator_t *emu, const char *folder
 }
 #endif /* SD_CARD == 1 */
 
+/* True if `dir_path` contains at least one probeable GWHB .bin (any depth). */
+static int homebrew_find_gwhb_cb(const rg_scandir_t *entry, void *arg)
+{
+    bool *found = (bool *)arg;
+
+    if (*found)
+        return RG_SCANDIR_STOP;
+    if (entry->basename[0] == '.')
+        return RG_SCANDIR_SKIP;
+    if (entry->is_file) {
+        const char *ext = rg_extension(entry->basename);
+        if (ext && strcasecmp(ext, "bin") == 0) {
+            gwhb_meta_t hb;
+            if (gwhb_probe(entry->path, &hb, NULL)) {
+                *found = true;
+                return RG_SCANDIR_STOP;
+            }
+        }
+    }
+    return RG_SCANDIR_CONTINUE;
+}
+
+static bool homebrew_dir_has_gwhb(const char *dir_path)
+{
+    bool found = false;
+    rg_storage_scandir(dir_path, homebrew_find_gwhb_cb, &found, RG_SCANDIR_RECURSIVE);
+    return found;
+}
+
 static int scan_folder_cb(const rg_scandir_t *entry, void *arg)
 {
     retro_emulator_t *emu = (retro_emulator_t *)arg;
     uint8_t is_valid = false;
     char ext_buf[32];
+    const bool is_homebrew = emu->dirname[0] && strcmp(emu->dirname, "homebrew") == 0;
 
     if (entry->basename[0] == '.')
         return RG_SCANDIR_SKIP;
@@ -751,7 +781,11 @@ static int scan_folder_cb(const rg_scandir_t *entry, void *arg)
     }
     else if (entry->is_dir)
     {
-        is_valid = true;
+        /* Homebrew: hide folders that only hold data / non-GWHB files. */
+        if (is_homebrew)
+            is_valid = homebrew_dir_has_gwhb(entry->path);
+        else
+            is_valid = true;
     }
 
     if (!is_valid)
@@ -1675,9 +1709,10 @@ static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_p
     }
 }
 
-/* Order-independent fingerprint of probeable /cores/*.bin (path + systems
- * count). Catches add/remove/replace even when the system-tab count is
- * unchanged (e.g. delete one core and add another). */
+/* Order-independent fingerprint of probeable /cores/*.bin. Includes path,
+ * systems_count, file size/mtime, and each system's logo blob ranges so an
+ * in-place SD update of header/pad art (same path, same systems_count) still
+ * mismatches after STOP2 wake and triggers a clean reboot. */
 static uint32_t cores_set_fingerprint(int *out_systems)
 {
     gnw_core_meta_t meta;
@@ -1707,6 +1742,23 @@ static uint32_t cores_set_fingerprint(int *out_systems)
 
         uint32_t h = crc32_le(0, (const unsigned char *)path, (unsigned int)strlen(path));
         h = crc32_le(h, (const unsigned char *)&meta.systems_count, sizeof(meta.systems_count));
+
+        rg_stat_t st = rg_storage_stat(path);
+        if (st.exists) {
+            uint32_t sz = (uint32_t)st.size;
+            uint32_t mt = (uint32_t)st.mtime;
+            h = crc32_le(h, (const unsigned char *)&sz, sizeof(sz));
+            h = crc32_le(h, (const unsigned char *)&mt, sizeof(mt));
+        }
+
+        for (uint32_t i = 0; i < meta.systems_count; i++) {
+            const gnw_core_system_t *sys = &meta.systems[i];
+            h = crc32_le(h, (const unsigned char *)&sys->pad_logo_offset, sizeof(sys->pad_logo_offset));
+            h = crc32_le(h, (const unsigned char *)&sys->pad_logo_size, sizeof(sys->pad_logo_size));
+            h = crc32_le(h, (const unsigned char *)&sys->header_logo_offset, sizeof(sys->header_logo_offset));
+            h = crc32_le(h, (const unsigned char *)&sys->header_logo_size, sizeof(sys->header_logo_size));
+        }
+
         fp ^= h;
         total += (int)meta.systems_count;
         files++;
@@ -1719,12 +1771,21 @@ static uint32_t cores_set_fingerprint(int *out_systems)
     return fp;
 }
 
+static int core_bin_name_cmp(const void *a, const void *b)
+{
+    return strcasecmp((const char *)a, (const char *)b);
+}
+
+/* Register /cores/*.bin in alphabetical filename order. Directory
+ * enumeration order is filesystem-dependent (often create/FAT order). */
 static void emulators_scan_cores(void)
 {
     gnw_core_meta_t meta;
     char path[128];
     char name[CORES_DIR_NAME_MAX];
     bool is_dir;
+    int count = 0;
+    int i;
 
     if (!cores_dir_open())
         return;
@@ -1735,13 +1796,43 @@ static void emulators_scan_cores(void)
         const char *ext = get_extension(name);
         if (!ext || strcasecmp(ext, "bin") != 0)
             continue;
+        count++;
+    }
+    cores_dir_close();
 
-        snprintf(path, sizeof(path), "/cores/%s", name);
+    if (count == 0)
+        return;
+
+    /* One CORES_DIR_NAME_MAX row per .bin; lives in the DTCM bump for the
+     * duration of this scan (freed on the next dtc_init). */
+    char (*names)[CORES_DIR_NAME_MAX] =
+        (char (*)[CORES_DIR_NAME_MAX])dtc_calloc((size_t)count, CORES_DIR_NAME_MAX);
+    if (!names)
+        return;
+
+    if (!cores_dir_open())
+        return;
+
+    i = 0;
+    while (i < count && cores_dir_next(name, sizeof(name), &is_dir)) {
+        if (is_dir)
+            continue;
+        const char *ext = get_extension(name);
+        if (!ext || strcasecmp(ext, "bin") != 0)
+            continue;
+        snprintf(names[i], CORES_DIR_NAME_MAX, "%s", name);
+        i++;
+    }
+    cores_dir_close();
+    count = i;
+
+    qsort(names, (size_t)count, CORES_DIR_NAME_MAX, core_bin_name_cmp);
+
+    for (i = 0; i < count; i++) {
+        snprintf(path, sizeof(path), "/cores/%s", names[i]);
         if (gnw_core_probe(path, &meta, NULL))
             add_emulator_dynamic(&meta, path);
     }
-
-    cores_dir_close();
 }
 
 

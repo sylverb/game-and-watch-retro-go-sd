@@ -74,6 +74,7 @@ const lang_t lang_zh_cn LANG_DATA = {
     .s_Theme_CoverLightV = "海报纵向",
     .s_Theme_CoverLightH = "海报横向",
     .s_Caching_Game = "正在缓存游戏",
+    .s_Caching_Cancel = "B: 取消",
     .s_Loading_Banner = "加载中...",
     .s_Pause_Banner = "暂停",
     //=====================================================================

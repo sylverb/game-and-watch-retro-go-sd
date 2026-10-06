@@ -106,20 +106,6 @@ bool rg_install_check(void)
     if (install_load(&disk) && install_matches(&disk, &want))
         return false;
 
-    /* Either this card has never seen this firmware or it has seen a different
-     * one. The ROM cache in external flash was filled by whatever was here
-     * before; its metadata may still pass gw_flash_alloc's own checks (same
-     * device, same base) while pointing into flash the new firmware lays out
-     * differently. Drop it and let it refill — it is a cache, so the only cost
-     * is re-caching the next game.
-     *
-     * The firmware does this rather than the installer because an installer
-     * cannot always reach the card: a browser without the File System Access
-     * API cannot delete a file, and a device flashed by gnwmanager or `make
-     * flash` was never touched by an installer at all. */
-    printf("install: firmware changed, dropping %s\n", RG_INSTALL_FLASH_CACHE);
-    remove(RG_INSTALL_FLASH_CACHE);
-
     install_write(&want);
     return true;
 }

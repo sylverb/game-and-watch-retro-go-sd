@@ -19,7 +19,11 @@ typedef struct {
 typedef char gw_flash_file_metadata_size_check[
     sizeof(gw_flash_file_metadata_t) == 16 ? 1 : -1];
 
-typedef void (*file_progress_cb_t)(uint32_t total_size, uint32_t total_processed, uint8_t progress);
+/* Progress callbacks return true to keep going, false to abort the write.
+ * An aborted write does not commit metadata (cache miss next time).
+ * Named apart from rg_storage.h's void file_progress_cb_t — both headers
+ * are often included together. */
+typedef bool (*flash_file_progress_cb_t)(uint32_t total_size, uint32_t total_processed, uint8_t progress);
 
 /* Called on each buffer of file data on its way to the flash, after the file's
  * final address is known but before anything is programmed. It lets a caller
@@ -57,7 +61,21 @@ void flash_alloc_forget_live_files(void);
  * erase-block aligned when programmed). */
 uint32_t flash_cache_usable_size(void);
 
-uint8_t *store_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap, file_progress_cb_t progress_cb);
+uint8_t *store_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap, flash_file_progress_cb_t progress_cb);
+
+/* True if file_path (+ mtime + size) is already in the flash ROM cache.
+ * Probe only — does not mark the entry live and does not write. */
+bool flash_file_is_cached(const char *file_path);
+
+/* True if a derived-data blob key (e.g. "neogeo/mslug/p2") is in the cache.
+ * Same probe-only contract as flash_file_is_cached(). */
+bool flash_data_is_cached(const char *key);
+
+/* Hold the on-disk index open across several flash_*_is_cached() probes
+ * (e.g. idle scan of on-screen games). Pair with flash_cache_lookup_end().
+ * Nested sessions are not supported. */
+void flash_cache_lookup_begin(void);
+void flash_cache_lookup_end(void);
 
 /* Derived-data blobs: same flash cache, RAM source, caller-chosen key
  * string (make it content-addressed). lookup probes the cache without
@@ -108,7 +126,7 @@ void store_data_abort(flash_stream_t *st);
  * callback does not run — the copy in flash was already relocated, to the same
  * address, by whichever boot first stored it. */
 uint8_t *store_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
-                                      file_progress_cb_t progress_cb, flash_relocate_cb_t relocate_cb);
+                                      flash_file_progress_cb_t progress_cb, flash_relocate_cb_t relocate_cb);
 
 /* odroid_overlay_cache_file_in_flash() with a relocation pass. Lives in
  * Core/Src/porting/odroid_overlay.c next to its sibling (it draws the "Caching
@@ -116,3 +134,9 @@ uint8_t *store_file_in_flash_relocate(const char *file_path, uint32_t *file_size
  * flash-allocator API stays next to the rest of the flash helpers. */
 uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
                                                      bool byte_swap, flash_relocate_cb_t relocate_cb);
+
+/* Cancellable variant — B aborts the write (NULL) and hot-boots the launcher. */
+uint8_t *odroid_overlay_cache_file_in_flash_relocate_cancellable(const char *file_path,
+                                                                 uint32_t *file_size_p,
+                                                                 bool byte_swap,
+                                                                 flash_relocate_cb_t relocate_cb);

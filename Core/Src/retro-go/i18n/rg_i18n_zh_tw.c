@@ -74,6 +74,7 @@ const lang_t lang_zh_tw LANG_DATA = {
     .s_Theme_CoverLightV = "海報垂直",
     .s_Theme_CoverLightH = "海報水平",
     .s_Caching_Game = "快取遊戲中",
+    .s_Caching_Cancel = "B: 取消",
     .s_Loading_Banner = "載入中...",
     .s_Pause_Banner = "暫停",
     //=====================================================================

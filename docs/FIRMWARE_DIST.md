@@ -7,12 +7,14 @@ This is the contract. [RELEASE_2_0.md](RELEASE_2_0.md) is the argument behind
 it — why fields exist, and which ones were deliberately left out. Read this one
 to implement an installer; read that one to understand a decision.
 
-Cores and homebrew are **not** part of a firmware release. They are separate
-projects publishing under the
-[GWRG distribution spec](https://github.com/slash-proc/gwrg-dist-spec), bound
-to this firmware only by the firmware ABI. A firmware release carries the
-intflash image and the static content the launcher itself needs: fonts,
-language blobs, and the boot logo.
+Cores are **not** part of a firmware release (they are separate projects under
+the [GWRG distribution spec](https://github.com/slash-proc/gwrg-dist-spec)).
+One exception is bundled at release time: `/homebrews/installer.bin` from
+[installer-retro-go-sd](https://github.com/sylverb/installer-retro-go-sd), so a
+fresh SD update can install other cores from the device. Everything else under
+`/homebrews` and `/cores` still ships from those projects. A firmware release
+otherwise carries the intflash image and the static content the launcher itself
+needs: fonts, language blobs, and the boot logo.
 
 That is why this format is a sibling of the GWRG spec rather than a `kind`
 inside it. The spec describes installing files into a directory. Firmware is

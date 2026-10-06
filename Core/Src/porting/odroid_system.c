@@ -458,6 +458,15 @@ IRAM_ATTR void odroid_system_tick(uint skippedFrame, uint fullFrame, uint busyTi
     statistics.lastTickTime = get_elapsed_time();
 }
 
+void odroid_system_abort_to_launcher(void)
+{
+    /* Cores often register sram_save/shutdown in emu_init() before the ROM
+     * is cached/loaded. Cancel mid-cache must not invoke those handlers. */
+    currentApp.handlers.sram_save = NULL;
+    currentApp.handlers.shutdown = NULL;
+    odroid_system_switch_app(0);
+}
+
 void odroid_system_switch_app(int app)
 {
     printf("%s: Switching to app %d.\n", __FUNCTION__, app);

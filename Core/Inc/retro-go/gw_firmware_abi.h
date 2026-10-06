@@ -667,6 +667,20 @@ typedef struct {
      * ================================================================ */
     uint32_t (*flash_cache_usable_size)(void);
 
+    /* ================================================================
+     * v2 append: cancellable progress / flash-cache helpers.
+     * Original draw_progress_bar + cache_file_in_flash stay non-cancellable.
+     * NULL on older firmware — cores must NULL-check.
+     * ================================================================ */
+    bool     (*odroid_overlay_progress_poll_cancel)(void);
+    bool     (*odroid_overlay_draw_progress_bar_cancellable)(const char *header, uint8_t progress);
+    uint8_t *(*odroid_overlay_cache_file_in_flash_cancellable)(const char *file_path,
+                                                               uint32_t *file_size_p,
+                                                               bool byte_swap);
+    uint8_t *(*odroid_overlay_cache_file_in_flash_relocate_cancellable)(
+        const char *file_path, uint32_t *file_size_p, bool byte_swap,
+        gw_flash_relocate_cb_t relocate_cb);
+
 } gw_firmware_abi_t;
 
 /* The firmware publishes this instance at GW_FIRMWARE_ABI_ADDRESS via the

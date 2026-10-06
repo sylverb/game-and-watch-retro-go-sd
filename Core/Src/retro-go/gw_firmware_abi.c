@@ -679,4 +679,11 @@ const gw_firmware_abi_t g_firmware_abi = {
 #if SD_CARD == 1
     .flash_cache_usable_size     = flash_cache_usable_size,
 #endif
+    .odroid_overlay_progress_poll_cancel = odroid_overlay_progress_poll_cancel,
+    .odroid_overlay_draw_progress_bar_cancellable =
+        odroid_overlay_draw_progress_bar_cancellable,
+    .odroid_overlay_cache_file_in_flash_cancellable =
+        odroid_overlay_cache_file_in_flash_cancellable,
+    .odroid_overlay_cache_file_in_flash_relocate_cancellable =
+        odroid_overlay_cache_file_in_flash_relocate_cancellable,
 };

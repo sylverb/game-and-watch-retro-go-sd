@@ -16,6 +16,7 @@
 #include "gui.h"
 #include "error_screens.h"
 #include "ff.h"
+#include "diskio.h"
 #include "gw_sdcard.h"
 
 bool fs_mounted = false;
@@ -111,6 +112,12 @@ void sdcard_init(void) {
 
 void sdcard_deinit(void) {
     if (fs_mounted) {
+      /* Close any FILE still held by the launcher/cores, then wait for the
+       * card to finish programming before we tear the bus / cut VCC.
+       * Skipping this left FatFs' tiny shared window dirty across sleep
+       * and hot boot — intermittent FAT corruption on the next mount. */
+      file_table_close_all();
+      disk_ioctl(0, CTRL_SYNC, 0);
       f_unmount("");
       fs_mounted = false;
     }

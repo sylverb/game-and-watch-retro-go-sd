@@ -349,12 +349,13 @@ static bool circular_flash_write(const char *file_path,
                                  uint32_t *data_size,
                                  uint32_t *flash_address_out,
                                  bool byte_swap,
-                                 file_progress_cb_t progress_cb,
+                                 flash_file_progress_cb_t progress_cb,
                                  flash_relocate_cb_t relocate_cb)
 {
     uint8_t buffer[16 * 1024];
     uint32_t total_bytes_processed = 0;
     uint8_t progress = 0;
+    bool cancelled = false;
 
     FILE *file = fopen(file_path, "rb");
     if (!file)
@@ -367,7 +368,10 @@ static bool circular_flash_write(const char *file_path,
     }
 
     if (progress_cb) {
-        progress_cb(*data_size, 0, 0);
+        if (!progress_cb(*data_size, 0, 0)) {
+            fclose(file);
+            return false;
+        }
     }
 
     uint32_t block_size = OSPI_GetSmallestEraseSize();
@@ -414,7 +418,15 @@ static bool circular_flash_write(const char *file_path,
         while (erase_addr < address_in_flash + want && erase_left > 0) {
             OSPI_Erase(&erase_addr, &erase_left, true);
             wdog_refresh();
+            /* Erase of a 64KB block can take long enough to miss a short B
+             * tap if we only poll after each 16KB program. */
+            if (progress_cb && !progress_cb(*data_size, total_bytes_processed, progress)) {
+                cancelled = true;
+                break;
+            }
         }
+        if (cancelled)
+            break;
 
         size_t bytes_read = fread(buffer, 1, want, file);
         if (bytes_read == 0)
@@ -462,7 +474,10 @@ static bool circular_flash_write(const char *file_path,
             if (pct > 100)
                 pct = 100;
             progress = (uint8_t)pct;
-            progress_cb(total, done, progress);
+            if (!progress_cb(total, done, progress)) {
+                cancelled = true;
+                break;
+            }
         }
 
         if (bytes_read < want) {
@@ -472,6 +487,16 @@ static bool circular_flash_write(const char *file_path,
 
     OSPI_EnableMemoryMappedMode();
     fclose(file);
+
+    if (cancelled) {
+        /* Do not commit a partial file. Skip the whole reserved erase window
+         * so the next write does not start inside half-programmed flash. */
+        flash_write_pointer = old_flash_write_pointer + erase_size_total;
+        invalidate_overwritten_files(old_flash_write_pointer, erase_size_total);
+        update_flash_pointer(flash_write_pointer);
+        printf("flash_alloc: cache of %s cancelled\n", file_path);
+        return false;
+    }
 
     /* The next file must start on an erase-block boundary (the old loop
      * advanced in whole blocks; we advance by real bytes now). */
@@ -580,8 +605,14 @@ void store_data_abort(flash_stream_t *st)
     if (!st->active)
         return;
     st->active = false;
-    free(metadata);
-    metadata = NULL;
+    /* Skip the reserved erase window; do not commit a partial blob. */
+    if (metadata) {
+        flash_write_pointer = st->flash_address + st->erase_size_total;
+        invalidate_overwritten_files(st->flash_address, st->erase_size_total);
+        update_flash_pointer(flash_write_pointer);
+        free(metadata);
+        metadata = NULL;
+    }
 }
 
 const uint8_t *store_data_finish(flash_stream_t *st)
@@ -740,13 +771,69 @@ void flash_alloc_reset()
     remove(METADATA_FILE);
 }
 
-uint8_t *store_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap, file_progress_cb_t progress_cb)
+/* When true, flash_file_is_cached() reuses the already-loaded index instead
+ * of fopen/fclose per probe (idle scan of on-screen games). */
+static bool lookup_session;
+
+void flash_cache_lookup_begin(void)
+{
+    initialize_metadata();
+    initialize_flash_pointer();
+    lookup_session = true;
+}
+
+void flash_cache_lookup_end(void)
+{
+    if (metadata) {
+        free(metadata);
+        metadata = NULL;
+    }
+    lookup_session = false;
+}
+
+static bool flash_crc_is_cached(uint32_t key_crc)
+{
+    bool owned = !lookup_session;
+    if (owned) {
+        initialize_metadata();
+        initialize_flash_pointer();
+    } else if (metadata == NULL) {
+        initialize_metadata();
+        initialize_flash_pointer();
+    }
+
+    uint32_t flash_address = 0;
+    uint32_t file_size = 0;
+    bool hit = is_file_in_flash(key_crc, &flash_address, &file_size);
+
+    if (owned) {
+        free(metadata);
+        metadata = NULL;
+    }
+    return hit;
+}
+
+bool flash_file_is_cached(const char *file_path)
+{
+    if (!file_path || !file_path[0])
+        return false;
+    return flash_crc_is_cached(compute_file_crc32(file_path));
+}
+
+bool flash_data_is_cached(const char *key)
+{
+    if (!key || !key[0])
+        return false;
+    return flash_crc_is_cached(compute_key_crc32(key));
+}
+
+uint8_t *store_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap, flash_file_progress_cb_t progress_cb)
 {
     return store_file_in_flash_relocate(file_path, file_size_p, byte_swap, progress_cb, NULL);
 }
 
 uint8_t *store_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
-                                      file_progress_cb_t progress_cb, flash_relocate_cb_t relocate_cb)
+                                      flash_file_progress_cb_t progress_cb, flash_relocate_cb_t relocate_cb)
 {
     initialize_metadata();
     initialize_flash_pointer();

@@ -37,6 +37,19 @@ void init_file_table() {
     }
 }
 
+/* Flush+close every still-open FIL before unmount / SD VCC cut. Sleep and
+ * hot-boot used to f_unmount with FILE handles still live, leaving FatFs'
+ * shared tiny window (FF_FS_TINY) dirty and tearing the FAT on power-down. */
+void file_table_close_all(void)
+{
+    for (int i = 0; i < MAX_OPEN_FILES; i++) {
+        if (!file_table[i].is_open)
+            continue;
+        f_close(&file_table[i].file); /* f_close → f_sync → CTRL_SYNC */
+        file_table[i].is_open = 0;
+    }
+}
+
 #define FATFS_FD_OFFSET 3 // Prevent collision with STDOUT_FILENO, ...
 int find_free_slot() {
     for (int i = 0; i < MAX_OPEN_FILES; i++) {

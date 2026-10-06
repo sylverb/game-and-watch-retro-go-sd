@@ -73,6 +73,7 @@ const lang_t lang_it_it LANG_DATA = {
     .s_Theme_CoverLightV = "Mini Vert",
     .s_Theme_CoverLightH = "Mini Oriz",
     .s_Caching_Game = "Caching del gioco",
+    .s_Caching_Cancel = "B: Annulla",
     .s_Loading_Banner = "Loading",
     .s_Pause_Banner = "PAUSE",
     //=====================================================================

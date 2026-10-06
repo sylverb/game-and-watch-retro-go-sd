@@ -58,6 +58,7 @@ typedef struct
     const char *s_Theme_CoverLightV;
     const char *s_Theme_CoverLightH;
     const char *s_Caching_Game;
+    const char *s_Caching_Cancel;
     const char *s_Loading_Banner;
     const char *s_Pause_Banner;
     //=====================================================================

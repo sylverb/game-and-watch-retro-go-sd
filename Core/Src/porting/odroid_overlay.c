@@ -1791,68 +1791,111 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     return r;
 }
 
-void odroid_overlay_draw_progress_bar(const char *header, uint8_t progress)
+/* Shared cancel latch for cancellable progress UIs only. */
+static bool s_prog_b_armed = false;
+static bool s_prog_b_latched = false;
+
+bool odroid_overlay_progress_poll_cancel(void)
 {
-    // Replace defines with local variables
+    odroid_gamepad_state_t joy;
+    odroid_input_read_gamepad(&joy);
+    if (!s_prog_b_armed) {
+        if (!joy.values[ODROID_INPUT_B])
+            s_prog_b_armed = true;
+    } else if (joy.values[ODROID_INPUT_B]) {
+        s_prog_b_latched = true;
+    }
+    return s_prog_b_latched;
+}
+
+static void draw_progress_bar_ex(const char *header, uint8_t progress, bool with_cancel_hint)
+{
+    /* Launcher chrome stays on screen under the modal bar during a long
+     * flash-cache write; refresh clock/battery so they do not freeze. */
+    gui_draw_status(gui_get_current_tab());
+
     int progress_bar_height = 12;
     int border_thickness = 2;
     int padding = 6;
     int box_width = 250;
     int box_padding = 6;
-
-    // Compute dynamic dimensions
     int text_height = i18n_get_text_height();
     int header_height = header ? (text_height + padding) : 0;
-    int content_height = header_height + progress_bar_height + 2 * padding;
+    const char *hint = NULL;
+    int footer_height = 0;
 
-    // Center the box on the screen
+    if (with_cancel_hint) {
+        hint = (curr_lang && curr_lang->s_Caching_Cancel)
+                   ? curr_lang->s_Caching_Cancel
+                   : "B: Cancel";
+        footer_height = text_height + padding;
+    }
+
+    int bar_section_height = progress_bar_height + 2 * padding;
+    int total_height = header_height + bar_section_height + footer_height;
+
     int box_x = (ODROID_SCREEN_WIDTH - box_width) / 2;
-    int box_y = (ODROID_SCREEN_HEIGHT - content_height) / 2;
-
-    // Compute the width of the progress bar
+    int box_y = (ODROID_SCREEN_HEIGHT - total_height) / 2;
     int bar_width = box_width - 2 * padding;
 
-    // Colors
     int box_color = curr_colors->bg_c;
     int border_color = curr_colors->dis_c;
     int progress_color = curr_colors->sel_c;
     int header_color = curr_colors->sel_c;
     int header_bg_color = curr_colors->main_c;
 
-    // Draw header if provided
     int y_offset = box_y;
-    if (header)
-    {
-        // Draw header background and border
-        odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness, 
-                                 box_width + 2 * border_thickness, header_height + 2 * border_thickness, 
+    if (header) {
+        odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness,
+                                 box_width + 2 * border_thickness, header_height + 2 * border_thickness,
                                  border_thickness, border_color);
-
         odroid_overlay_draw_fill_rect(box_x, y_offset, box_width, header_height, header_bg_color);
-
-        // Draw header text
-        int text_x = box_x + box_padding;
-        int text_y = y_offset + (header_height - text_height) / 2;
-        i18n_draw_text_line(text_x, text_y, box_width - 2 * box_padding, header, header_color, header_bg_color, 0);
-
+        i18n_draw_text_line(box_x + box_padding,
+                            y_offset + (header_height - text_height) / 2,
+                            box_width - 2 * box_padding, header,
+                            header_color, header_bg_color, 0);
         y_offset += header_height;
     }
 
-    // Draw box background and border
-    odroid_overlay_draw_fill_rect(box_x, y_offset, box_width, content_height, box_color);
-    odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness, 
-                             box_width + 2 * border_thickness, content_height + 2 * border_thickness, 
+    odroid_overlay_draw_fill_rect(box_x, y_offset, box_width, bar_section_height, box_color);
+    odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness,
+                             box_width + 2 * border_thickness, bar_section_height + 2 * border_thickness,
                              border_thickness, border_color);
 
-    // Draw progress bar border
     int bar_x = box_x + padding;
-    int bar_y = y_offset + (content_height - progress_bar_height) / 2;
+    int bar_y = y_offset + (bar_section_height - progress_bar_height) / 2;
     odroid_overlay_draw_rect(bar_x, bar_y, bar_width, progress_bar_height, border_thickness, border_color);
-
-    // Draw filled portion of the progress bar
     int filled_width = (progress * (bar_width - 2 * border_thickness)) / 100;
-    odroid_overlay_draw_fill_rect(bar_x + border_thickness, bar_y + border_thickness, 
+    odroid_overlay_draw_fill_rect(bar_x + border_thickness, bar_y + border_thickness,
                                   filled_width, progress_bar_height - 2 * border_thickness, progress_color);
+    y_offset += bar_section_height;
+
+    if (with_cancel_hint) {
+        odroid_overlay_draw_fill_rect(box_x, y_offset, box_width, footer_height, header_bg_color);
+        odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness,
+                                 box_width + 2 * border_thickness, footer_height + 2 * border_thickness,
+                                 border_thickness, border_color);
+        i18n_draw_text_line(box_x + box_padding,
+                            y_offset + (footer_height - text_height) / 2,
+                            box_width - 2 * box_padding, hint,
+                            header_color, header_bg_color, 0);
+    }
+}
+
+void odroid_overlay_draw_progress_bar(const char *header, uint8_t progress)
+{
+    draw_progress_bar_ex(header, progress, false);
+}
+
+bool odroid_overlay_draw_progress_bar_cancellable(const char *header, uint8_t progress)
+{
+    if (progress == 0) {
+        s_prog_b_latched = false;
+        s_prog_b_armed = false;
+    }
+    bool cancelled = odroid_overlay_progress_poll_cancel();
+    draw_progress_bar_ex(header, progress, true);
+    return !cancelled;
 }
 
 uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap)
@@ -1860,14 +1903,15 @@ uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *fil
     return odroid_overlay_cache_file_in_flash_relocate(file_path, file_size_p, byte_swap, NULL);
 }
 
-uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
-                                                     bool byte_swap, flash_relocate_cb_t relocate_cb)
+uint8_t *odroid_overlay_cache_file_in_flash_cancellable(const char *file_path, uint32_t *file_size_p,
+                                                        bool byte_swap)
 {
+    return odroid_overlay_cache_file_in_flash_relocate_cancellable(file_path, file_size_p, byte_swap, NULL);
+}
+
 #if SD_CARD == 0
-    (void)byte_swap;
-    /* FrogFS maps the file where it already sits in the firmware image, so there
-     * is no copy to relocate. Callers that need one must not use this build. */
-    (void)relocate_cb;
+static uint8_t *cache_file_frogfs(const char *file_path, uint32_t *file_size_p)
+{
     const uint8_t *data = NULL;
     uint32_t file_size = 0;
 
@@ -1882,28 +1926,72 @@ uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint
         *file_size_p = file_size;
 
     return (uint8_t *)data;
+}
+#endif
+
+uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
+                                                     bool byte_swap, flash_relocate_cb_t relocate_cb)
+{
+#if SD_CARD == 0
+    (void)byte_swap;
+    (void)relocate_cb;
+    return cache_file_frogfs(file_path, file_size_p);
 #else
-    void progress_cb(uint32_t total_size, uint32_t total_processed, uint8_t progress)
+    bool progress_cb(uint32_t total_size, uint32_t total_processed, uint8_t progress)
     {
         (void)total_size;
         (void)total_processed;
 
-        /* Wait out the previous VBLANK reload — skipping the update (the old
-         * `if (lcd_is_swap_pending()) return`) left one buffer with the
-         * progress UI and the other with the pre-load frame, so consecutive
-         * swaps flickered between them.
-         * lcd_sleep_while_swap_pending() is timed out in gw_lcd.c so a stuck
-         * LTDC SRCR after overclock cannot freeze this bar forever. */
         lcd_sleep_while_swap_pending();
-
         odroid_overlay_draw_progress_bar(curr_lang->s_Caching_Game, progress);
-        /* Keep both framebuffers identical so the next swap cannot reveal the
-         * pre-cache screen (or a stale progress percentage). */
         lcd_sync();
         lcd_swap();
+        return true;
     }
 
     return store_file_in_flash_relocate(file_path, file_size_p, byte_swap, progress_cb, relocate_cb);
+#endif
+}
+
+uint8_t *odroid_overlay_cache_file_in_flash_relocate_cancellable(const char *file_path,
+                                                                 uint32_t *file_size_p,
+                                                                 bool byte_swap,
+                                                                 flash_relocate_cb_t relocate_cb)
+{
+#if SD_CARD == 0
+    (void)byte_swap;
+    (void)relocate_cb;
+    return cache_file_frogfs(file_path, file_size_p);
+#else
+    bool cancelled = false;
+
+    bool progress_cb(uint32_t total_size, uint32_t total_processed, uint8_t progress)
+    {
+        (void)total_size;
+        (void)total_processed;
+
+        if (odroid_overlay_progress_poll_cancel()) {
+            cancelled = true;
+            return false;
+        }
+
+        lcd_sleep_while_swap_pending();
+
+        if (!odroid_overlay_draw_progress_bar_cancellable(curr_lang->s_Caching_Game, progress)) {
+            cancelled = true;
+            return false;
+        }
+
+        lcd_sync();
+        lcd_swap();
+        return true;
+    }
+
+    uint8_t *result = store_file_in_flash_relocate(file_path, file_size_p, byte_swap,
+                                                   progress_cb, relocate_cb);
+    if (cancelled)
+        odroid_system_abort_to_launcher();
+    return result;
 #endif
 }
 
