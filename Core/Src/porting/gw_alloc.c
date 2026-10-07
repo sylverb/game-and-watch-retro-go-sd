@@ -26,10 +26,33 @@ static size_t ahb_usable(size_t raw)
     return (raw > AHB_MALLOC_OVERHEAD) ? (raw - AHB_MALLOC_OVERHEAD) : 0;
 }
 
+/* The free chunk that ends exactly at heap_end, if any. newlib-nano keeps
+ * its free list in address order, so it can only be the last one. */
+static struct nano_malloc_chunk *top_free_chunk(struct nano_malloc_chunk **prev_out)
+{
+    struct nano_malloc_chunk *prev = NULL, *p = __malloc_free_list;
+    if (!p || !heap_end)
+        return NULL;
+    while (p->next) {
+        prev = p;
+        p = p->next;
+    }
+    if ((char *)p + p->size != heap_end)
+        return NULL;
+    if (prev_out)
+        *prev_out = prev;
+    return p;
+}
+
 size_t ahb_get_free_size(void)
 {
     char *cur = heap_end ? heap_end : (char *)&_heap_start;
     char *lim = (char *)&_heap_end;
+    /* A free chunk at the top of the heap joins the unused space above it:
+     * _sbrk below hands both out as one block, so count them as one. */
+    struct nano_malloc_chunk *top = top_free_chunk(NULL);
+    if (top)
+        cur = (char *)top;
     size_t largest = (cur < lim) ? ahb_usable((size_t)(lim - cur)) : 0;
 
     for (struct nano_malloc_chunk *p = __malloc_free_list; p; p = p->next) {
@@ -47,6 +70,25 @@ _sbrk (int incr)
 
     if (heap_end == 0)
         heap_end = (char *) &_heap_start;
+
+    /* newlib-nano asks for more heap only when no free chunk fits, and it
+     * merges a free chunk at the top of the heap with new space only when
+     * sbrk FAILS. Otherwise the chunk stays behind as a hole below the new
+     * block for the rest of the session: freed temporaries (the flash-cache
+     * index, stdio buffers) cut the largest free block by 5-7K on a game's
+     * first launch. So absorb it here: take it off the free list and grow
+     * from its start -- the caller's block then begins where the chunk was. */
+    if (incr > 0) {
+        struct nano_malloc_chunk *prev = NULL;
+        struct nano_malloc_chunk *top = top_free_chunk(&prev);
+        if (top) {
+            if (prev)
+                prev->next = NULL;
+            else
+                __malloc_free_list = NULL;
+            heap_end = (char *)top;
+        }
+    }
 
     if ((heap_end + incr) >= (char *)(&_heap_end)) {
         printf("HEAP OOM: need=%d used=%d/%d\n",
