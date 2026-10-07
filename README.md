@@ -98,14 +98,15 @@ If you prefer professional installation, contact:
 ### Updating Retro-Go-SD
 
 The GitHub release page ships a single download: **`retro-go_update.bin`**
-(bank-2 updater plus `/homebrews/installer.bin`). Bank-specific archives
+(bank-2 updater plus `/homebrews/installer.bin`). A lean bank-2 archive
 (without the installer) and debug ELFs live on the
 [Pages mirror](https://sylverb.github.io/game-and-watch-retro-go-sd/) for
 automated tools (see the release notes *Automated-tool assets* section).
 
-- **Dual-boot / bank 2 (usual case)**: copy `retro-go_update.bin` to the SD root
-- **Bank 1 only**: take `retro-go_update-bank1.bin` from the Pages `dist/<tag>/` folder (or rename it to `retro-go_update.bin` for pre-2.0 / bootloader-only installs) — that file has no installer homebrew
-- **Retro-Go 2.0+ already running**: bank-specific filenames on the SD root are also fine; the firmware renames the matching bank file before reboot
+Copy `retro-go_update.bin` to the SD root (dual-boot / bank 2 — the supported
+layout). Retro-Go 2.0+ also accepts `retro-go_update-bank2.bin` on the SD root;
+the firmware renames the matching bank file before reboot. Pre-2.0 installs
+need the file named `retro-go_update.bin`.
 
 Then insert the card, power on, and wait until the update finishes.
 

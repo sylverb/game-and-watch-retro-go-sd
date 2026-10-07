@@ -12,11 +12,11 @@ the [GWRG distribution spec](https://github.com/slash-proc/gwrg-dist-spec)).
 The human-facing `retro-go_update.bin` additionally embeds
 `/homebrews/installer.bin` from
 [installer-retro-go-sd](https://github.com/sylverb/installer-retro-go-sd);
-`retro-go_update-bank1.bin` / `retro-go_update-bank2.bin` on the Pages mirror
-do not. Everything else under `/homebrews` and `/cores` still ships from those
-projects. A firmware release otherwise carries the intflash image and the
-static content the launcher itself needs: fonts, language blobs, and the boot
-logo.
+`retro-go_update-bank2.bin` on the Pages mirror does not. There is no `sd-bank1`
+build and no bank-1 SD updater (SD always targets bank 2). Everything else under
+`/homebrews` and `/cores` still ships from those projects. A firmware release
+otherwise carries the intflash image and the static content the launcher itself
+needs: fonts, language blobs, and the boot logo.
 
 That is why this format is a sibling of the GWRG spec rather than a `kind`
 inside it. The spec describes installing files into a directory. Firmware is
@@ -25,8 +25,8 @@ else lands in — a different verb, and `artifacts[]`/`uses[]`/`requiresAbi` hav
 nothing to say about it.
 
 Real values throughout are from the release in
-[`examples/`](examples/), which is the output of a genuine four-build packer
-run. Nothing here is invented.
+[`examples/`](examples/), which is the output of a genuine packer run.
+Nothing here is invented.
 
 ## The pieces
 
@@ -84,7 +84,6 @@ newest `retained` versions (5).
       "providesAbi": { "version": 2, "size": 844 },
       "coreMetaVersion": 3,
       "updates": {
-        "bank1": "v2.0.0/retro-go_update-bank1.bin",
         "bank2": "v2.0.0/retro-go_update-bank2.bin"
       }
     }
@@ -175,26 +174,26 @@ it exists only as a compile-time comparison — so it is read from
 
 ### `updates`
 
-The release-level updater assets are selected by target internal-flash bank:
+The release-level lean updater (bank 2 only — dual-boot is the supported
+layout):
 
 ```json
 "updates": {
-  "bank1": { "bytes": 11000000, "sha256": "…", "url": "retro-go_update-bank1.bin" },
   "bank2": { "bytes": 11000000, "sha256": "…", "url": "retro-go_update-bank2.bin" }
 }
 ```
 
-Each archive contains the transient updater and a complete SD-card update tar.
-Retro-Go 2.0+ selects the matching filename at runtime. Older installations
-require renaming the selected file to `retro-go_update.bin` before copying it to
-the SD-card root.
+The archive contains the transient updater and a complete SD-card update tar
+(internal name `update_bank2.bin`). Retro-Go 2.0+ accepts
+`retro-go_update-bank2.bin` on the SD root; older installations require renaming
+it to `retro-go_update.bin`.
 
-These bank-specific files (and the per-build zips) are published on the Pages
+This lean file (and the per-build zips) are published on the Pages
 `dist/<tag>/` mirror. The GitHub release download list intentionally only
 includes `retro-go_update.bin` (bank-2 content **plus** `/homebrews/installer.bin`)
 so humans see one file; tools must use the Pages URLs from `versions.json` /
-`manifest.json`, not scrape the GitHub Assets list. The bank1/bank2 archives
-on Pages do not embed the installer.
+`manifest.json`, not scrape the GitHub Assets list. The lean bank-2 archive on
+Pages does not embed the installer.
 
 ### `paths`
 
@@ -294,28 +293,31 @@ lives inside a bundle and uses `path`. Only `content[]` has `install`.
 because they answer separate questions, and an installer must use `install` to
 decide where a file lands.
 
-The updater archive filenames are release-level assets, not build-level content.
-The internal tar still contains `update_bank1.bin` or `update_bank2.bin`, which
-the transient updater flashes into the corresponding bank.
+The updater archive filename is a release-level asset, not build-level content.
+The internal tar contains `update_bank2.bin`, which the transient updater
+flashes into bank 2.
 
 ## Choosing a build
 
-An installer picks one of the four. The two axes:
+An installer picks one of the published builds. The axes:
 
 - **`storage`** — `sd` for a device with an SD card mod, `flash` for one
   without. These are genuinely different builds: different linker script,
-  different filesystem, not a runtime option.
+  different filesystem, not a runtime option. SD releases only publish
+  `sd-bank2`.
 - **`bank`** — `2` is the dual-boot layout, which leaves the original firmware
-  in bank 1 and is the normal choice. `1` replaces the stock firmware.
+  in bank 1 and is the normal choice. `1` replaces the stock firmware
+  (flash-only releases still ship `flash-bank1`).
 
 Refuse rather than guess when:
 
 - The device's detected storage does not match any published build.
-- The user asks for `bank: 1` on a device that already has the dual-boot
-  bootloader installed. `boot_bank2()` spins forever when bank 2 holds no valid
-  reset vector (`external/firmware_update/Core/Src/firmware_update.c:97-114`),
-  so a bank-1-only install under that bootloader can leave a device that does
-  not boot.
+- The user asks for SD `bank: 1` (not published) or flash `bank: 1` on a device
+  that already has the dual-boot bootloader installed. `boot_bank2()` spins
+  forever when bank 2 holds no valid reset vector
+  (`external/firmware_update/Core/Src/firmware_update.c:97-114`), so a
+  bank-1-only install under that bootloader can leave a device that does not
+  boot.
 - The manifest's `providesAbi` disagrees with what you read out of the image
   itself. That means the release is misdescribed; see
   [Compatibility](#compatibility).
@@ -358,7 +360,7 @@ another, and `rg_i18n.c` truncates a mismatched blob rather than rejecting it �
 the failure mode is silently wrong menu text, not an error.
 
 Measured, in this release: `fr_fr` is 1880 bytes on bank 1 and 1947 on bank 2.
-Fonts and `bios/logo.bin` are byte-identical across all four builds.
+Fonts and `bios/logo.bin` are byte-identical across the published builds.
 
 **Only ever install a build's own `content[]`.** Do not share language blobs
 between builds, and do not carry them across an upgrade that changes bank.
@@ -366,8 +368,8 @@ between builds, and do not carry them across an upgrade that changes bank.
 ### The layout superblock
 
 `GnwLayoutSuperblock` (`Core/Inc/retro-go/gw_layout_superblock.h`) makes one
-binary serve any external-flash size. It is compiled into **all four builds**.
-Locate it by its magic; the linker places it wherever the section lands.
+binary serve any external-flash size. It is compiled into **every published
+build**. Locate it by its magic; the linker places it wherever the section lands.
 
 | Offset | Size | Field | |
 |---|---|---|---|

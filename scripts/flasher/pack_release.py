@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Pack a Retro-Go SD 2.0 release: four self-contained build zips plus JSON files
-and two bank-specific updater archives.
+Pack a Retro-Go SD 2.0 release: self-contained build zips plus JSON files
+and the lean bank-2 updater archive.
 
 See docs/RELEASE_2_0.md — this script implements the format described there.
 
 Cores are decoupled and ship from their own projects. The human-facing
 `retro-go_update.bin` additionally embeds `/homebrews/installer.bin` (from
-sylverb/installer-retro-go-sd); bank-specific updater archives and build zips
-do not. Nothing under cores/, covers/ or cheats/ appears here; the firmware
-release otherwise carries only the intflash image and the static content the
-launcher itself needs (fonts, language blobs, the boot logo).
+sylverb/installer-retro-go-sd); the lean bank-2 updater and build zips do not.
+Nothing under cores/, covers/ or cheats/ appears here; the firmware release
+otherwise carries only the intflash image and the static content the launcher
+itself needs (fonts, language blobs, the boot logo).
 
-Per build (storage x bank, four of them):
+Per build (release CI: sd-bank2, flash-bank1, flash-bank2 — no sd-bank1):
 
     retro-go-sd-<tag>-<storage>-bank<n>.zip         image + content, self-contained
     debug/retro-go-debug.elf                         inside each build zip
@@ -399,9 +399,9 @@ def build_manifest(builds, tag, commit, ref, built_at, core_meta_header, project
     superblock = read_superblock(reference["image"])
     git_tag = read_git_tag(reference["image"])
 
-    # Every build must agree about firmware identity; if they do not, one of the
-    # four was built from a different tree and pairing it with the others would
-    # ship a core-compat lie.
+    # Every build must agree about firmware identity; if they do not, one was
+    # built from a different tree and pairing it with the others would ship a
+    # core-compat lie.
     for other in builds[1:]:
         for name, fn, expected in (
             ("providesAbi", read_provides_abi, provides_abi),
@@ -515,8 +515,11 @@ def main():
         default=None,
         help="projects.json from gen_projects_json.py; copied into --out",
     )
-    ap.add_argument("--update-bank1", required=True)
-    ap.add_argument("--update-bank2", required=True)
+    ap.add_argument(
+        "--update-bank2",
+        required=True,
+        help="lean bank-2 SD updater (no installer); published on Pages",
+    )
     ap.add_argument(
         "--previous-versions",
         default=None,
@@ -549,15 +552,15 @@ def main():
                 dst.write(src.read())
 
     try:
-        updates = {}
-        for bank, path in ((1, args.update_bank1), (2, args.update_bank2)):
-            if not os.path.isfile(path):
-                raise PackError(f"missing update archive for bank {bank}: {path}")
-            updates[f"bank{bank}"] = {
-                "bytes": os.path.getsize(path),
-                "sha256": sha256_file(path),
-                "url": os.path.basename(path),
+        if not os.path.isfile(args.update_bank2):
+            raise PackError(f"missing update archive for bank 2: {args.update_bank2}")
+        updates = {
+            "bank2": {
+                "bytes": os.path.getsize(args.update_bank2),
+                "sha256": sha256_file(args.update_bank2),
+                "url": os.path.basename(args.update_bank2),
             }
+        }
         manifest = build_manifest(
             builds,
             args.tag,

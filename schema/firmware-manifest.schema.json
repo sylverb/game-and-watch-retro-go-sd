@@ -46,10 +46,9 @@
     },
     "updates": {
       "type": "object",
-      "required": ["bank1", "bank2"],
+      "required": ["bank2"],
       "additionalProperties": false,
       "properties": {
-        "bank1": { "$ref": "#/$defs/asset" },
         "bank2": { "$ref": "#/$defs/asset" }
       }
     },
@@ -233,7 +232,7 @@
         {
           "description": "The build id must agree with storage and bank.",
           "if": { "properties": { "storage": { "const": "sd" } } },
-          "then": { "properties": { "id": { "pattern": "^sd-bank[12]$" } } },
+          "then": { "properties": { "id": { "pattern": "^sd-bank2$" } } },
           "else": { "properties": { "id": { "pattern": "^flash-bank[12]$" } } }
         }
       ]

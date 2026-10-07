@@ -8,7 +8,7 @@ The installer project's non-debug release asset looks like:
 (The *-debug.zip sibling only ships ELF/map for addr2line — not usable here.)
 
 Used by the release CI so /homebrews/installer.bin lands only inside the
-human-facing retro-go_update.bin (not in retro-go_update-bank{1,2}.bin).
+human-facing retro-go_update.bin (not in retro-go_update-bank2.bin).
 """
 
 from __future__ import annotations

@@ -43,28 +43,30 @@ blobs are therefore per-build.
 ### Release assets
 
 The **GitHub release** ships one human-facing file: `retro-go_update.bin`
-(bank-2 updater **plus** `/homebrews/installer.bin`). Bank-specific updaters
+(bank-2 updater **plus** `/homebrews/installer.bin`). A lean bank-2 updater
 (without the installer), per-build install zips, and `debug-all-<tag>.zip` are
 published on the **Pages mirror** (`dist/<tag>/`) for automated tools —
-GitHub Releases has no way to hide or section assets.
+GitHub Releases has no way to hide or section assets. There is no
+`sd-bank1` build and no `retro-go_update-bank1.bin`: SD installs always target
+bank 2. Flash-only still publishes both banks (`flash-bank1`, `flash-bank2`).
 
 ```
 # GitHub release (humans)
 retro-go_update.bin                                bank2 SD updater + installer
 
 # Pages dist/<tag>/ (tools; also holds the human file)
-retro-go-sd-<tag>-{sd,flash}-bank{1,2}.zip         image + debug ELF + content
-retro-go_update-bank1.bin                          SD updater for bank 1 (no installer)
+retro-go-sd-<tag>-sd-bank2.zip                     SD + bank 2
+retro-go-sd-<tag>-flash-bank{1,2}.zip              flash-only, both banks
 retro-go_update-bank2.bin                          SD updater for bank 2 (no installer)
 debug-all-<tag>.zip                                optional developer convenience
 ```
 
 Each build zip is self-contained — its intflash image, debug ELF, `lang/` blobs and a
-copy of `fonts/` and `bios/logo.bin` (84 KB duplicated four times, not worth
-deduplicating). The SD updater archives are assembled separately from the
-corresponding SD build content. Their internal tar contains `update_bank1.bin`
-or `update_bank2.bin`; the outer bank-specific filename is what Retro-Go 2.0
-uses to select the update safely.
+copy of `fonts/` and `bios/logo.bin` (duplicated per zip, not worth
+deduplicating). The SD updater archives are assembled from sd-bank2 content.
+Their internal tar contains `update_bank2.bin`; the outer
+`retro-go_update-bank2.bin` name is what Retro-Go 2.0 uses to select the update
+safely.
 
 The ELFs are split out. They are ~1.5 MB now that no core links into the
 firmware, but an unstripped ELF was 25.9 MB before decoupling and nothing stops
@@ -83,7 +85,7 @@ and are not published. `littlefsBlockSize` is the exception: compile-time
 (`LITTLEFS_BLOCK_SIZE`, default 4096), not in the superblock, and the host must
 match it when building the filesystem image.
 
-The superblock is compiled into **all four builds** (`Makefile:71` is
+The superblock is compiled into **every published build** (`Makefile:71` is
 unconditional; `cf8f48f6d` extended it to SD-cache relocation). The header's own
 docstring still says `SD_CARD=0` only and is stale.
 
@@ -103,9 +105,9 @@ opaque `buildFlags` string that nothing parses.
 
 Likewise dropped: `intflashAddr` (derivable from `bank`), `requiresBootloader`
 (implied by `bank: 2`), `label` (rendered from `storage` + `bank`), and
-`filename` everywhere except the bank-specific updater archives, where the
-on-device updater matches the internal `update_bank1.bin` /
-`update_bank2.bin` names exactly (`firmware_update.c:20,24`).
+`filename` everywhere except the bank-2 updater archive, where the
+on-device updater matches the internal `update_bank2.bin` name exactly
+(`firmware_update.c:24`).
 
 ## `/data/INSTALL`
 

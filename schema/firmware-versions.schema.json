@@ -58,10 +58,9 @@
         "coreMetaVersion": { "type": "integer", "minimum": 1 }
         ,"updates": {
           "type": "object",
-          "required": ["bank1", "bank2"],
+          "required": ["bank2"],
           "additionalProperties": false,
           "properties": {
-            "bank1": { "type": "string", "pattern": "^[^/][^:]*$" },
             "bank2": { "type": "string", "pattern": "^[^/][^:]*$" }
           }
         }
