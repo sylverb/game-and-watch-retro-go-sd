@@ -775,6 +775,8 @@ LDFLAGS += -Wl,--wrap=fflush
 # ld's overlap check can flag those intentional adjacencies depending on
 # section ordering — disable it rather than depend on incidental layout.
 LDFLAGS += -Wl,--no-check-sections
+# RAM-resident code (.overlay / ._ram_exec) is intentionally RWX on this MCU.
+LDFLAGS += -Wl,--no-warn-rwx-segments
 
 # default action: build all (FrogFS has no gw_*_extflash.bin payload — flash frogfs.bin instead)
 ifeq ($(DOCKER),1)
@@ -910,9 +912,10 @@ $(BUILD_DIR)/core/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR
 	$(V)$(CC) -c $(CFLAGS) -Wa,-a,-ad,-alms=$(BUILD_DIR)/core/$(notdir $(<:.c=.lst)) $< -o $@
 
 ifeq ($(SD_CARD), 1)
+# -UCODEPAGE: firmware -DCODEPAGE=… (i18n) collides with FatFs's internal CODEPAGE macro
 $(BUILD_DIR)/fatfs/%.o: %.c Makefile.common Makefile $(SDK_HEADERS) | $(BUILD_DIR)
 	$(V)$(ECHO) [ CC FatFs ] $(notdir $<)
-	$(V)$(CC) -c $(CFLAGS) $(FATFS_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/fatfs/$(notdir $(<:.c=.lst)) $< -o $@
+	$(V)$(CC) -c $(CFLAGS) -UCODEPAGE $(FATFS_C_INCLUDES) -Wa,-a,-ad,-alms=$(BUILD_DIR)/fatfs/$(notdir $(<:.c=.lst)) $< -o $@
 endif
 
 ifneq ($(SD_CARD), 1)

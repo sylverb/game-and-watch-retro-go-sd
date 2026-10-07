@@ -88,28 +88,41 @@ rg_app_desc_t *odroid_system_get_app()
  * via strdup (legacy behavior). Callers that provide a buffer avoid heap. */
 static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPath, char *out, int out_size)
 {
-    const char *fileName = _romPath ?: currentApp.romPath;
+    const char *raw = _romPath ?: currentApp.romPath;
     char homebrew_rel[200];
+    char fileNameBuf[RG_PATH_MAX];
+    const char *fileName;
+    size_t cap;
 
-    if (strstr(fileName, ODROID_BASE_PATH_ROMS))
+    if (!out || out_size <= 1)
+        return;
+    cap = (size_t)out_size;
+
+    if (!raw)
+        RG_PANIC("Invalid ROM path!");
+
+    if (strstr(raw, ODROID_BASE_PATH_ROMS))
     {
-        fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
-        fileName += strlen(ODROID_BASE_PATH_ROMS);
+        raw = strstr(raw, ODROID_BASE_PATH_ROMS);
+        raw += strlen(ODROID_BASE_PATH_ROMS);
     }
-    else if (strstr(fileName, ODROID_BASE_PATH_HOMEBREWS))
+    else if (strstr(raw, ODROID_BASE_PATH_HOMEBREWS))
     {
         /* /homebrews/Foo.bin → relative "/homebrew/Foo.bin" so covers stay
          * under /covers/homebrew/ and saves under /data/homebrew/. */
-        const char *base = strrchr(fileName, '/');
-        base = base ? base + 1 : fileName;
+        const char *base = strrchr(raw, '/');
+        base = base ? base + 1 : raw;
         snprintf(homebrew_rel, sizeof(homebrew_rel), "/homebrew/%s", base);
-        fileName = homebrew_rel;
+        raw = homebrew_rel;
     }
 
-    if (!fileName || strlen(fileName) < 4)
-    {
+    if (strlen(raw) < 4)
         RG_PANIC("Invalid ROM path!");
-    }
+
+    /* Bound the relative name so snprintf output length is provably < INT_MAX. */
+    strncpy(fileNameBuf, raw, sizeof(fileNameBuf) - 1);
+    fileNameBuf[sizeof(fileNameBuf) - 1] = '\0';
+    fileName = fileNameBuf;
 
     switch (type)
     {
@@ -117,16 +130,16 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
         case ODROID_PATH_SAVE_STATE_1:
         case ODROID_PATH_SAVE_STATE_2:
         case ODROID_PATH_SAVE_STATE_3:
-            snprintf(out, out_size, "%s%s-%d.sav", ODROID_BASE_PATH_SAVES, fileName, type);
+            snprintf(out, cap, "%s%s-%d.sav", ODROID_BASE_PATH_SAVES, fileName, type);
             break;
         case ODROID_PATH_SAVE_STATE_OFF:
-            snprintf(out, out_size, "%s/off.sav", ODROID_BASE_PATH_SAVES);
+            snprintf(out, cap, "%s/off.sav", ODROID_BASE_PATH_SAVES);
             break;
         case ODROID_PATH_SCREENSHOT:
         case ODROID_PATH_SCREENSHOT_1:
         case ODROID_PATH_SCREENSHOT_2:
         case ODROID_PATH_SCREENSHOT_3:
-            snprintf(out, out_size, "%s%s-%d.raw", ODROID_BASE_PATH_SAVES, fileName, type-ODROID_PATH_SCREENSHOT);
+            snprintf(out, cap, "%s%s-%d.raw", ODROID_BASE_PATH_SAVES, fileName, type-ODROID_PATH_SCREENSHOT);
             break;
 
         case ODROID_PATH_USER_SCREENSHOT:
@@ -141,7 +154,7 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             tempFileName[sizeof(tempFileName) - 1] = '\0';
             char *dot = strrchr(tempFileName, '.');
             if (dot) *dot = '\0';
-            snprintf(out, out_size, "%s/%04d-%02d-%02d-%02d-%02d-%02d-%s.bmp",
+            snprintf(out, cap, "%s/%04d-%02d-%02d-%02d-%02d-%02d-%s.bmp",
                     ODROID_BASE_PATH_SCREENSHOTS,
                     1900 + tm_info->tm_year, tm_info->tm_mon + 1, tm_info->tm_mday,
                     tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec, tempFileName);
@@ -149,26 +162,26 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
         }
 
         case ODROID_PATH_SAVE_BACK:
-            snprintf(out, out_size, "%s%s.sav.bak", ODROID_BASE_PATH_SAVES, fileName);
+            snprintf(out, cap, "%s%s.sav.bak", ODROID_BASE_PATH_SAVES, fileName);
             break;
 
         case ODROID_PATH_SAVE_SRAM:
-            snprintf(out, out_size, "%s%s.sram", ODROID_BASE_PATH_SAVES, fileName);
+            snprintf(out, cap, "%s%s.sram", ODROID_BASE_PATH_SAVES, fileName);
             break;
 
         case ODROID_PATH_TEMP_FILE:
-            snprintf(out, out_size, "%s/%X%X.tmp", ODROID_BASE_PATH_TEMP, get_elapsed_time(), rand());
+            snprintf(out, cap, "%s/%X%X.tmp", ODROID_BASE_PATH_TEMP, get_elapsed_time(), rand());
             break;
 
         case ODROID_PATH_ROM_FILE:
             if (strncmp(fileName, "/homebrew/", 10) == 0)
-                snprintf(out, out_size, "%s/%s", ODROID_BASE_PATH_HOMEBREWS, fileName + 10);
+                snprintf(out, cap, "%s/%s", ODROID_BASE_PATH_HOMEBREWS, fileName + 10);
             else
-                snprintf(out, out_size, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
+                snprintf(out, cap, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
             break;
 
         case ODROID_PATH_CRC_CACHE:
-            snprintf(out, out_size, "%s%s.crc", ODROID_BASE_PATH_CRC_CACHE, fileName);
+            snprintf(out, cap, "%s%s.crc", ODROID_BASE_PATH_CRC_CACHE, fileName);
             break;
 
         case ODROID_PATH_COVER_FILE:
@@ -178,13 +191,13 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             tempFileName[sizeof(tempFileName) - 1] = '\0';
             char *dot = strrchr(tempFileName, '.');
             if (dot) *dot = '\0';
-            snprintf(out, out_size, "%s%s.img", ODROID_BASE_PATH_COVERS, tempFileName);
+            snprintf(out, cap, "%s%s.img", ODROID_BASE_PATH_COVERS, tempFileName);
             break;
         }
 
         case ODROID_PATH_CHEAT_STATE:
             /* Persist active cheat bitmask alongside savestates (writable /data). */
-            snprintf(out, out_size, "%s%s.state", ODROID_BASE_PATH_SAVES, fileName);
+            snprintf(out, cap, "%s%s.state", ODROID_BASE_PATH_SAVES, fileName);
             break;
 
         case ODROID_PATH_SYSTEM_CONFIG:
@@ -199,7 +212,7 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             } else {
                 systemPath[0] = '\0';
             }
-            snprintf(out, out_size, "%s%sCONFIG", ODROID_BASE_PATH_CONFIG, systemPath);
+            snprintf(out, cap, "%s%sCONFIG", ODROID_BASE_PATH_CONFIG, systemPath);
             break;
         }
 

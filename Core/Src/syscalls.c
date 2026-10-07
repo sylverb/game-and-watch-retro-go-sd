@@ -456,7 +456,7 @@ static bool path_has_prefix_dir(const char *path, const char *dir)
  * "cores" is deliberately NOT a prefix here. A core's .bin is read into RAM and
  * lives in LittleFS; only its mapped sidecars come from FrogFS, which
  * is_mapped_core_sidecar() picks out by extension. Routing the whole prefix
- * would make every /cores/*.bin unopenable.
+ * would make every /cores/\*.bin unopenable.
  *
  * FrogFS is read-only, so anything listed here can only be installed by the
  * builder, never at runtime. That already matches the firmware: nothing writes

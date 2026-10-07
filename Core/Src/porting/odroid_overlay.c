@@ -1351,7 +1351,7 @@ void draw_game_status_bar(runtime_stats_t* stats)
                  (int)stats->busyPercent, (int)fmod(stats->busyPercent * 10, 10));
     }
 
-    snprintf(bottom, 80, "%s", ACTIVE_FILE ? (ACTIVE_FILE->name) : "N/A");
+    snprintf(bottom, sizeof(bottom), "%.79s", ACTIVE_FILE ? ACTIVE_FILE->name : "N/A");
 
     odroid_overlay_draw_fill_rect(0, 0, ODROID_SCREEN_WIDTH, height, curr_colors->main_c);
     odroid_overlay_draw_fill_rect(0, ODROID_SCREEN_HEIGHT - height, ODROID_SCREEN_WIDTH, height, curr_colors->main_c);

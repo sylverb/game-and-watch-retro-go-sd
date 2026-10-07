@@ -49,7 +49,7 @@ extern uint32_t __RAM_UC_CORE_LENGTH__;
  * AMSTRAD/ZELDA3/SMW/VIDEOPAC/CELESTE/TAMA/PKMINI/A2600/WSWAN/PICO8_*,
  * _ZELDA3_MAIN_CODE_*, _MSX_ROM_UNPACK_BUFFER*) are gone along with the
  * .overlay_<system> sections that defined them. Those systems are now
- * standalone cores/<system>/ builds loaded from /cores/*.bin at runtime;
+ * standalone cores/<system>/ builds loaded from /cores/\*.bin at runtime;
  * a core's code and bss are described by its own gnw_core_meta_t
  * segments[], not by firmware linker symbols. LUT8 extra core code loads
  * as a GNW_CORE_REGION_RAM_UC segment at __RAM_UC_CORE_START__

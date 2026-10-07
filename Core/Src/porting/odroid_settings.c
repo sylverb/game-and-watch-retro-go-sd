@@ -125,7 +125,7 @@ static const app_config_t app_config_defaults = {
     .sprite_limit = 1,
     .disp_rotation = ODROID_DISPLAY_ROTATION_AUTO,
     .reserved = 0,
-    .user = {{0}},
+    /* .user[] zero-initialized by default */
 };
 
 static const persistent_config_t persistent_config_default = {
@@ -333,8 +333,7 @@ static int core_cfg_user_find(app_config_t *cfg, const char *key, bool create)
     }
 
     if (create && free_slot >= 0) {
-        strncpy(cfg->user[free_slot].key, truncated, CORE_CFG_USER_KEY_MAX - 1);
-        cfg->user[free_slot].key[CORE_CFG_USER_KEY_MAX - 1] = '\0';
+        memcpy(cfg->user[free_slot].key, truncated, CORE_CFG_USER_KEY_MAX);
         cfg->user[free_slot].value = 0;
         return free_slot;
     }

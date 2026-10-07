@@ -139,8 +139,7 @@ static void fill_file_slot(retro_emulator_file_t *slot, const char *path,
     slot->size = size;
     slot->system = system;
     slot->region = REGION_NTSC;
-    strncpy(slot->path, path, sizeof(slot->path) - 1);
-    slot->path[sizeof(slot->path) - 1] = '\0';
+    snprintf(slot->path, sizeof(slot->path), "%.*s", (int)sizeof(slot->path) - 1, path);
 
     /* name/ext derive from slot->path (NOT the caller's line buffer — these
      * pointers must stay valid for the lifetime of the list entry). */

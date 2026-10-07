@@ -130,7 +130,7 @@ static void build_rom_parent_label(const retro_emulator_t *emu)
         char *p2 = strrchr(tmp, '/');
         suffix = (p2 == NULL) ? tmp : (p2 + 1);
     }
-    snprintf(rg_rom_list_parent_label, sizeof(rg_rom_list_parent_label), "< %s", suffix);
+    snprintf(rg_rom_list_parent_label, sizeof(rg_rom_list_parent_label), "< %.44s", suffix);
 }
 
 bool rg_rom_list_arg_is_parent(const void *arg)
@@ -457,7 +457,7 @@ static void add_emulator_ex(const char *system, const char *dirname, const char*
     /* Alias the copies just made above (p->system_name, not the caller's
      * `system`) so these pointers stay valid even when the caller's own
      * string is transient (e.g. a stack-local gnw_core_meta_t while
-     * scanning /cores/*.bin — see add_emulator_dynamic()). */
+     * scanning /cores/\*.bin — see add_emulator_dynamic()). */
     s->extension = p->exts;
     s->roms = p->roms.files;
     s->roms_count = p->roms.count;
@@ -630,7 +630,9 @@ static bool cdrom_collapse_game_dir(retro_emulator_t *emu, const char *path)
     {
         memcpy(cue_name, base, base_len);
         memcpy(cue_name + base_len, ".cue", 5);
-        snprintf(fullpath, sizeof(fullpath), "%s/%s", path, cue_name);
+        memcpy(fullpath, path, path_len);
+        fullpath[path_len] = '/';
+        memcpy(fullpath + path_len + 1, cue_name, base_len + 5);
         if (f_stat(fullpath, &fno) == FR_OK && !(fno.fattrib & AM_DIR))
             return emulator_add_rom_file(emu, fullpath, cue_name, (uint32_t)fno.fsize);
     }
@@ -955,7 +957,14 @@ static void emulator_delete_cdrom_flat(const char *cue_path)
             /* Reject path traversal / absolute refs — only same-dir siblings. */
             if (strchr(name, '/') || strchr(name, '\\') || strstr(name, ".."))
                 continue;
-            snprintf(binpath, sizeof(binpath), "%s/%s", parent, name);
+            {
+                size_t parent_len = strlen(parent);
+                if (parent_len + 1 + n >= sizeof(binpath))
+                    continue;
+                memcpy(binpath, parent, parent_len);
+                binpath[parent_len] = '/';
+                memcpy(binpath + parent_len + 1, name, n + 1);
+            }
             rg_storage_delete(binpath);
             wdog_refresh();
         }
@@ -1339,7 +1348,7 @@ extern LTDC_HandleTypeDef hltdc;
 
 /* The compile-time dispatch table that used to live here (emu_dispatch_t /
  * run_internal_emu) was removed while migrating every classic emulator to
- * standalone cores/<system>/ builds loaded dynamically from /cores/*.bin
+ * standalone cores/<system>/ builds loaded dynamically from /cores/\*.bin
  * (see "Cores externes avec ABI" plan). Its replacement, a header-driven
  * loader, is introduced alongside emulators_scan_cores(). Homebrew (GWHB)
  * is untouched by this migration and keep explicit blocks below. */
@@ -1362,7 +1371,7 @@ static void show_homebrew_error_screen(const char *reason)
 {
   /* Distinct from show_corrupted_installation_screen(): that one tells the
    * user to reinstall the whole firmware, which is the wrong advice when
-   * only a /homebrews/*.bin failed to load. */
+   * only a /homebrews/\*.bin failed to load. */
   odroid_dialog_choice_t choices[] = {
     {0, reason ? reason : "Homebrew load failed", "", -1, NULL},
     ODROID_DIALOG_CHOICE_SEPARATOR,
@@ -1509,7 +1518,7 @@ static void run_gwhb_homebrew(const char *path, uint8_t load_state, uint8_t star
         (load_state, start_paused, save_slot);
 }
 
-/* --- Dynamic external cores (/cores/*.bin, see gnw_core_meta.h) -------
+/* --- Dynamic external cores (/cores/\*.bin, see gnw_core_meta.h) -------
  *
  * A classic emulator core (e.g. Watara Supervision) is built as a
  * standalone ELF against the same firmware ABI, linked at
@@ -1521,7 +1530,7 @@ static void run_gwhb_homebrew(const char *path, uint8_t load_state, uint8_t star
  * GNW_CORE_REGION_RAM_UC segment is switched to LUT8 by the loader
  * before that payload is copied.
  *
- * emulators_scan_cores() probes every /cores/*.bin at boot and registers
+ * emulators_scan_cores() probes every /cores/\*.bin at boot and registers
  * one tab per valid core (see add_emulator_dynamic()); run_dynamic_core()
  * does the load+zero+jump dance at launch time, mirroring the old
  * per-system run_internal_emu() but with metadata read from the file
@@ -1640,7 +1649,9 @@ static bool cores_dir_next(char *name, size_t name_size, bool *is_dir)
     FILINFO fno;
     if (f_readdir(&s_cores_dir, &fno) != FR_OK || fno.fname[0] == 0)
         return false;
-    snprintf(name, name_size, "%s", fno.fname);
+    if (name_size == 0)
+        return false;
+    snprintf(name, name_size, "%.*s", (int)name_size - 1, fno.fname);
     *is_dir = (fno.fattrib & AM_DIR) != 0;
     return true;
 }
@@ -1666,7 +1677,9 @@ static bool cores_dir_next(char *name, size_t name_size, bool *is_dir)
     fs_folder_entry entry;
     if (fs_dir_read(CORES_DIR_LFS_SLOT, &entry) <= 0)
         return false;
-    snprintf(name, name_size, "%s", entry.name);
+    if (name_size == 0)
+        return false;
+    snprintf(name, name_size, "%.*s", (int)name_size - 1, entry.name);
     *is_dir = entry.is_folder;
     return true;
 }
@@ -1709,14 +1722,14 @@ static void add_emulator_dynamic(const gnw_core_meta_t *meta, const char *core_p
     }
 }
 
-/* Order-independent fingerprint of probeable /cores/*.bin. Includes path,
+/* Order-independent fingerprint of probeable /cores/\*.bin. Includes path,
  * systems_count, file size/mtime, and each system's logo blob ranges so an
  * in-place SD update of header/pad art (same path, same systems_count) still
  * mismatches after STOP2 wake and triggers a clean reboot. */
 static uint32_t cores_set_fingerprint(int *out_systems)
 {
     gnw_core_meta_t meta;
-    char path[128];
+    char path[8 + CORES_DIR_NAME_MAX];
     char name[CORES_DIR_NAME_MAX];
     bool is_dir;
     uint32_t fp = 0;
@@ -1776,12 +1789,12 @@ static int core_bin_name_cmp(const void *a, const void *b)
     return strcasecmp((const char *)a, (const char *)b);
 }
 
-/* Register /cores/*.bin in alphabetical filename order. Directory
+/* Register /cores/\*.bin in alphabetical filename order. Directory
  * enumeration order is filesystem-dependent (often create/FAT order). */
 static void emulators_scan_cores(void)
 {
     gnw_core_meta_t meta;
-    char path[128];
+    char path[8 + CORES_DIR_NAME_MAX];
     char name[CORES_DIR_NAME_MAX];
     bool is_dir;
     int count = 0;

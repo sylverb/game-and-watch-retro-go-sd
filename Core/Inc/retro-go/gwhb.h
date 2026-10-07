@@ -1,7 +1,7 @@
 /*
  * Universal Homebrew Header (GWHB)
  *
- * Homebrew binaries live under /homebrews/*.bin (one launcher tab; covers
+ * Homebrew binaries live under /homebrews/\*.bin (one launcher tab; covers
  * stay under /covers/homebrew/). The on-disk container is versioned like
  * CORE.
  *
@@ -48,7 +48,7 @@ typedef struct {
     uint32_t segments_count; /* 1..GNW_CORE_MAX_SEGMENTS; [0] = RAM_EMU */
     gnw_core_segment_t segments[GNW_CORE_MAX_SEGMENTS];
 
-    /* Optional coverflow JPEG (same format as /covers/.../*.img), absolute
+    /* Optional coverflow JPEG (same format as /covers/.../\*.img), absolute
      * offset from the start of the file. cover_size 0 → absent. Launcher
      * prefers /covers/homebrew/<stem>.img when present, else this blob.
      * Must fit the cover cache (COVER_SIZE, currently 10 KiB) AND decode
