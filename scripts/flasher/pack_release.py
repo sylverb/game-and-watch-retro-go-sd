@@ -8,7 +8,8 @@ See docs/RELEASE_2_0.md — this script implements the format described there.
 Cores are decoupled and ship from their own projects. Nothing under cores/,
 covers/ or cheats/ appears here; the firmware release otherwise carries only
 the intflash image and the static content the launcher itself needs (fonts,
-language blobs, the boot logo). The SD updater does not embed installer.bin.
+language blobs, the boot logo). Pass the lean Pages updater to --update-bank2
+(the GitHub with-installer sibling is published separately under the same name).
 
 Per build (release CI: sd-bank2, flash-bank2):
 
@@ -516,7 +517,7 @@ def main():
     ap.add_argument(
         "--update-bank2",
         required=True,
-        help="bank-2 SD updater (retro-go_update.bin); no embedded installer",
+        help="lean bank-2 SD updater for Pages/manifest (basename retro-go_update.bin)",
     )
     ap.add_argument(
         "--previous-versions",

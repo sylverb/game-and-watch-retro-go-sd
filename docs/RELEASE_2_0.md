@@ -43,27 +43,28 @@ blobs are therefore per-build.
 ### Release assets
 
 The **GitHub release** ships one human-facing file: `retro-go_update.bin`
-(lean bank-2 SD updater — no embedded installer / cores). Per-build install
-zips, `debug-all-<tag>.zip`, and the same update file are published on the
-**Pages mirror** (`dist/<tag>/`) for automated tools — GitHub Releases has no
-way to hide or section assets. Only bank-2 builds are published (`sd-bank2`,
-`flash-bank2`).
+(bank-2 updater **plus** `/homebrews/installer.bin`). Per-build install zips,
+`debug-all-<tag>.zip`, and a **lean** `retro-go_update.bin` (same name, no
+installer) are published on the **Pages mirror** (`dist/<tag>/`) for automated
+tools — GitHub Releases has no way to hide or section assets. Only bank-2
+builds are published (`sd-bank2`, `flash-bank2`). Manifest `updates.bank2`
+hashes the Pages (lean) file.
 
 ```
 # GitHub release (humans)
-retro-go_update.bin                                bank2 SD updater (no installer)
+retro-go_update.bin                                bank2 SD updater + installer
 
-# Pages dist/<tag>/ (tools; also holds the human file)
+# Pages dist/<tag>/ (tools)
 retro-go-sd-<tag>-sd-bank2.zip                     SD + bank 2
 retro-go-sd-<tag>-flash-bank2.zip                  flash-only + bank 2
-retro-go_update.bin                                same as the GitHub asset
+retro-go_update.bin                                lean bank2 updater (no installer)
 debug-all-<tag>.zip                                optional developer convenience
 ```
 
 Each build zip is self-contained — its intflash image, debug ELF, `lang/` blobs and a
 copy of `fonts/` and `bios/logo.bin` (duplicated per zip, not worth
-deduplicating). The SD updater is assembled from sd-bank2 content; its internal
-tar contains `update_bank2.bin`.
+deduplicating). Both SD updater archives are assembled from sd-bank2 content;
+their internal tar contains `update_bank2.bin`.
 
 The ELFs are split out. They are ~1.5 MB now that no core links into the
 firmware, but an unstripped ELF was 25.9 MB before decoupling and nothing stops

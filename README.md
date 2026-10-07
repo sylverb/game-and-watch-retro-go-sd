@@ -97,11 +97,12 @@ If you prefer professional installation, contact:
 
 ### Updating Retro-Go-SD
 
-Download **`retro-go_update.bin`** from the GitHub release (or the
-[Pages mirror](https://sylverb.github.io/game-and-watch-retro-go-sd/)) and copy
-it to the SD root. It is the bank-2 firmware updater only — cores and homebrews
-(including any installer homebrew) are installed separately. Install zips and
-debug ELFs for tools also live on Pages.
+Download **`retro-go_update.bin`** from the **GitHub release** and copy it to
+the SD root. That build embeds `/homebrews/installer.bin` for first-time core
+installs. The [Pages mirror](https://sylverb.github.io/game-and-watch-retro-go-sd/)
+publishes a file with the same name that is lean (no installer) for automated
+tools — prefer the GitHub asset for manual updates. Install zips and debug ELFs
+also live on Pages.
 
 Then insert the card, power on, and wait until the update finishes.
 

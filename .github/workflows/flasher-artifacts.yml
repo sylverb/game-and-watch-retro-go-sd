@@ -9,11 +9,12 @@
 #
 # No cores ship here: they are decoupled projects publishing under the GWRG
 # distribution spec. Curated cores/homebrews come from
-# docs/CURATED_PROJECTS.md → projects.json. The SD updater does not embed
-# installer.bin — install cores/homebrews separately.
+# docs/CURATED_PROJECTS.md → projects.json.
 #
-# GitHub release assets: only retro-go_update.bin (lean bank-2 SD updater).
-# Build zips, debug-all and the same update.bin live on Pages.
+# Same filename, two payloads:
+#   GitHub release  retro-go_update.bin  — bank2 + /homebrews/installer.bin
+#   Pages mirror    retro-go_update.bin  — lean bank2 (no installer; tools/CORS)
+# Manifest updates.bank2 hashes/points at the Pages (lean) file.
 #
 # Pages is the mirror because a GitHub release asset sends no CORS header — `curl`
 # gets the bytes, a browser does not. Releases stay the archival source of truth;
@@ -68,6 +69,8 @@ env:
     ZH_TW=1
     KO_KR=1
     JA_JP=1
+  # SD-layout install zip (not *-debug.zip — that one is ELF/map only).
+  INSTALLER_HOMEBREW_ZIP_URL: https://github.com/sylverb/installer-retro-go-sd/releases/download/v1.0.0/installer-v1.0.0.zip
 
 jobs:
   build:
@@ -185,15 +188,29 @@ jobs:
           mkdir -p _dl/updater
           cp external/firmware_update/build/firmware_update.bin _dl/updater/
 
-      - name: Build retro-go_update.bin (bank2, no installer)
+      - name: Build Pages lean retro-go_update.bin (no installer)
         run: |
           set -euo pipefail
-          mkdir -p _release
-          # Lean bank-2 SD updater. Cores / homebrews (including the core
-          # installer) are installed separately — not baked into this archive.
+          mkdir -p _release _pages_update
+          # Lean bank-2 updater for Pages + manifest.hashes. Same public
+          # filename as the GitHub asset, different bytes (no installer).
           python3 scripts/flasher/make_update_package.py \
             --updater _dl/updater/firmware_update.bin \
             --content _dl/sd-bank2/content \
+            --output _pages_update/retro-go_update.bin
+
+      - name: Build GitHub retro-go_update.bin (bank2 + installer)
+        run: |
+          set -euo pipefail
+          # Do not mutate sd-bank2 content used for the lean package / zips.
+          rm -rf _dl/update-with-installer
+          cp -a _dl/sd-bank2/content _dl/update-with-installer
+          python3 scripts/flasher/bundle_installer_homebrew.py \
+            --url "$INSTALLER_HOMEBREW_ZIP_URL" \
+            --content _dl/update-with-installer
+          python3 scripts/flasher/make_update_package.py \
+            --updater _dl/updater/firmware_update.bin \
+            --content _dl/update-with-installer \
             --output _release/retro-go_update.bin
 
       - name: Pack release
@@ -231,6 +248,7 @@ jobs:
             BUILD_ARGS+=( --build "id=$id,storage=$storage,bank=$bank,image=_dl/$id/gw_retro_go_intflash.bin,elf=_dl/$id/gw_retro_go.elf,content=_dl/$id/content,flags=$(cat "_dl/$id/flags.txt")" )
           done
 
+          # Hash the lean Pages updater (basename retro-go_update.bin).
           python3 scripts/flasher/pack_release.py \
             "${BUILD_ARGS[@]}" \
             --tag "$TAG" \
@@ -240,7 +258,7 @@ jobs:
             --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             $([ "$PRERELEASE" = true ] && echo --prerelease) \
             --projects _release/projects.json \
-            --update-bank2 _release/retro-go_update.bin \
+            --update-bank2 _pages_update/retro-go_update.bin \
             --out _release
 
       - name: Build all-builds debug bundle
@@ -258,8 +276,8 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.pack.outputs.tag }}"
-          # Pages hosts install zips + debug for tools (CORS). The GitHub release
-          # itself only ships retro-go_update.bin so humans see one download.
+          # Pages hosts install zips + lean update + debug for tools (CORS).
+          # GitHub release ships retro-go_update.bin with installer embedded.
           # Append the footer with Python (a column-0 shell heredoc breaks YAML).
           python3 - "$TAG" <<'PY' > _release/RELEASE_NOTES.md
           import pathlib, sys
@@ -276,12 +294,14 @@ jobs:
 
           - `debug-all-{tag}.zip`
           - `retro-go-sd-{tag}-{{sd,flash}}-bank2.zip`, `manifest.json`, `projects.json`
-          - the same `retro-go_update.bin` as this release
+          - lean `retro-go_update.bin` (no installer — for tools; hashes in the
+            manifest match this file)
 
           Mirror: https://sylverb.github.io/game-and-watch-retro-go-sd/dist/{tag}/
 
-          `retro-go_update.bin` is the bank-2 SD updater only (no embedded
-          installer / cores — install those separately).
+          The `retro-go_update.bin` **on this GitHub release** embeds
+          `/homebrews/installer.bin` for first-time core installs. The Pages
+          file with the same name does not.
 
           </details>
           """
@@ -305,12 +325,12 @@ jobs:
       - name: Stage the Pages mirror for this release
         run: |
           set -euo pipefail
-          # The manifest resolves every url as a plain filename beside itself, so the
-          # zips must sit in the same directory as manifest.json. Bank-specific
-          # updates and debug-all stay here for automated tools (CORS).
-          mkdir -p "_pages/dist/${{ steps.pack.outputs.tag }}"
-          cp _release/*.zip _release/*.bin _release/manifest.json _release/projects.json \
-             "_pages/dist/${{ steps.pack.outputs.tag }}/"
+          # Manifest urls are plain filenames beside itself. Publish the LEAN
+          # update.bin here — never the GitHub (with-installer) sibling.
+          DEST="_pages/dist/${{ steps.pack.outputs.tag }}"
+          mkdir -p "$DEST"
+          cp _release/*.zip _release/manifest.json _release/projects.json "$DEST/"
+          cp _pages_update/retro-go_update.bin "$DEST/"
 
       - name: Upload Pages staging
         uses: actions/upload-artifact@v6

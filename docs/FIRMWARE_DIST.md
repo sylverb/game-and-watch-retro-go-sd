@@ -9,11 +9,14 @@ to implement an installer; read that one to understand a decision.
 
 Cores are **not** part of a firmware release (they are separate projects under
 the [GWRG distribution spec](https://github.com/slash-proc/gwrg-dist-spec)).
-`retro-go_update.bin` is the bank-2 SD updater only (no embedded installer or
-cores). There are no bank-1 builds (`sd-bank1` / `flash-bank1`). Everything under
-`/homebrews` and `/cores` ships from those projects separately. A firmware
-release otherwise carries the intflash image and the static content the launcher
-itself needs: fonts, language blobs, and the boot logo.
+The GitHub-release `retro-go_update.bin` embeds `/homebrews/installer.bin` from
+[installer-retro-go-sd](https://github.com/sylverb/installer-retro-go-sd). The
+Pages mirror publishes a lean file under the **same name** (no installer) for
+tools; `manifest.json` `updates.bank2` hashes that lean file. There are no
+bank-1 builds (`sd-bank1` / `flash-bank1`). Everything else under `/homebrews`
+and `/cores` ships from those projects separately. A firmware release otherwise
+carries the intflash image and the static content the launcher itself needs:
+fonts, language blobs, and the boot logo.
 
 That is why this format is a sibling of the GWRG spec rather than a `kind`
 inside it. The spec describes installing files into a directory. Firmware is
@@ -180,13 +183,14 @@ The release-level SD updater (bank 2 only — dual-boot is the supported layout)
 ```
 
 The archive contains the transient updater and a complete SD-card update tar
-(internal name `update_bank2.bin`). Copy it to the SD-card root as
-`retro-go_update.bin`. It does not embed installer.bin or cores.
+(internal name `update_bank2.bin`). The Pages copy does not embed
+installer.bin; the GitHub-release asset with the same filename does.
 
-This file (and the per-build zips) are published on the Pages `dist/<tag>/`
-mirror. The GitHub release download list intentionally only includes
-`retro-go_update.bin` so humans see one file; tools must use the Pages URLs
-from `versions.json` / `manifest.json`, not scrape the GitHub Assets list.
+The lean file (and the per-build zips) are published on the Pages `dist/<tag>/`
+mirror. The GitHub release download list intentionally only includes the
+with-installer `retro-go_update.bin` so humans see one file; tools must use the
+Pages URLs from `versions.json` / `manifest.json`, not scrape the GitHub Assets
+list — and must not assume the GitHub bytes match `updates.bank2.sha256`.
 
 ### `paths`
 
