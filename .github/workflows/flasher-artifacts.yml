@@ -1,21 +1,19 @@
 # Retro-Go SD 2.0 release producer.
 #
-# Builds three firmware variants (sd-bank2, flash-bank1, flash-bank2), packs
-# each into a self-contained install zip, publishes the lean bank-2 updater
-# and an optional all-builds debug bundle, and mirrors the release to
-# GitHub Pages where a browser
-# can actually read it. No sd-bank1: SD installs / updates always target bank 2.
+# Builds two firmware variants (sd-bank2, flash-bank2), packs each into a
+# self-contained install zip, publishes the bank-2 SD updater, and mirrors the
+# release to GitHub Pages where a browser can actually read it. Bank 1 is not
+# published (dual-boot / bank 2 only).
 #
 # See docs/RELEASE_2_0.md for the format and why it is shaped this way.
 #
 # No cores ship here: they are decoupled projects publishing under the GWRG
-# distribution spec. The human-facing retro-go_update.bin additionally embeds
-# /homebrews/installer.bin from sylverb/installer-retro-go-sd; the lean
-# retro-go_update-bank2.bin on Pages does not. Curated cores/homebrews otherwise
-# come from docs/CURATED_PROJECTS.md → projects.json.
+# distribution spec. Curated cores/homebrews come from
+# docs/CURATED_PROJECTS.md → projects.json. The SD updater does not embed
+# installer.bin — install cores/homebrews separately.
 #
-# GitHub release assets: only retro-go_update.bin (bank2 content + installer).
-# Lean bank-2 updater, build zips and debug-all live on Pages.
+# GitHub release assets: only retro-go_update.bin (lean bank-2 SD updater).
+# Build zips, debug-all and the same update.bin live on Pages.
 #
 # Pages is the mirror because a GitHub release asset sends no CORS header — `curl`
 # gets the bytes, a browser does not. Releases stay the archival source of truth;
@@ -30,7 +28,7 @@ on:
         default: sylverb/retro-go-sd-builder:v1.5
         type: string
   push:
-    # A release comes from a tag. A branch push only builds — it proves the three
+    # A release comes from a tag. A branch push only builds — it proves the two
     # variants still compile and pack, and stops there: no release, no Pages
     # deploy. Publishing from "whichever commit last touched Core/" would mint
     # releases nobody asked for and race the mirror against itself.
@@ -54,7 +52,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # One place for the feature set every variant is built with, so the three builds
+  # One place for the feature set every variant is built with, so the two builds
   # cannot drift apart. MAX_CHEAT_CODES is passed on the command line (NOT a
   # Makefile edit): the stock Makefile only defines it for SD_CARD=1, so
   # CHEAT_CODES=1 SD_CARD=0 needs it supplied here — matching the SD value.
@@ -70,8 +68,6 @@ env:
     ZH_TW=1
     KO_KR=1
     JA_JP=1
-  # SD-layout install zip (not *-debug.zip — that one is ELF/map only).
-  INSTALLER_HOMEBREW_ZIP_URL: https://github.com/sylverb/installer-retro-go-sd/releases/download/v1.0.0/installer-v1.0.0.zip
 
 jobs:
   build:
@@ -86,9 +82,6 @@ jobs:
           - id: flash-bank2
             sd_card: 0
             bank: 2
-          - id: flash-bank1
-            sd_card: 0
-            bank: 1
     name: build ${{ matrix.id }}
     env:
       BUILDER_IMAGE: ${{ inputs.builder_image || 'sylverb/retro-go-sd-builder:v1.5' }}
@@ -101,17 +94,15 @@ jobs:
           # Full history + tags so scripts/update_gittag.sh's `git describe` resolves a
           # real version instead of "NOTAG". GIT_TAG is baked into the firmware and read
           # back out of the image by the packer, so a bogus tag would propagate into the
-          # manifest. Every matrix job checks out the same commit, so all three agree.
+          # manifest. Every matrix job checks out the same commit, so both agree.
           fetch-depth: 0
           fetch-tags: true
 
       - name: Build SD_CARD=${{ matrix.sd_card }} bank${{ matrix.bank }}
         run: |
           set -euo pipefail
-          # The bank IS the intflash link address (0x08000000 / 0x08100000), so it
-          # cannot be a runtime patch — hence a separate image for bank 1 (overwrite
-          # stock) and bank 2 (keep stock in bank 1 for dual-boot/recovery).
-          # SD releases only ship bank 2 (sd-bank1 is omitted on purpose).
+          # The bank IS the intflash link address. Releases only ship bank 2
+          # (dual-boot); bank-1 images are not published.
           #
           # GNW_TARGET is omitted: it is now only an EXTFLASH_SIZE_MB default, and the
           # host resolves extflash geometry through the layout superblock instead.
@@ -130,7 +121,7 @@ jobs:
             bash -l -c "set -e
               make -j\$(nproc) $FLAGS create_sd_data build/gw_retro_go_intflash.bin"
 
-          # Stage under _out/<id>/ so the three jobs' artifacts merge into one tree.
+          # Stage under _out/<id>/ so the two jobs' artifacts merge into one tree.
           mkdir -p "_out/${{ matrix.id }}"
           cp build/gw_retro_go_intflash.bin "_out/${{ matrix.id }}/"
           cp build/gw_retro_go.elf          "_out/${{ matrix.id }}/"
@@ -168,7 +159,7 @@ jobs:
         uses: actions/download-artifact@v7
         with:
           pattern: build-*
-          merge-multiple: true   # merges the three _out/ trees into one _dl/
+          merge-multiple: true   # merges the two _out/ trees into one _dl/
           path: _dl
 
       - name: Check every build arrived
@@ -176,7 +167,7 @@ jobs:
           set -euo pipefail
           # merge-multiple is silent about a job that uploaded nothing; a missing build
           # would otherwise surface as a confusing packer error much later.
-          for id in sd-bank2 flash-bank1 flash-bank2; do
+          for id in sd-bank2 flash-bank2; do
             for f in "_dl/$id/gw_retro_go_intflash.bin" \
                      "_dl/$id/gw_retro_go.elf" \
                      "_dl/$id/flags.txt"; do
@@ -194,31 +185,15 @@ jobs:
           mkdir -p _dl/updater
           cp external/firmware_update/build/firmware_update.bin _dl/updater/
 
-      - name: Build lean bank-2 update archive (tools)
+      - name: Build retro-go_update.bin (bank2, no installer)
         run: |
           set -euo pipefail
           mkdir -p _release
-          # Lean bank-2 archive (no installer) for automated tools on Pages.
-          # Dual-boot / bank-1-only installs are not a supported SD-update path;
-          # bank-1 firmware still ships as flash/sd install zips only.
+          # Lean bank-2 SD updater. Cores / homebrews (including the core
+          # installer) are installed separately — not baked into this archive.
           python3 scripts/flasher/make_update_package.py \
             --updater _dl/updater/firmware_update.bin \
             --content _dl/sd-bank2/content \
-            --output _release/retro-go_update-bank2.bin
-
-      - name: Build human-facing retro-go_update.bin (bank2 + installer)
-        run: |
-          set -euo pipefail
-          # Only this archive embeds /homebrews/installer.bin. Do not mutate the
-          # sd-bank2 content tree used for the lean package or pack_release zips.
-          rm -rf _dl/update-with-installer
-          cp -a _dl/sd-bank2/content _dl/update-with-installer
-          python3 scripts/flasher/bundle_installer_homebrew.py \
-            --url "$INSTALLER_HOMEBREW_ZIP_URL" \
-            --content _dl/update-with-installer
-          python3 scripts/flasher/make_update_package.py \
-            --updater _dl/updater/firmware_update.bin \
-            --content _dl/update-with-installer \
             --output _release/retro-go_update.bin
 
       - name: Pack release
@@ -250,7 +225,7 @@ jobs:
           python3 scripts/gen_projects_json.py --output _release/projects.json
 
           BUILD_ARGS=()
-          for id in sd-bank2 flash-bank2 flash-bank1; do
+          for id in sd-bank2 flash-bank2; do
             storage="${id%%-*}"
             bank="${id##*bank}"
             BUILD_ARGS+=( --build "id=$id,storage=$storage,bank=$bank,image=_dl/$id/gw_retro_go_intflash.bin,elf=_dl/$id/gw_retro_go.elf,content=_dl/$id/content,flags=$(cat "_dl/$id/flags.txt")" )
@@ -265,7 +240,7 @@ jobs:
             --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             $([ "$PRERELEASE" = true ] && echo --prerelease) \
             --projects _release/projects.json \
-            --update-bank2 _release/retro-go_update-bank2.bin \
+            --update-bank2 _release/retro-go_update.bin \
             --out _release
 
       - name: Build all-builds debug bundle
@@ -273,7 +248,7 @@ jobs:
           set -euo pipefail
           rm -rf _debug-all
           mkdir -p _debug-all
-          for id in sd-bank2 flash-bank1 flash-bank2; do
+          for id in sd-bank2 flash-bank2; do
             mkdir -p "_debug-all/$id"
             unzip -q "_release/retro-go-sd-${GITHUB_REF_NAME}-$id.zip" -d "_debug-all/$id"
           done
@@ -283,9 +258,8 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.pack.outputs.tag }}"
-          # Pages hosts bank-specific updates + debug for tools (CORS). The
-          # GitHub release itself only ships retro-go_update.bin so humans see
-          # one download — GitHub has no "hidden assets" / sections API.
+          # Pages hosts install zips + debug for tools (CORS). The GitHub release
+          # itself only ships retro-go_update.bin so humans see one download.
           # Append the footer with Python (a column-0 shell heredoc breaks YAML).
           python3 - "$TAG" <<'PY' > _release/RELEASE_NOTES.md
           import pathlib, sys
@@ -295,19 +269,19 @@ jobs:
               text += "\n"
           footer = f"""
           <details>
-          <summary>Automated-tool assets (bank updates, debug ELFs, install zips)</summary>
+          <summary>Automated-tool assets (debug ELFs, install zips)</summary>
 
           These are published on the Pages mirror next to `manifest.json` (not as
           extra GitHub release downloads):
 
-          - `retro-go_update-bank2.bin` (no installer homebrew)
           - `debug-all-{tag}.zip`
-          - `retro-go-sd-{tag}-*.zip`, `manifest.json`, `projects.json`
+          - `retro-go-sd-{tag}-{{sd,flash}}-bank2.zip`, `manifest.json`, `projects.json`
+          - the same `retro-go_update.bin` as this release
 
           Mirror: https://sylverb.github.io/game-and-watch-retro-go-sd/dist/{tag}/
 
-          `retro-go_update.bin` on this release is the bank-2 updater **plus**
-          `/homebrews/installer.bin` for first-time core installs.
+          `retro-go_update.bin` is the bank-2 SD updater only (no embedded
+          installer / cores — install those separately).
 
           </details>
           """

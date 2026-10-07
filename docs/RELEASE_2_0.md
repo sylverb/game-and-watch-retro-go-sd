@@ -43,30 +43,27 @@ blobs are therefore per-build.
 ### Release assets
 
 The **GitHub release** ships one human-facing file: `retro-go_update.bin`
-(bank-2 updater **plus** `/homebrews/installer.bin`). A lean bank-2 updater
-(without the installer), per-build install zips, and `debug-all-<tag>.zip` are
-published on the **Pages mirror** (`dist/<tag>/`) for automated tools —
-GitHub Releases has no way to hide or section assets. There is no
-`sd-bank1` build and no `retro-go_update-bank1.bin`: SD installs always target
-bank 2. Flash-only still publishes both banks (`flash-bank1`, `flash-bank2`).
+(lean bank-2 SD updater — no embedded installer / cores). Per-build install
+zips, `debug-all-<tag>.zip`, and the same update file are published on the
+**Pages mirror** (`dist/<tag>/`) for automated tools — GitHub Releases has no
+way to hide or section assets. Only bank-2 builds are published (`sd-bank2`,
+`flash-bank2`).
 
 ```
 # GitHub release (humans)
-retro-go_update.bin                                bank2 SD updater + installer
+retro-go_update.bin                                bank2 SD updater (no installer)
 
 # Pages dist/<tag>/ (tools; also holds the human file)
 retro-go-sd-<tag>-sd-bank2.zip                     SD + bank 2
-retro-go-sd-<tag>-flash-bank{1,2}.zip              flash-only, both banks
-retro-go_update-bank2.bin                          SD updater for bank 2 (no installer)
+retro-go-sd-<tag>-flash-bank2.zip                  flash-only + bank 2
+retro-go_update.bin                                same as the GitHub asset
 debug-all-<tag>.zip                                optional developer convenience
 ```
 
 Each build zip is self-contained — its intflash image, debug ELF, `lang/` blobs and a
 copy of `fonts/` and `bios/logo.bin` (duplicated per zip, not worth
-deduplicating). The SD updater archives are assembled from sd-bank2 content.
-Their internal tar contains `update_bank2.bin`; the outer
-`retro-go_update-bank2.bin` name is what Retro-Go 2.0 uses to select the update
-safely.
+deduplicating). The SD updater is assembled from sd-bank2 content; its internal
+tar contains `update_bank2.bin`.
 
 The ELFs are split out. They are ~1.5 MB now that no core links into the
 firmware, but an unstripped ELF was 25.9 MB before decoupling and nothing stops

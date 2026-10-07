@@ -10,8 +10,8 @@ cores on the SD card; the launcher discovers them at boot.
 #### Architecture
 - Emulator systems ship as `/cores/*.bin`
 - Homebrew GWHB binaries live under `/homebrews/`
-- Official `retro-go_update.bin` embeds `/homebrews/installer.bin` (core
-  installer); the lean `retro-go_update-bank2.bin` on Pages does not
+- Official `retro-go_update.bin` is the bank-2 firmware updater only (cores /
+  homebrews install separately)
 - New out-of-tree SDK / template: [retro-go-sd-templates](https://github.com/sylverb/retro-go-sd-templates)
 
 #### Launcher / UI
@@ -30,8 +30,7 @@ To install this version, make sure you have:
 
 ## Installation Instructions
 1. Download `retro-go_update.bin` and copy it to the root directory of your
-   micro SD card. (Pre-2.0 installs need that exact name; Retro-Go 2.0+ also
-   accepts `retro-go_update-bank2.bin`.)
+   micro SD card.
 2. Insert the micro SD card into your Game & Watch.
 3. Turn on the Game & Watch and wait for the installation to complete.
 4. Copy emulator cores to `/cores/` (and homebrews to `/homebrews/` if desired).

@@ -9,14 +9,11 @@ to implement an installer; read that one to understand a decision.
 
 Cores are **not** part of a firmware release (they are separate projects under
 the [GWRG distribution spec](https://github.com/slash-proc/gwrg-dist-spec)).
-The human-facing `retro-go_update.bin` additionally embeds
-`/homebrews/installer.bin` from
-[installer-retro-go-sd](https://github.com/sylverb/installer-retro-go-sd);
-`retro-go_update-bank2.bin` on the Pages mirror does not. There is no `sd-bank1`
-build and no bank-1 SD updater (SD always targets bank 2). Everything else under
-`/homebrews` and `/cores` still ships from those projects. A firmware release
-otherwise carries the intflash image and the static content the launcher itself
-needs: fonts, language blobs, and the boot logo.
+`retro-go_update.bin` is the bank-2 SD updater only (no embedded installer or
+cores). There are no bank-1 builds (`sd-bank1` / `flash-bank1`). Everything under
+`/homebrews` and `/cores` ships from those projects separately. A firmware
+release otherwise carries the intflash image and the static content the launcher
+itself needs: fonts, language blobs, and the boot logo.
 
 That is why this format is a sibling of the GWRG spec rather than a `kind`
 inside it. The spec describes installing files into a directory. Firmware is
@@ -84,7 +81,7 @@ newest `retained` versions (5).
       "providesAbi": { "version": 2, "size": 844 },
       "coreMetaVersion": 3,
       "updates": {
-        "bank2": "v2.0.0/retro-go_update-bank2.bin"
+        "bank2": "v2.0.0/retro-go_update.bin"
       }
     }
   ]
@@ -174,26 +171,22 @@ it exists only as a compile-time comparison — so it is read from
 
 ### `updates`
 
-The release-level lean updater (bank 2 only — dual-boot is the supported
-layout):
+The release-level SD updater (bank 2 only — dual-boot is the supported layout):
 
 ```json
 "updates": {
-  "bank2": { "bytes": 11000000, "sha256": "…", "url": "retro-go_update-bank2.bin" }
+  "bank2": { "bytes": 2200000, "sha256": "…", "url": "retro-go_update.bin" }
 }
 ```
 
 The archive contains the transient updater and a complete SD-card update tar
-(internal name `update_bank2.bin`). Retro-Go 2.0+ accepts
-`retro-go_update-bank2.bin` on the SD root; older installations require renaming
-it to `retro-go_update.bin`.
+(internal name `update_bank2.bin`). Copy it to the SD-card root as
+`retro-go_update.bin`. It does not embed installer.bin or cores.
 
-This lean file (and the per-build zips) are published on the Pages
-`dist/<tag>/` mirror. The GitHub release download list intentionally only
-includes `retro-go_update.bin` (bank-2 content **plus** `/homebrews/installer.bin`)
-so humans see one file; tools must use the Pages URLs from `versions.json` /
-`manifest.json`, not scrape the GitHub Assets list. The lean bank-2 archive on
-Pages does not embed the installer.
+This file (and the per-build zips) are published on the Pages `dist/<tag>/`
+mirror. The GitHub release download list intentionally only includes
+`retro-go_update.bin` so humans see one file; tools must use the Pages URLs
+from `versions.json` / `manifest.json`, not scrape the GitHub Assets list.
 
 ### `paths`
 
@@ -303,21 +296,14 @@ An installer picks one of the published builds. The axes:
 
 - **`storage`** — `sd` for a device with an SD card mod, `flash` for one
   without. These are genuinely different builds: different linker script,
-  different filesystem, not a runtime option. SD releases only publish
-  `sd-bank2`.
-- **`bank`** — `2` is the dual-boot layout, which leaves the original firmware
-  in bank 1 and is the normal choice. `1` replaces the stock firmware
-  (flash-only releases still ship `flash-bank1`).
+  different filesystem, not a runtime option. Releases publish `sd-bank2` and
+  `flash-bank2` only.
+- **`bank`** — always `2` (dual-boot layout; stock firmware stays in bank 1).
 
 Refuse rather than guess when:
 
 - The device's detected storage does not match any published build.
-- The user asks for SD `bank: 1` (not published) or flash `bank: 1` on a device
-  that already has the dual-boot bootloader installed. `boot_bank2()` spins
-  forever when bank 2 holds no valid reset vector
-  (`external/firmware_update/Core/Src/firmware_update.c:97-114`), so a
-  bank-1-only install under that bootloader can leave a device that does not
-  boot.
+- The user asks for `bank: 1` (not published).
 - The manifest's `providesAbi` disagrees with what you read out of the image
   itself. That means the release is misdescribed; see
   [Compatibility](#compatibility).

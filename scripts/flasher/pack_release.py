@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 """
 Pack a Retro-Go SD 2.0 release: self-contained build zips plus JSON files
-and the lean bank-2 updater archive.
+and the bank-2 SD updater archive.
 
 See docs/RELEASE_2_0.md — this script implements the format described there.
 
-Cores are decoupled and ship from their own projects. The human-facing
-`retro-go_update.bin` additionally embeds `/homebrews/installer.bin` (from
-sylverb/installer-retro-go-sd); the lean bank-2 updater and build zips do not.
-Nothing under cores/, covers/ or cheats/ appears here; the firmware release
-otherwise carries only the intflash image and the static content the launcher
-itself needs (fonts, language blobs, the boot logo).
+Cores are decoupled and ship from their own projects. Nothing under cores/,
+covers/ or cheats/ appears here; the firmware release otherwise carries only
+the intflash image and the static content the launcher itself needs (fonts,
+language blobs, the boot logo). The SD updater does not embed installer.bin.
 
-Per build (release CI: sd-bank2, flash-bank1, flash-bank2 — no sd-bank1):
+Per build (release CI: sd-bank2, flash-bank2):
 
-    retro-go-sd-<tag>-<storage>-bank<n>.zip         image + content, self-contained
+    retro-go-sd-<tag>-<storage>-bank2.zip            image + content, self-contained
     debug/retro-go-debug.elf                         inside each build zip
 
 Plus, unzipped so a version picker reads metadata without fetching an archive:
@@ -518,7 +516,7 @@ def main():
     ap.add_argument(
         "--update-bank2",
         required=True,
-        help="lean bank-2 SD updater (no installer); published on Pages",
+        help="bank-2 SD updater (retro-go_update.bin); no embedded installer",
     )
     ap.add_argument(
         "--previous-versions",

@@ -7,8 +7,10 @@ The installer project's non-debug release asset looks like:
 
 (The *-debug.zip sibling only ships ELF/map for addr2line — not usable here.)
 
-Used by the release CI so /homebrews/installer.bin lands only inside the
-human-facing retro-go_update.bin (not in retro-go_update-bank2.bin).
+Optional helper to merge installer-retro-go-sd's homebrews/ into an sd_content
+tree. Release CI no longer embeds installer.bin in retro-go_update.bin —
+cores/homebrews are installed separately — but this script remains useful for
+local one-off packages.
 """
 
 from __future__ import annotations

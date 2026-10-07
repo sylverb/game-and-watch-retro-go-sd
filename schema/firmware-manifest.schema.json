@@ -233,7 +233,7 @@
           "description": "The build id must agree with storage and bank.",
           "if": { "properties": { "storage": { "const": "sd" } } },
           "then": { "properties": { "id": { "pattern": "^sd-bank2$" } } },
-          "else": { "properties": { "id": { "pattern": "^flash-bank[12]$" } } }
+          "else": { "properties": { "id": { "pattern": "^flash-bank2$" } } }
         }
       ]
     }
