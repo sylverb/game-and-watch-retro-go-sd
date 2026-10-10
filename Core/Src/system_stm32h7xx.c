@@ -93,7 +93,10 @@
 
 /************************* Miscellaneous Configuration ************************/
 /*!< Uncomment the following line if you need to use initialized data in D2 domain SRAM (AHB SRAM) */
-/* #define DATA_IN_D2_SRAM */
+/* Required: the link scripts place .persistent/.data/.bss and the newlib heap
+   in AHB SRAM (0x30000000). Without this, RCC->AHB2ENR stays 0 and crt0's
+   .data copy bus-faults before main -- invisible under gwemu, dead on silicon. */
+#define DATA_IN_D2_SRAM
 
 /*!< Uncomment the following line if you need to relocate your vector Table in
      Internal SRAM. */
@@ -157,6 +160,46 @@ void SystemInit (void)
 #if defined (DATA_IN_D2_SRAM)
  __IO uint32_t tmpreg;
 #endif /* DATA_IN_D2_SRAM */
+
+#if defined (DATA_IN_D2_SRAM)
+  /* Cache maintenance below can write dirty lines back to D2/AHB SRAM when
+   * entering through a bank1 hot jump.  Enable that bus target before the
+   * cleanup, not merely before crt0 initializes .data/.bss. */
+#if defined(RCC_AHB2ENR_D2SRAM3EN)
+  RCC->AHB2ENR |= (RCC_AHB2ENR_D2SRAM1EN | RCC_AHB2ENR_D2SRAM2EN | RCC_AHB2ENR_D2SRAM3EN);
+#elif defined(RCC_AHB2ENR_D2SRAM2EN)
+  RCC->AHB2ENR |= (RCC_AHB2ENR_D2SRAM1EN | RCC_AHB2ENR_D2SRAM2EN);
+#else
+  RCC->AHB2ENR |= (RCC_AHB2ENR_AHBSRAM1EN | RCC_AHB2ENR_AHBSRAM2EN);
+#endif /* RCC_AHB2ENR_D2SRAM3EN */
+
+  tmpreg = RCC->AHB2ENR;
+  (void) tmpreg;
+#endif /* DATA_IN_D2_SRAM */
+
+  /* Bank1 bootloader (and in-app hot jumps) may leave MPU + I/D-cache live
+   * when branching to this Reset_Handler. crt0 then copies .data / zeroes
+   * .bss into AHB SRAM — that must not race a still-enabled D-cache, and
+   * LCD/DMA bring-up later assumes caches start off (main enables them
+   * after lcd_init). gnwmanager start bank2 does a full reset so caches
+   * are already off; start bank1 does not. */
+#if defined (__MPU_PRESENT) && (__MPU_PRESENT == 1U)
+  ARM_MPU_Disable();
+#endif
+#if defined (__ICACHE_PRESENT) && (__ICACHE_PRESENT == 1U)
+  SCB_DisableICache();
+#endif
+#if defined (__DCACHE_PRESENT) && (__DCACHE_PRESENT == 1U)
+  /* CMSIS cleans every cache set even when D-cache is already disabled.
+   * Stale dirty tags can survive a bank1 hot jump, and cleaning them here can
+   * issue writebacks to targets that no longer exist in the new memory map.
+   * Leave an already-disabled cache alone; SCB_EnableDCache() invalidates it
+   * before main enables it again. */
+  if ((SCB->CCR & SCB_CCR_DC_Msk) != 0U)
+  {
+    SCB_DisableDCache();
+  }
+#endif
 
   /* FPU settings ------------------------------------------------------------*/
   #if (__FPU_PRESENT == 1) && (__FPU_USED == 1)
@@ -243,20 +286,6 @@ void SystemInit (void)
     *((__IO uint32_t*)0x51008108) = 0x000000001U;
   }
 #endif
-
-#if defined (DATA_IN_D2_SRAM)
-  /* in case of initialized data in D2 SRAM (AHB SRAM) , enable the D2 SRAM clock (AHB SRAM clock) */
-#if defined(RCC_AHB2ENR_D2SRAM3EN)
-  RCC->AHB2ENR |= (RCC_AHB2ENR_D2SRAM1EN | RCC_AHB2ENR_D2SRAM2EN | RCC_AHB2ENR_D2SRAM3EN);
-#elif defined(RCC_AHB2ENR_D2SRAM2EN)
-  RCC->AHB2ENR |= (RCC_AHB2ENR_D2SRAM1EN | RCC_AHB2ENR_D2SRAM2EN);
-#else
-  RCC->AHB2ENR |= (RCC_AHB2ENR_AHBSRAM1EN | RCC_AHB2ENR_AHBSRAM2EN);
-#endif /* RCC_AHB2ENR_D2SRAM3EN */
-
-  tmpreg = RCC->AHB2ENR;
-  (void) tmpreg;
-#endif /* DATA_IN_D2_SRAM */
 
 #if defined(DUAL_CORE) && defined(CORE_CM4)
   /* Configure the Vector Table location add offset address for cortex-M4 ------------------*/

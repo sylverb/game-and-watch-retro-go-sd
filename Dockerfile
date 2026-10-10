@@ -25,7 +25,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /opt
 
 RUN . /arch && export ARM_COMPILER_ARCHIVE="arm-gnu-toolchain-${ARM_COMPILER_VERSION}-${ARCH}-arm-none-eabi.tar.xz"; \
-    curl -LO https://developer.arm.com/-/media/Files/downloads/gnu/${ARM_COMPILER_VERSION}/binrel/${ARM_COMPILER_ARCHIVE} \
+    curl -LO "https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/${ARM_COMPILER_VERSION}/${ARM_COMPILER_ARCHIVE}" \
     && mkdir -p /opt \
     && tar -xf ${ARM_COMPILER_ARCHIVE} -C /opt/ \
     && mv /opt/arm-gnu-toolchain-${ARM_COMPILER_VERSION}-${ARCH}-arm-none-eabi ${ARM_COMPILER_DIR} \
@@ -99,7 +99,6 @@ COPY --from=arm-toolchain-builder \
     ${ARM_COMPILER_DIR}
 
 COPY ./requirements.txt /requirements.txt
-COPY ./external/zelda3/requirements.txt /external/zelda3/requirements.txt
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
@@ -113,7 +112,7 @@ RUN apt-get update -y && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --no-compile --no-cache-dir -r /requirements.txt \
-    && rm -rf /requirements.txt /external \
+    && rm -rf /requirements.txt \
     && gnwmanager install openocd
 
 RUN useradd -m \

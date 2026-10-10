@@ -44,6 +44,11 @@ void odroid_system_init(int appId, int sampleRate)
     currentApp.id = appId;
     currentApp.romPath = ACTIVE_FILE->path;
 
+    /* appId is APPID_LAUNCHER / APPID_CORE / APPID_HOMEBREW.
+     * Per-core settings live in /data/<stem>.cfg, not APPID slots. */
+    if (appId == APPID_LAUNCHER)
+        odroid_settings_unbind_core_cfg();
+
     odroid_settings_init();
     odroid_audio_init(sampleRate);
     odroid_display_init();
@@ -83,18 +88,41 @@ rg_app_desc_t *odroid_system_get_app()
  * via strdup (legacy behavior). Callers that provide a buffer avoid heap. */
 static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPath, char *out, int out_size)
 {
-    const char *fileName = _romPath ?: currentApp.romPath;
+    const char *raw = _romPath ?: currentApp.romPath;
+    char homebrew_rel[200];
+    char fileNameBuf[RG_PATH_MAX];
+    const char *fileName;
+    size_t cap;
 
-    if (strstr(fileName, ODROID_BASE_PATH_ROMS))
-    {
-        fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
-        fileName += strlen(ODROID_BASE_PATH_ROMS);
-    }
+    if (!out || out_size <= 1)
+        return;
+    cap = (size_t)out_size;
 
-    if (!fileName || strlen(fileName) < 4)
-    {
+    if (!raw)
         RG_PANIC("Invalid ROM path!");
+
+    if (strstr(raw, ODROID_BASE_PATH_ROMS))
+    {
+        raw = strstr(raw, ODROID_BASE_PATH_ROMS);
+        raw += strlen(ODROID_BASE_PATH_ROMS);
     }
+    else if (strstr(raw, ODROID_BASE_PATH_HOMEBREWS))
+    {
+        /* /homebrews/Foo.bin → relative "/homebrew/Foo.bin" so covers stay
+         * under /covers/homebrew/ and saves under /data/homebrew/. */
+        const char *base = strrchr(raw, '/');
+        base = base ? base + 1 : raw;
+        snprintf(homebrew_rel, sizeof(homebrew_rel), "/homebrew/%s", base);
+        raw = homebrew_rel;
+    }
+
+    if (strlen(raw) < 4)
+        RG_PANIC("Invalid ROM path!");
+
+    /* Bound the relative name so snprintf output length is provably < INT_MAX. */
+    strncpy(fileNameBuf, raw, sizeof(fileNameBuf) - 1);
+    fileNameBuf[sizeof(fileNameBuf) - 1] = '\0';
+    fileName = fileNameBuf;
 
     switch (type)
     {
@@ -102,16 +130,16 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
         case ODROID_PATH_SAVE_STATE_1:
         case ODROID_PATH_SAVE_STATE_2:
         case ODROID_PATH_SAVE_STATE_3:
-            snprintf(out, out_size, "%s%s-%d.sav", ODROID_BASE_PATH_SAVES, fileName, type);
+            snprintf(out, cap, "%s%s-%d.sav", ODROID_BASE_PATH_SAVES, fileName, type);
             break;
         case ODROID_PATH_SAVE_STATE_OFF:
-            snprintf(out, out_size, "%s/off.sav", ODROID_BASE_PATH_SAVES);
+            snprintf(out, cap, "%s/off.sav", ODROID_BASE_PATH_SAVES);
             break;
         case ODROID_PATH_SCREENSHOT:
         case ODROID_PATH_SCREENSHOT_1:
         case ODROID_PATH_SCREENSHOT_2:
         case ODROID_PATH_SCREENSHOT_3:
-            snprintf(out, out_size, "%s%s-%d.raw", ODROID_BASE_PATH_SAVES, fileName, type-ODROID_PATH_SCREENSHOT);
+            snprintf(out, cap, "%s%s-%d.raw", ODROID_BASE_PATH_SAVES, fileName, type-ODROID_PATH_SCREENSHOT);
             break;
 
         case ODROID_PATH_USER_SCREENSHOT:
@@ -126,7 +154,7 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             tempFileName[sizeof(tempFileName) - 1] = '\0';
             char *dot = strrchr(tempFileName, '.');
             if (dot) *dot = '\0';
-            snprintf(out, out_size, "%s/%04d-%02d-%02d-%02d-%02d-%02d-%s.bmp",
+            snprintf(out, cap, "%s/%04d-%02d-%02d-%02d-%02d-%02d-%s.bmp",
                     ODROID_BASE_PATH_SCREENSHOTS,
                     1900 + tm_info->tm_year, tm_info->tm_mon + 1, tm_info->tm_mday,
                     tm_info->tm_hour, tm_info->tm_min, tm_info->tm_sec, tempFileName);
@@ -134,23 +162,26 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
         }
 
         case ODROID_PATH_SAVE_BACK:
-            snprintf(out, out_size, "%s%s.sav.bak", ODROID_BASE_PATH_SAVES, fileName);
+            snprintf(out, cap, "%s%s.sav.bak", ODROID_BASE_PATH_SAVES, fileName);
             break;
 
         case ODROID_PATH_SAVE_SRAM:
-            snprintf(out, out_size, "%s%s.sram", ODROID_BASE_PATH_SAVES, fileName);
+            snprintf(out, cap, "%s%s.sram", ODROID_BASE_PATH_SAVES, fileName);
             break;
 
         case ODROID_PATH_TEMP_FILE:
-            snprintf(out, out_size, "%s/%X%X.tmp", ODROID_BASE_PATH_TEMP, get_elapsed_time(), rand());
+            snprintf(out, cap, "%s/%X%X.tmp", ODROID_BASE_PATH_TEMP, get_elapsed_time(), rand());
             break;
 
         case ODROID_PATH_ROM_FILE:
-            snprintf(out, out_size, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
+            if (strncmp(fileName, "/homebrew/", 10) == 0)
+                snprintf(out, cap, "%s/%s", ODROID_BASE_PATH_HOMEBREWS, fileName + 10);
+            else
+                snprintf(out, cap, "%s%s", ODROID_BASE_PATH_ROMS, fileName);
             break;
 
         case ODROID_PATH_CRC_CACHE:
-            snprintf(out, out_size, "%s%s.crc", ODROID_BASE_PATH_CRC_CACHE, fileName);
+            snprintf(out, cap, "%s%s.crc", ODROID_BASE_PATH_CRC_CACHE, fileName);
             break;
 
         case ODROID_PATH_COVER_FILE:
@@ -160,47 +191,14 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             tempFileName[sizeof(tempFileName) - 1] = '\0';
             char *dot = strrchr(tempFileName, '.');
             if (dot) *dot = '\0';
-            snprintf(out, out_size, "%s%s.img", ODROID_BASE_PATH_COVERS, tempFileName);
+            snprintf(out, cap, "%s%s.img", ODROID_BASE_PATH_COVERS, tempFileName);
             break;
         }
 
         case ODROID_PATH_CHEAT_STATE:
             /* Persist active cheat bitmask alongside savestates (writable /data). */
-            snprintf(out, out_size, "%s%s.state", ODROID_BASE_PATH_SAVES, fileName);
+            snprintf(out, cap, "%s%s.state", ODROID_BASE_PATH_SAVES, fileName);
             break;
-
-        case ODROID_PATH_CHEAT_PCE:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.pceplus", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
-
-        case ODROID_PATH_CHEAT_GAME_GENIE:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.ggcodes", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
-
-        case ODROID_PATH_CHEAT_MCF:
-        {
-            char shortFileName[200];
-            strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
-            shortFileName[sizeof(shortFileName) - 1] = '\0';
-            char *ext = strrchr(shortFileName, '.');
-            if (ext) *ext = '\0';
-            snprintf(out, out_size, "%s%s.mcf", ODROID_BASE_PATH_CHEATS, shortFileName);
-            break;
-        }
 
         case ODROID_PATH_SYSTEM_CONFIG:
         {
@@ -214,7 +212,7 @@ static void odroid_system_get_path_buf(emu_path_type_t type, const char *_romPat
             } else {
                 systemPath[0] = '\0';
             }
-            snprintf(out, out_size, "%s%sCONFIG", ODROID_BASE_PATH_CONFIG, systemPath);
+            snprintf(out, cap, "%s%sCONFIG", ODROID_BASE_PATH_CONFIG, systemPath);
             break;
         }
 
@@ -236,6 +234,46 @@ char* odroid_system_get_path(emu_path_type_t type, const char *_romPath)
 void odroid_system_get_path_to_buf(emu_path_type_t type, const char *_romPath, char *buf, int buf_size)
 {
     odroid_system_get_path_buf(type, _romPath, buf, buf_size);
+}
+
+void odroid_system_get_cheat_path_to_buf(const char *_romPath, const char *cheat_ext,
+                                         char *buf, int buf_size)
+{
+    const char *fileName = _romPath ?: currentApp.romPath;
+    char homebrew_rel[200];
+
+    if (strstr(fileName, ODROID_BASE_PATH_ROMS))
+    {
+        fileName = strstr(fileName, ODROID_BASE_PATH_ROMS);
+        fileName += strlen(ODROID_BASE_PATH_ROMS);
+    }
+    else if (strstr(fileName, ODROID_BASE_PATH_HOMEBREWS))
+    {
+        const char *base = strrchr(fileName, '/');
+        base = base ? base + 1 : fileName;
+        snprintf(homebrew_rel, sizeof(homebrew_rel), "/homebrew/%s", base);
+        fileName = homebrew_rel;
+    }
+
+    if (!fileName || strlen(fileName) < 4 || !cheat_ext || !cheat_ext[0])
+    {
+        if (buf_size > 0)
+            buf[0] = '\0';
+        return;
+    }
+
+    char shortFileName[200];
+    strncpy(shortFileName, fileName, sizeof(shortFileName) - 1);
+    shortFileName[sizeof(shortFileName) - 1] = '\0';
+    char *dot = strrchr(shortFileName, '.');
+    if (dot)
+        *dot = '\0';
+
+    /* Accept either "ggcodes" or ".ggcodes" from callers. */
+    if (cheat_ext[0] == '.')
+        cheat_ext++;
+
+    snprintf(buf, buf_size, "%s%s.%s", ODROID_BASE_PATH_CHEATS, shortFileName, cheat_ext);
 }
 
 bool odroid_system_emu_screenshot(const char *filename)
@@ -433,6 +471,15 @@ IRAM_ATTR void odroid_system_tick(uint skippedFrame, uint fullFrame, uint busyTi
     statistics.lastTickTime = get_elapsed_time();
 }
 
+void odroid_system_abort_to_launcher(void)
+{
+    /* Cores often register sram_save/shutdown in emu_init() before the ROM
+     * is cached/loaded. Cancel mid-cache must not invoke those handlers. */
+    currentApp.handlers.sram_save = NULL;
+    currentApp.handlers.shutdown = NULL;
+    odroid_system_switch_app(0);
+}
+
 void odroid_system_switch_app(int app)
 {
     printf("%s: Switching to app %d.\n", __FUNCTION__, app);
@@ -453,6 +500,9 @@ void odroid_system_switch_app(int app)
     switch (app)
     {
     case 0:
+        /* Let the core/homebrew flush its own state (settings, etc.) before
+         * we commit the bound .cfg and tear down the SD card. */
+        odroid_system_shutdown();
         odroid_settings_StartupFile_set(0);
         odroid_settings_commit();
 
@@ -474,14 +524,23 @@ void odroid_system_switch_app(int app)
         }
 
         void _boot_bank2(void) {
-            /* sp/pc must live in callee-saved registers across HAL_MPU_Disable.
-             * If the compiler spills them to the (caller-saved) stack, the
-             * subsequent __set_MSP() switches the stack and the reload
-             * reads garbage from the new stack (out-of-DTCM at 0x20020004
-             * which is 0 → bx 0 → fault). Forcing r6/r7 keeps them safe
-             * regardless of optimisation level / register pressure. */
-            register uint32_t sp asm("r6") = *((uint32_t *)FLASH_BANK2_BASE);
-            register uint32_t pc asm("r7") = *((uint32_t *)FLASH_BANK2_BASE + 1);
+            /* sp/pc are `static` (not stack-resident), so the __set_MSP() stack
+             * switch below can never invalidate them. The previous approach forced
+             * them into r6/r7 via register-hinted locals, betting that they'd stay
+             * live there across the HAL_MPU_Disable() call — but that's only a hint
+             * to the compiler, not a guarantee: it can still spill them to the
+             * (caller-saved) stack depending on optimisation/register pressure, and
+             * after the stack switch the reload reads garbage from the NEW stack
+             * (out-of-DTCM at 0x20020004, which is 0 → bx 0 → fault). This was a
+             * real, intermittent bug — bisected on real hardware to reproduce with
+             * IDENTICAL source just from an unrelated string elsewhere in the image
+             * changing length (which perturbs the compiler's register-allocation
+             * decisions here enough to trigger the spill). `static` storage removes
+             * both the stack and register allocation from the equation entirely. */
+            static uint32_t sp;
+            static uint32_t pc;
+            sp = *((uint32_t *)FLASH_BANK2_BASE);
+            pc = *((uint32_t *)FLASH_BANK2_BASE + 1);
 
             HAL_MPU_Disable();
             __set_MSP(sp);
