@@ -264,10 +264,6 @@ int main(void)
   uint8_t trigger_wdt_bsod = 0;
   uint8_t boot_mode = BOOT_MODE_APP;
 
-#ifdef REMOTE_INPUT
-  *(volatile uint32_t *)SRAM_REMOTE_INPUT_ADDR = 0;
-#endif
-
 #if 0
   for(int i = 0; i < 1000000; i++) {
     __NOP();
@@ -321,6 +317,13 @@ int main(void)
 
   /* MPU Configuration--------------------------------------------------------*/
   MPU_Config();
+
+#ifdef REMOTE_INPUT
+  /* Clear remote-input shadow once the AHB .persistent pad is MPU
+   * non-cacheable (see MPU_Config region 7). Must happen before any
+   * buttons_get() so garbage SRAM cannot OR phantom presses over GPIO. */
+  *(volatile uint32_t *)SRAM_REMOTE_INPUT_ADDR = 0;
+#endif
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -1278,11 +1281,27 @@ __attribute__((optimize("-O0"))) static void MPU_Config(void)
   /** Initializes and configures the Region and the memory to be protected
   */
   /* Last 8 KB of AHB SRAM: .audio DMA buffer (see __AHBRAM_AUDIO_RESERVE__ in
-   * the linker script). Must stay non-cacheable for SAI DMA coherence.
-   * The ~120 KB below is cacheable via PRIVDEF. */
+   * the linker script). Must stay non-cacheable for SAI DMA coherence. */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
   MPU_InitStruct.BaseAddress = (uint32_t)&__ahbram_audio_start__;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_8KB;
+  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /* First 8 KB of AHB SRAM: .persistent pad (boot_magic / logbuf / remote
+   * input). Non-cacheable so gnwmanager/OCD see a coherent logbuf and so
+   * REMOTE_INPUT's shadow word cannot stick in DCache over GPIO polling. */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER7;
+  MPU_InitStruct.BaseAddress = (uint32_t)&__ahbram_start__;
   MPU_InitStruct.Size = MPU_REGION_SIZE_8KB;
   MPU_InitStruct.SubRegionDisable = 0x0;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;

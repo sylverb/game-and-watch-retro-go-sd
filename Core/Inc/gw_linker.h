@@ -62,3 +62,5 @@ extern uint8_t __ahbram_start__[];
 extern uint8_t __ahbram_heap_start__[];
 extern uint8_t __ahbram_audio_start__[];
 extern uint8_t __ahbram_end__[];
+/* Last 12 bytes of the 8 KiB AHB .persistent pad (scripts/remote_input.py). */
+extern uint8_t __remote_input__[];

@@ -15,7 +15,8 @@ from __future__ import annotations
 import time
 from contextlib import contextmanager
 
-# --- Shadow cell: keep in sync with Core/Inc/gw_buttons.h ---
+# --- Shadow cell: keep in sync with __remote_input__ in STM32H7B0VBTx_*.ld
+#     (AHB .persistent pad end = ORIGIN(AHBRAM)+8KiB-12). ---
 SHADOW_ADDR = 0x30001FF4
 
 # --- Button bits: keep in sync with input_button_t enum order:

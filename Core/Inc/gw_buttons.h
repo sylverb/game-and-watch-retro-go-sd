@@ -19,8 +19,10 @@
 uint32_t buttons_get();
 
 #ifdef REMOTE_INPUT
-/* End of AHB .persistent pad (non-cacheable); keep in sync with scripts/remote_input.py */
-#define SRAM_REMOTE_INPUT_ADDR 0x30001FF4UL
+/* End of AHB .persistent pad (linker __remote_input__). Keep MPU
+ * non-cacheable — see MPU_Config region 7 in main.c. */
+extern uint8_t __remote_input__[];
+#define SRAM_REMOTE_INPUT_ADDR ((uint32_t)__remote_input__)
 #endif
 
 #endif
