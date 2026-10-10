@@ -230,6 +230,7 @@ Now cores are provided outside of this project. You can find various projects by
 - [SNK Neo Geo AES/MVS](https://github.com/sylverb/gngeo-retro-go-sd)
 - [SNK Neo Geo Pocket/Pocket Color](https://github.com/sylverb/race-retro-go-sd)
 - [Watara Supervision](https://github.com/sylverb/potator-retro-go-sd)
+
 Some other existing emulators could be missing, don't hesitate to create a PR or contact me to add them here.
 
 To install a new core, download release zip file from the project page and extract it on your sd card (core file(s) should then be installed in /cores folder)
@@ -248,6 +249,8 @@ Now homebrews are provided outside of this project. You can find various project
 - [Super Mario World SNES port](https://github.com/sylverb/smw-retro-go-sd)
 - [Zelda A Link To The Past SNES port](https://github.com/sylverb/zelda3-retro-go-sd)
 - [Tomb Raider](https://github.com/sylverb/openlara-retro-go-sd)
+- [Bart Simpson's Cupcake Crisis](https://github.com/osirisad/retro-go-bart-simpsons-cupcake-crisis)
+
 Some other existing homebrews could be missing, don't hesitate to create a PR or contact me to add them here.
 
 To install a new homebrew, download release zip file from the project page and extract it on your sd card (core file(s) should then be installed in /homebrews folder). Be sure to check project page as you could have to provide game's assets.

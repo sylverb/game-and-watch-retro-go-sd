@@ -4,7 +4,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <assert.h>
-#include <stdio.h>
 
 #include "gui.h"
 #include "gw_lcd.h"
@@ -1028,9 +1027,16 @@ static bool jpeg_sof_dimensions(const uint8_t *data, size_t len, uint32_t *w, ui
 static bool jpeg_fits_cover_buffers(const uint8_t *data, size_t len)
 {
     uint32_t w = 0, h = 0;
-    if (!jpeg_sof_dimensions(data, len, &w, &h))
+    if (!jpeg_sof_dimensions(data, len, &w, &h) || w == 0 || h == 0)
         return false;
-    return w <= COVER_MAX_WIDTH && h <= COVER_MAX_HEIGHT;
+    /* Accept any SOF that fits the YCbCr/RGB scratch — not the soft layout
+     * box (COVER_MAX 186x100). Pico-8 labels are often native 128x128: that
+     * exceeds MAX_H but is MCU-aligned and fits COVER_420 / COVER_16BITS
+     * (128²×3/2=24576 < 27900). Coverflow scales down to COVER_MAX when drawing. */
+    uint32_t pw = (w + 15u) & ~15u;
+    uint32_t ph = (h + 15u) & ~15u;
+    return (pw * ph * 3u / 2u) <= COVER_420_SIZE
+        && (w * h * 2u) <= COVER_16BITS_SIZE;
 }
 
 static uint8_t *get_coverfile(char *rom_path)
