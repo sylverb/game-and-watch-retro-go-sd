@@ -1,0 +1,18 @@
+---
+description: core_common — standalone "core" binary SDK for dynamic emulator cores
+globs: Core/Src/porting/core_common/**,cores/**
+alwaysApply: false
+---
+
+# core_common — standalone "core" binary SDK
+
+When editing or debugging the dynamic-core SDK, or porting a new emulator to it, read and follow **Core/Src/porting/core_common/CLAUDE.md** in full.
+
+Quick pointers:
+
+- **Model:** each core is its own freestanding ELF linked at `RAM_EMU_START` (`ld/gnw_ram_emu.ld`), talking to the firmware only through `gw_firmware_abi_t`, packaged by `tools/pack_core.py` into `cores/<name>.bin`, discovered at boot by `emulators_scan_cores()` scanning `/cores/*.bin`.
+- **Build a core:** `cd cores/<name> && make` — fix undefined references by adding an entry to both `gw_core_bridge_redefine_syms.txt` (no blank lines!) and a `core_<name>` trampoline in `gw_core_bridge.c`.
+- **`objcopy --redefine-syms`** fails on blank lines in the mapping file.
+- **`__aeabi_memset`/`__aeabi_memclr`** take `(dest, n, c)` — swapped vs libc `memset(dest, c, n)`.
+- **`--gc-sections` drops unreferenced `const` globals even with `__attribute__((used))`** — needs an explicit named section + `KEEP()` in the linker script (see `.gw_core_bridge_probe`).
+- **RAM_EMU aliasing:** every core links at the same VMA — point `addr2line`/gdb at `cores/<name>/build/<name>_core.elf` explicitly, not `build/gw_retro_go.elf`.

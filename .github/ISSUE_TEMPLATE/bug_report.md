@@ -16,7 +16,7 @@ Please include the following:
 
 - Which console (NES, GB, ...)
 - The full name of the ROM you are running, e.g. "Super_Tilt_Bro_(E).nes"
-- The git hash of this repo and the submodule. Run the following: `git describe --all --long --dirty=-dirty; cd retro-go-stm32; git describe --all --long --dirty=-dirty`
+- The git hash of this repo. Run the following: `git describe --all --long --dirty=-dirty`
 
 
 **Describe the bug**

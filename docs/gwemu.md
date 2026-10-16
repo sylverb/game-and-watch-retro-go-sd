@@ -49,7 +49,7 @@ It works on Linux too, and needs no admin rights. Equivalent by hand:
 VER=15.2.rel1                    # must match ARM_COMPILER_VERSION in Dockerfile
 ARCH=darwin-arm64                # see the Intel note below
 mkdir -p ~/opt && cd ~/opt
-curl -fSLO "https://developer.arm.com/-/media/Files/downloads/gnu/$VER/binrel/arm-gnu-toolchain-$VER-$ARCH-arm-none-eabi.tar.xz"
+curl -fSLO "https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/$VER/arm-gnu-toolchain-$VER-$ARCH-arm-none-eabi.tar.xz"
 tar xf "arm-gnu-toolchain-$VER-$ARCH-arm-none-eabi.tar.xz"
 export PATH="$HOME/opt/arm-gnu-toolchain-$VER-$ARCH-arm-none-eabi/bin:$PATH"
 ```

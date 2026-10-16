@@ -14,30 +14,49 @@
 #include "gw_malloc.h"
 #include "gw_flash_alloc.h"
 #include "gw_ofw.h"
+#include "gw_layout_superblock.h"
 
+/* V2 INDEX, DELIBERATELY UNDER A NEW NAME.
+ *
+ * The index is a fixed table of MAX_FILES slots, 16 bytes each, keyed by a
+ * CRC of the file path (or of a blob key).  It says WHERE in external flash
+ * each cached item landed; the flash holds only the data.  A slot costs the
+ * same whether it describes a 279-byte PLD or a 4MB ROM, so the table size
+ * is a limit on the NUMBER of cached items, not on their bytes -- and 50 is
+ * too few for a big arcade set: 1944 (CPS2) with pre-decoded gfx holds 97
+ * entries (12 ROMs, 2 decrypt blobs, Z80 tables, 80 tile blobs, 2 cold-code
+ * images), so with 100 slots any OTHER game launched afterwards evicted
+ * 1944 entries and the two ping-ponged 256K blob rebuilds.  256 slots
+ * (4K of index) hold a CPS2 set beside a dozen smaller games.
+ *
+ * KEEP ONE FILENAME, shared with stock firmware.  load_metadata() already
+ * rejects an index whose size or version does not match, and both guards
+ * are upstream, so changing MAX_FILES invalidates it in BOTH directions:
+ * boot stock after us and it sees 1628 bytes where it wants 828, resets and
+ * rebuilds; boot us after stock and the same happens in reverse.
+ *
+ * Giving our version its own filename looks tidier and is WRONG.  Each
+ * firmware would keep its own index, so ours would survive untouched while
+ * stock ran -- and stock writes cache data all over external flash.  On the
+ * way back our index would still pass every check while describing
+ * addresses stock had since overwritten.  The single shared name is
+ * self-correcting precisely because whoever boots second finds a file that
+ * fails validation. */
 #define METADATA_FILE ODROID_BASE_PATH_SAVES "/flashcachedata.bin"
-#define METADATA_VERSION 1
-#define MAX_FILES 50
+#define METADATA_VERSION 2
+#define MAX_FILES GW_FLASH_CACHE_MAX_FILES
 
 typedef struct {
     uint32_t uid[3];
 } CpuUniqueId;
 
 // Metadata for each file
-typedef struct
-{
-    uint32_t file_crc32;
-    uint32_t flash_address;
-    uint32_t file_size;
-    bool valid;
-} FileMetadata;
-
 // Global Metadata
 typedef struct
 {
     uint32_t version;
     CpuUniqueId cpu_unique_id;
-    FileMetadata files[MAX_FILES];
+    gw_flash_file_metadata_t files[MAX_FILES];
     uint32_t flash_write_pointer;  // A value like 0x9YYYYYYY; the current location we should write to.
     uint32_t flash_write_base;     // A value like 0x9YYYYYYY; the starting point we are allowed to write to.
     uint16_t last_written_slot_index;
@@ -56,16 +75,18 @@ static CpuUniqueId get_cpu_unique_id() {
 
 static uint32_t compute_file_crc32(const char *file_path)
 {
-    // Include file modification time or content in CRC32 calculation
+    // Cache key: path + modification time + size. Size matters: FAT
+    // mtime has 2s granularity and copies can preserve timestamps, so a
+    // same-mtime edit would otherwise keep serving the stale flash copy.
     struct stat file_stat;
     if (stat(file_path, &file_stat) == 0) {
         uint32_t crc = crc32_le(0, (const uint8_t *)file_path, strlen(file_path));
         crc = crc32_le(crc, (const uint8_t *)&file_stat.st_mtime, sizeof(file_stat.st_mtime));
+        crc = crc32_le(crc, (const uint8_t *)&file_stat.st_size, sizeof(file_stat.st_size));
         return crc;
     } else {
         return crc32_le(0, (const uint8_t *)file_path, strlen(file_path));
     }
-    return 0;
 }
 
 static uint32_t align_to_next_block(uint32_t pointer)
@@ -82,9 +103,24 @@ static uint32_t align_to_next_block(uint32_t pointer)
  * then a code blob; without this the second write can erase the ROM underneath
  * the core. Nothing to release: leaving a game reboots.
  */
-#define MAX_LIVE_FILES 28
+/* 96, because a file that does NOT fit here is a file find_write_slot may
+ * erase while it is still mapped and in use -- and on a G&W that means
+ * erasing flash the CPU is executing from: the machine resets instantly
+ * with RAM corrupted (it looks like a brownout, boot_magic garbage, the
+ * config magic zeroed).  Budget per CPS1 game: the zip, its program ROMs
+ * and woven blobs, the sound ROM, every RAW tile ROM opened to build the
+ * pre-decoded blobs, and one entry per blob.  Ghouls'n Ghosts peaks near
+ * 52 on a cold card (20 tile ROMs + 12 blobs + 11 others); 40 left it
+ * unprotected mid-build and reset the device twice.  Each entry is 8
+ * bytes, so headroom is nearly free -- keep it generous. */
+/* Must stay ABOVE MAX_FILES: every cached item a game maps is live for the
+ * session, and a live entry is what stops a later write erasing something
+ * still in use.  Running out only prints a warning, so an undersized array
+ * is a silent corruption risk rather than a visible failure. */
+#define MAX_LIVE_FILES 288
 
 static uint32_t get_extflash_base(void);
+static uint32_t get_extflash_total_size(void);
 
 typedef struct {
     uint32_t address;
@@ -138,7 +174,7 @@ static bool find_write_slot(uint32_t start_pointer, uint32_t erase_size_total,
                             uint32_t *out_pointer)
 {
     const uint32_t base = get_extflash_base();
-    const uint32_t limit = (uint32_t)&__EXTFLASH_BASE__ + OSPI_GetFlashSize();
+    const uint32_t limit = (uint32_t)&__EXTFLASH_BASE__ + get_extflash_total_size();
     uint32_t p = start_pointer;
 
     if (erase_size_total > limit - base)
@@ -158,20 +194,28 @@ static bool find_write_slot(uint32_t start_pointer, uint32_t erase_size_total,
     return false;
 }
 
+uint32_t flash_cache_usable_size(void)
+{
+    uint32_t base = get_extflash_base();
+    uint32_t limit = (uint32_t)&__EXTFLASH_BASE__ + get_extflash_total_size();
+    return (limit > base) ? (limit - base) : 0;
+}
+
 /* Bytes to keep reserved at the bottom of external flash before the ROM cache may
  * write. We honor the LARGER of two reservations:
  *   1. get_ofw_extflash_size() - the active OFW's own external-flash footprint, read
  *      from its vector-table metadata (the stock retro-go behavior); and
- *   2. __EXTFLASH_OFFSET__ - the chainloader's reserved bottom region (its build-time
- *      EXTFLASH_OFFSET, passed in via --defsym).
- * The chainloader packs BOTH games' asset blocks, BOTH OFW backups, and the FAT module
- * store into the bottom __EXTFLASH_OFFSET__ bytes; get_ofw_extflash_size() only describes
- * the single booted game, so on its own it lets the ROM cache erase straight over the OFW
- * backups and FAT store. Using the max keeps the cache clear of all of it, and degrades to
- * the stock behavior when EXTFLASH_OFFSET is 0. */
+ *   2. __EXTFLASH_OFFSET__ - the reserved bottom region.
+ * get_ofw_extflash_size() only describes the single booted game, so on its own it lets the 
+ * ROM cache erase straight over anything else there. Using the max keeps the cache clear of 
+ * all of it, and degrades to the stock behavior when EXTFLASH_OFFSET is 0. */
 static uint32_t get_reserved_extflash_size()
 {
+#if SD_CARD == 1
+    uint32_t ofw = gw_layout_reserved_size();
+#else
     uint32_t ofw = get_ofw_extflash_size();
+#endif
     uint32_t reserved = (uint32_t)&__EXTFLASH_OFFSET__;
     return ofw > reserved ? ofw : reserved;
 }
@@ -179,6 +223,15 @@ static uint32_t get_reserved_extflash_size()
 static uint32_t get_extflash_base(void)
 {
     return align_to_next_block(((uint32_t)&__EXTFLASH_BASE__) + get_reserved_extflash_size());
+}
+
+static uint32_t get_extflash_total_size(void)
+{
+#if SD_CARD == 1
+    return gw_layout_extflash_size();
+#else
+    return OSPI_GetFlashSize();
+#endif
 }
 
 static void reset_metadata(uint32_t flash_write_base) {
@@ -296,12 +349,13 @@ static bool circular_flash_write(const char *file_path,
                                  uint32_t *data_size,
                                  uint32_t *flash_address_out,
                                  bool byte_swap,
-                                 file_progress_cb_t progress_cb,
+                                 flash_file_progress_cb_t progress_cb,
                                  flash_relocate_cb_t relocate_cb)
 {
     uint8_t buffer[16 * 1024];
     uint32_t total_bytes_processed = 0;
     uint8_t progress = 0;
+    bool cancelled = false;
 
     FILE *file = fopen(file_path, "rb");
     if (!file)
@@ -314,7 +368,10 @@ static bool circular_flash_write(const char *file_path,
     }
 
     if (progress_cb) {
-        progress_cb(*data_size, 0, 0);
+        if (!progress_cb(*data_size, 0, 0)) {
+            fclose(file);
+            return false;
+        }
     }
 
     uint32_t block_size = OSPI_GetSmallestEraseSize();
@@ -361,7 +418,15 @@ static bool circular_flash_write(const char *file_path,
         while (erase_addr < address_in_flash + want && erase_left > 0) {
             OSPI_Erase(&erase_addr, &erase_left, true);
             wdog_refresh();
+            /* Erase of a 64KB block can take long enough to miss a short B
+             * tap if we only poll after each 16KB program. */
+            if (progress_cb && !progress_cb(*data_size, total_bytes_processed, progress)) {
+                cancelled = true;
+                break;
+            }
         }
+        if (cancelled)
+            break;
 
         size_t bytes_read = fread(buffer, 1, want, file);
         if (bytes_read == 0)
@@ -391,8 +456,28 @@ static bool circular_flash_write(const char *file_path,
         total_bytes_processed += bytes_read;
 
         if (progress_cb) {
-            progress = (uint8_t)((total_bytes_processed * 100) / (*data_size));
-            progress_cb(*data_size, total_bytes_processed, progress);
+            /* Avoid (done * 100) uint32 overflow (~42.9 MiB) AND avoid
+             * uint64 / __aeabi_uldivmod — this frame already has a 16 KiB
+             * buffer on a 24 KiB stack; soft 64-bit div blew the stack and
+             * faulted (BSOD PC in SAI, LR=SAI1_Block_A). */
+            uint32_t total = *data_size;
+            uint32_t done = total_bytes_processed;
+            uint32_t pct;
+            if (total == 0)
+                pct = 0;
+            else if (done >= total)
+                pct = 100;
+            else if (done <= 0xffffffffu / 100u)
+                pct = (done * 100u) / total;
+            else
+                pct = done / (total / 100u); /* total >= 100 here */
+            if (pct > 100)
+                pct = 100;
+            progress = (uint8_t)pct;
+            if (!progress_cb(total, done, progress)) {
+                cancelled = true;
+                break;
+            }
         }
 
         if (bytes_read < want) {
@@ -402,6 +487,16 @@ static bool circular_flash_write(const char *file_path,
 
     OSPI_EnableMemoryMappedMode();
     fclose(file);
+
+    if (cancelled) {
+        /* Do not commit a partial file. Skip the whole reserved erase window
+         * so the next write does not start inside half-programmed flash. */
+        flash_write_pointer = old_flash_write_pointer + erase_size_total;
+        invalidate_overwritten_files(old_flash_write_pointer, erase_size_total);
+        update_flash_pointer(flash_write_pointer);
+        printf("flash_alloc: cache of %s cancelled\n", file_path);
+        return false;
+    }
 
     /* The next file must start on an erase-block boundary (the old loop
      * advanced in whole blocks; we advance by real bytes now). */
@@ -416,6 +511,255 @@ static bool circular_flash_write(const char *file_path,
     return true;
 }
 
+/* ---- derived-data blobs (not files) ----------------------------------
+ * Same cache, RAM source: store a buffer under a caller-chosen key
+ * string. Used by the arcade core to keep DECOMPRESSED zip entries in
+ * memory-mapped flash (decompress once, then serve gfx/data ROMs
+ * straight from QSPI with zero RAM cost — the megadrive principle).
+ * The key should be content-addressed (e.g. include the zip entry's
+ * own CRC32) so a changed zip naturally misses the cache. */
+
+static uint32_t compute_key_crc32(const char *key)
+{
+    return crc32_le(0, (const uint8_t *)key, strlen(key));
+}
+
+const uint8_t *lookup_data_in_flash(const char *key, uint32_t *size_out)
+{
+    initialize_metadata();
+    initialize_flash_pointer();
+
+    uint32_t key_crc = compute_key_crc32(key);
+    uint32_t flash_address;
+    uint32_t size = 0;
+
+    if (is_file_in_flash(key_crc, &flash_address, &size))
+    {
+        live_add(flash_address, size);
+        free(metadata);
+        metadata = NULL;
+        if (size_out)
+            *size_out = size;
+        return (const uint8_t *)flash_address;
+    }
+    free(metadata);
+    metadata = NULL;
+    return NULL;
+}
+
+/* ---- streaming blob store (see gw_flash_alloc.h) ------------------- */
+
+bool store_data_begin(flash_stream_t *st, const char *key, uint32_t total_size)
+{
+    memset(st, 0, sizeof(*st));
+    initialize_metadata();
+    initialize_flash_pointer();
+
+    st->key_crc = compute_key_crc32(key);
+    st->total = total_size;
+
+    uint32_t block_size = OSPI_GetSmallestEraseSize();
+    st->erase_size_total = (total_size + block_size - 1) & ~(block_size - 1);
+
+    uint32_t slot;
+    if (!find_write_slot(flash_write_pointer, st->erase_size_total, &slot)) {
+        printf("flash_alloc: no room for streamed blob '%s' (%lu bytes)\n",
+               key, (unsigned long)total_size);
+        free(metadata);
+        metadata = NULL;
+        return false;
+    }
+    flash_write_pointer = slot;
+    st->flash_address = flash_write_pointer;
+    st->prog_addr  = flash_write_pointer - (uint32_t)&__EXTFLASH_BASE__;
+    st->erase_addr = st->prog_addr;
+    st->erase_left = st->erase_size_total;
+    st->active = true;
+    return true;
+}
+
+bool store_data_append(flash_stream_t *st, const uint8_t *buf, uint32_t len)
+{
+    if (!st->active || st->done + len > st->total)
+        return false;
+
+    /* Memory-mapped mode is off only for the program itself: the producer
+     * (the inflate) reads its compressed input from the mapped flash
+     * between calls, so it must be back on when we return. */
+    OSPI_DisableMemoryMappedMode();
+    while (st->erase_addr < st->prog_addr + len && st->erase_left > 0) {
+        OSPI_Erase(&st->erase_addr, &st->erase_left, true);
+        wdog_refresh();
+    }
+    OSPI_Program(st->prog_addr, (uint8_t *)buf, len);
+    OSPI_EnableMemoryMappedMode();
+
+    st->prog_addr += len;
+    st->done += len;
+    wdog_refresh();
+    return true;
+}
+
+void store_data_abort(flash_stream_t *st)
+{
+    if (!st->active)
+        return;
+    st->active = false;
+    /* Skip the reserved erase window; do not commit a partial blob. */
+    if (metadata) {
+        flash_write_pointer = st->flash_address + st->erase_size_total;
+        invalidate_overwritten_files(st->flash_address, st->erase_size_total);
+        update_flash_pointer(flash_write_pointer);
+        free(metadata);
+        metadata = NULL;
+    }
+}
+
+const uint8_t *store_data_finish(flash_stream_t *st)
+{
+    if (!st->active || st->done != st->total) {
+        store_data_abort(st);
+        return NULL;
+    }
+    st->active = false;
+
+    uint32_t block_size = OSPI_GetSmallestEraseSize();
+    flash_write_pointer = (st->flash_address + st->total + block_size - 1)
+                          & ~(block_size - 1);
+    invalidate_overwritten_files(st->flash_address, st->erase_size_total);
+    update_flash_pointer(flash_write_pointer);
+
+    live_add(st->flash_address, st->total);
+
+    bool updated = false;
+    for (int i = 0; i < MAX_FILES; i++) {
+        if (!metadata->files[i].valid) {
+            metadata->files[i].file_crc32 = st->key_crc;
+            metadata->files[i].flash_address = st->flash_address;
+            metadata->files[i].file_size = st->total;
+            metadata->files[i].valid = true;
+            metadata->last_written_slot_index = i;
+            updated = true;
+            break;
+        }
+    }
+    if (!updated) {
+        metadata->last_written_slot_index =
+            (metadata->last_written_slot_index + 1) % MAX_FILES;
+        gw_flash_file_metadata_t *f = &metadata->files[metadata->last_written_slot_index];
+        f->file_crc32 = st->key_crc;
+        f->flash_address = st->flash_address;
+        f->file_size = st->total;
+        f->valid = true;
+    }
+    save_metadata();
+    wdog_refresh();
+    free(metadata);
+    metadata = NULL;
+    return (const uint8_t *)st->flash_address;
+}
+
+static void (*store_progress_cb)(uint32_t done, uint32_t total);
+
+void store_data_set_progress_cb(void (*cb)(uint32_t done, uint32_t total))
+{
+    store_progress_cb = cb;
+}
+
+const uint8_t *store_data_in_flash(const char *key, const uint8_t *data,
+                                   uint32_t data_size)
+{
+    initialize_metadata();
+    initialize_flash_pointer();
+
+    uint32_t key_crc = compute_key_crc32(key);
+    uint32_t flash_address;
+    uint32_t cached_size = 0;
+
+    if (is_file_in_flash(key_crc, &flash_address, &cached_size) &&
+        cached_size == data_size)
+    {
+        live_add(flash_address, cached_size);
+        free(metadata);
+        metadata = NULL;
+        return (const uint8_t *)flash_address;
+    }
+
+    uint32_t block_size = OSPI_GetSmallestEraseSize();
+    uint32_t erase_size_total = (data_size + block_size - 1) & ~(block_size - 1);
+    uint32_t slot;
+    if (!find_write_slot(flash_write_pointer, erase_size_total, &slot))
+    {
+        printf("flash_alloc: no room for blob '%s' (%lu bytes)\n",
+               key, (unsigned long)data_size);
+        free(metadata);
+        metadata = NULL;
+        return NULL;
+    }
+    flash_write_pointer = slot;
+    flash_address = flash_write_pointer;
+    uint32_t address_in_flash = flash_write_pointer - (uint32_t)&__EXTFLASH_BASE__;
+
+    OSPI_DisableMemoryMappedMode();
+    /* erase cursor runs ahead of the program cursor, as in
+     * circular_flash_write */
+    uint32_t erase_addr = address_in_flash;
+    uint32_t erase_left = erase_size_total;
+    uint32_t done = 0;
+    while (done < data_size) {
+        uint32_t want = 16 * 1024;
+        if (want > data_size - done)
+            want = data_size - done;
+        while (erase_addr < address_in_flash + want && erase_left > 0) {
+            OSPI_Erase(&erase_addr, &erase_left, true);
+            wdog_refresh();
+        }
+        OSPI_Program(address_in_flash, (uint8_t *)data + done, want);
+        if (store_progress_cb)
+            store_progress_cb(done + want, data_size);
+        address_in_flash += want;
+        done += want;
+        wdog_refresh();
+    }
+    OSPI_EnableMemoryMappedMode();
+
+    flash_write_pointer = (flash_write_pointer + data_size + block_size - 1)
+                          & ~(block_size - 1);
+    invalidate_overwritten_files(flash_address, erase_size_total);
+    update_flash_pointer(flash_write_pointer);
+
+    live_add(flash_address, data_size);
+    bool metadata_updated = false;
+    for (int i = 0; i < MAX_FILES; i++)
+    {
+        if (!metadata->files[i].valid)
+        {
+            metadata->files[i].file_crc32 = key_crc;
+            metadata->files[i].flash_address = flash_address;
+            metadata->files[i].file_size = data_size;
+            metadata->files[i].valid = true;
+            metadata->last_written_slot_index = i;
+            metadata_updated = true;
+            break;
+        }
+    }
+    if (!metadata_updated)
+    {
+        metadata->last_written_slot_index =
+            (metadata->last_written_slot_index + 1) % MAX_FILES;
+        gw_flash_file_metadata_t *f = &metadata->files[metadata->last_written_slot_index];
+        f->file_crc32 = key_crc;
+        f->flash_address = flash_address;
+        f->file_size = data_size;
+        f->valid = true;
+    }
+    save_metadata();
+    wdog_refresh();
+    free(metadata);
+    metadata = NULL;
+    return (const uint8_t *)flash_address;
+}
+
 // Clear all metadata and delete the metadata file
 void flash_alloc_reset()
 {
@@ -427,13 +771,69 @@ void flash_alloc_reset()
     remove(METADATA_FILE);
 }
 
-uint8_t *store_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap, file_progress_cb_t progress_cb)
+/* When true, flash_file_is_cached() reuses the already-loaded index instead
+ * of fopen/fclose per probe (idle scan of on-screen games). */
+static bool lookup_session;
+
+void flash_cache_lookup_begin(void)
+{
+    initialize_metadata();
+    initialize_flash_pointer();
+    lookup_session = true;
+}
+
+void flash_cache_lookup_end(void)
+{
+    if (metadata) {
+        free(metadata);
+        metadata = NULL;
+    }
+    lookup_session = false;
+}
+
+static bool flash_crc_is_cached(uint32_t key_crc)
+{
+    bool owned = !lookup_session;
+    if (owned) {
+        initialize_metadata();
+        initialize_flash_pointer();
+    } else if (metadata == NULL) {
+        initialize_metadata();
+        initialize_flash_pointer();
+    }
+
+    uint32_t flash_address = 0;
+    uint32_t file_size = 0;
+    bool hit = is_file_in_flash(key_crc, &flash_address, &file_size);
+
+    if (owned) {
+        free(metadata);
+        metadata = NULL;
+    }
+    return hit;
+}
+
+bool flash_file_is_cached(const char *file_path)
+{
+    if (!file_path || !file_path[0])
+        return false;
+    return flash_crc_is_cached(compute_file_crc32(file_path));
+}
+
+bool flash_data_is_cached(const char *key)
+{
+    if (!key || !key[0])
+        return false;
+    return flash_crc_is_cached(compute_key_crc32(key));
+}
+
+uint8_t *store_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap, flash_file_progress_cb_t progress_cb)
 {
     return store_file_in_flash_relocate(file_path, file_size_p, byte_swap, progress_cb, NULL);
 }
 
 uint8_t *store_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p, bool byte_swap,
-                                      file_progress_cb_t progress_cb, flash_relocate_cb_t relocate_cb)
+                                      flash_file_progress_cb_t progress_cb, flash_relocate_cb_t relocate_cb)
 {
     initialize_metadata();
     initialize_flash_pointer();

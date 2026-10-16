@@ -12,7 +12,7 @@ import struct
 import sys
 import zlib
 
-from pico8_ro_build_patch import patch_pico8_ro_bytes
+from pico8_ro_build_patch import PICO8_CODE_BASE, patch_mapped_bytes
 
 FROGFS_MAGIC = 0x474F5246
 
@@ -112,32 +112,40 @@ def find_uncompressed_file_payload(img: bytes, want_path: str) -> tuple[int, int
     return None
 
 
-def patch_frogfs_pico8_ro_inplace(
+def patch_frogfs_mapped_inplace(
     frogfs_bin_path: str | pathlib.Path,
     *,
     logical_path: str = "cores/pico8.ro",
+    reloc_base: int = PICO8_CODE_BASE,
     extflash_base: int = 0x90000000,
     extflash_offset: int = 0,
 ) -> bool:
+    """Relocate one mapped sidecar in an already-assembled frogfs.bin.
+
+    Must run after assembly: the target address is extflash_base +
+    extflash_offset + the payload's offset within the image, so it is not known
+    until mkfrogfs has laid the image out. The payload must be stored
+    uncompressed, or there is nothing contiguous to map.
+    """
     logical_path = logical_path.lstrip("/")
     path = pathlib.Path(frogfs_bin_path)
     img = bytearray(path.read_bytes())
     found = find_uncompressed_file_payload(bytes(img), logical_path)
     if not found:
-        print(f"frogfs_pico8_ro: '{logical_path}' not found in image", file=sys.stderr)
+        print(f"frogfs_mapped: '{logical_path}' not found in image (uncompressed?)", file=sys.stderr)
         return False
     data_offs, data_sz = found
     target_addr = extflash_base + extflash_offset + data_offs
     payload = bytes(img[data_offs : data_offs + data_sz])
-    blob, n = patch_pico8_ro_bytes(payload, target_addr)
+    blob, n = patch_mapped_bytes(payload, target_addr, reloc_base)
     if n == 0:
         print(
-            "frogfs_pico8_ro: warning: 0 sentinel refs patched "
-            "(unexpected for upstream pico8.ro)",
+            f"frogfs_mapped: warning: 0 sentinel refs patched in '{logical_path}' "
+            f"(base 0x{reloc_base:08X}) -- is relocBase correct?",
             file=sys.stderr,
         )
     else:
-        print(f"frogfs_pico8_ro: patched {n} refs for XiP 0x{target_addr:X} ({logical_path})")
+        print(f"frogfs_mapped: patched {n} refs for XiP 0x{target_addr:X} ({logical_path})")
     img[data_offs : data_offs + data_sz] = blob
     if len(img) < 4:
         return False
@@ -145,3 +153,8 @@ def patch_frogfs_pico8_ro_inplace(
     struct.pack_into("<I", img, len(img) - 4, crc)
     path.write_bytes(bytes(img))
     return True
+
+
+def patch_frogfs_pico8_ro_inplace(frogfs_bin_path, **kw) -> bool:
+    """Back-compat alias for the PICO-8 call site."""
+    return patch_frogfs_mapped_inplace(frogfs_bin_path, **kw)

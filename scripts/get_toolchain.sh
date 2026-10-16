@@ -63,7 +63,7 @@ Darwin)
 esac
 
 name="arm-gnu-toolchain-$ver-$arch-arm-none-eabi"
-url="https://developer.arm.com/-/media/Files/downloads/gnu/$ver/binrel/$name.tar.xz"
+url="https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/$ver/$name.tar.xz"
 
 if [ -x "$dest/$name/bin/arm-none-eabi-gcc" ]; then
 	echo "Already installed: $dest/$name"
