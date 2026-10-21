@@ -735,7 +735,8 @@ void retro_loop()
             }
         }
 
-        if (idle_s > 0 && gui.joystick.bitmask == 0)
+        /* Idle work (flash-cache probe, …) as soon as no button is held. */
+        if (gui.joystick.bitmask == 0)
         {
             gui_event(TAB_IDLE, tab);
         }
