@@ -167,6 +167,7 @@ const lang_t lang_ru_ru LANG_DATA = {
     .s_Info = "Инфо",
     .s_Name = "Имя",
     .s_Version = "Версия",
+    .s_Start = "Запуск",
     .fmt_Title_Date_Format = ru_ru_fmt_Title_Date_Format,
     .fmtDate = ru_ru_fmt_Date,
     .fmtTime = ru_ru_fmt_Time,

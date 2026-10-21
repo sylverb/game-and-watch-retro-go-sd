@@ -58,6 +58,9 @@ typedef struct {
     flash_cache_state_t flash_cached;
     rom_region_t region;
     const rom_system_t *system;
+    /* From GWHB_FLAG_NO_SAVESTATES (homebrew only). When set, launcher and
+     * in-game menus omit Resume / Save / Reload / Delete-save. */
+    bool no_savestates;
 #if CHEAT_CODES == 1
     char** cheat_codes; // Cheat codes to choose from
     char** cheat_descs; // Cheat codes descriptions

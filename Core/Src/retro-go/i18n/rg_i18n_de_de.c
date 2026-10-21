@@ -167,6 +167,7 @@ const lang_t lang_de_de LANG_DATA = {
     .s_Info = "Info",
     .s_Name = "Name",
     .s_Version = "Version",
+    .s_Start = "Starten",
     .fmt_Title_Date_Format = de_de_fmt_Title_Date_Format,
     .fmtDate = de_de_fmt_Date,
     .fmtTime = de_de_fmt_Time,

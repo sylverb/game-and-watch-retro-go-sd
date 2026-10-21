@@ -180,6 +180,7 @@ const lang_t lang_ko_kr LANG_DATA = {
     .s_Info = "정보",
     .s_Name = "이름",
     .s_Version = "버전",
+    .s_Start = "시작",
     .fmt_Title_Date_Format = ko_kr_fmt_Title_Date_Format,
     .fmtDate = ko_kr_fmt_Date,
     .fmtTime = ko_kr_fmt_Time,

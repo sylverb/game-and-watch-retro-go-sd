@@ -156,6 +156,9 @@ typedef struct
     const char *s_Name;
     const char *s_Version;
 
+    /* Homebrew without savestates (GWHB_FLAG_NO_SAVESTATES) — not "New game". */
+    const char *s_Start;
+
     const int (*fmt_Title_Date_Format)(char *outstr, const char *datefmt, uint16_t day, uint16_t month, const char *weekday, uint16_t hour, uint16_t minutes, uint16_t seconds);
     // const char *fmt_Title_Date_Format(outstr,datefmt,day,month,weekday,hour,minutes,seconds) sprintf(outstr,datefmt,day,month,weekday,hour,minutes,seconds)
     const int (*fmtDate)(char *outstr, const char *datefmt, uint16_t day, uint16_t month, uint16_t year, const char *weekday);

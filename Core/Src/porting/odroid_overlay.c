@@ -336,17 +336,24 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int 
     }
 }
 
+static bool running_file_allows_savestates(void)
+{
+    return !(ACTIVE_FILE && ACTIVE_FILE->no_savestates);
+}
+
 static void save_state_and_sleep(bool standby, void_callback_t after_screen_off_cb)
 {
     odroid_system_sleep_ex(standby ? SLEEP_SHOW_LOGO | SLEEP_SHOW_ANIMATION | SLEEP_ANIMATION_SLOW : SLEEP_SHOW_ANIMATION, NULL);
     if (after_screen_off_cb) {
         after_screen_off_cb();
     }
+    if (running_file_allows_savestates()) {
 #if OFF_SAVESTATE == 1 || SD_CARD == 1
-    odroid_system_emu_save_state(-1);
+        odroid_system_emu_save_state(-1);
 #else
-    odroid_system_emu_save_state(0);
+        odroid_system_emu_save_state(0);
 #endif
+    }
     if (standby)
     {
         odroid_system_shutdown();
@@ -1619,36 +1626,40 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
         core_path_value, sizeof(core_path_value),
         core_date_value, sizeof(core_date_value));
 
+    const bool allows_saves = running_file_allows_savestates();
+
 #if CHEAT_CODES == 1
     odroid_dialog_choice_t choices[14];
     CHOSEN_FILE = ACTIVE_FILE;
     bool cheat_update_support = odroid_system_get_app()->handlers.cheat_update != NULL;
 
     int index=0;
-    choices[index].id = 10;
-    choices[index].label = curr_lang->s_Save_Cont;
-    choices[index].value = "";
-    choices[index].enabled = true;
-    choices[index].update_cb = NULL;
-    index++;
-    choices[index].id = 20;
-    choices[index].label = curr_lang->s_Save_Quit;
-    choices[index].value = "";
-    choices[index].enabled = true;
-    choices[index].update_cb = NULL;
-    index++;
-    choices[index].id = 0x0F0F0F0E;
-    choices[index].label = "-";
-    choices[index].value = "-";
-    choices[index].enabled = -1;
-    choices[index].update_cb = NULL;
-    index++;
-    choices[index].id = 30;
-    choices[index].label = curr_lang->s_Reload;
-    choices[index].value = "";
-    choices[index].enabled = 1;
-    choices[index].update_cb = NULL;
-    index++;
+    if (allows_saves) {
+        choices[index].id = 10;
+        choices[index].label = curr_lang->s_Save_Cont;
+        choices[index].value = "";
+        choices[index].enabled = true;
+        choices[index].update_cb = NULL;
+        index++;
+        choices[index].id = 20;
+        choices[index].label = curr_lang->s_Save_Quit;
+        choices[index].value = "";
+        choices[index].enabled = true;
+        choices[index].update_cb = NULL;
+        index++;
+        choices[index].id = 0x0F0F0F0E;
+        choices[index].label = "-";
+        choices[index].value = "-";
+        choices[index].enabled = -1;
+        choices[index].update_cb = NULL;
+        index++;
+        choices[index].id = 30;
+        choices[index].label = curr_lang->s_Reload;
+        choices[index].value = "";
+        choices[index].enabled = 1;
+        choices[index].update_cb = NULL;
+        index++;
+    }
     choices[index].id = 40;
     choices[index].label = curr_lang->s_Options;
     choices[index].value = "";
@@ -1703,10 +1714,12 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
 #else
     odroid_dialog_choice_t choices[12];
     int index = 0;
-    choices[index++] = (odroid_dialog_choice_t){10, curr_lang->s_Save_Cont, "", 1, NULL};
-    choices[index++] = (odroid_dialog_choice_t){20, curr_lang->s_Save_Quit, "", 1, NULL};
-    choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
-    choices[index++] = (odroid_dialog_choice_t){30, curr_lang->s_Reload, "", 1, NULL};
+    if (allows_saves) {
+        choices[index++] = (odroid_dialog_choice_t){10, curr_lang->s_Save_Cont, "", 1, NULL};
+        choices[index++] = (odroid_dialog_choice_t){20, curr_lang->s_Save_Quit, "", 1, NULL};
+        choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+        choices[index++] = (odroid_dialog_choice_t){30, curr_lang->s_Reload, "", 1, NULL};
+    }
     choices[index++] = (odroid_dialog_choice_t){40, curr_lang->s_Options, "", 1, NULL};
     if (show_core_info)
         choices[index++] = (odroid_dialog_choice_t){70, curr_lang->s_Info, "", 1, NULL};
@@ -1731,17 +1744,20 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     switch (r)
     {
     case 10:
-        if ((slot = odroid_savestate_menu(curr_lang->s_Save_Cont, NULL, false, false, repaint)) >= 0)
+        if (allows_saves &&
+            (slot = odroid_savestate_menu(curr_lang->s_Save_Cont, NULL, false, false, repaint)) >= 0)
             odroid_system_emu_save_state(slot);
         break;
     case 20:
-        if ((slot = odroid_savestate_menu(curr_lang->s_Save_Quit, NULL, false, false, repaint)) >= 0) {
+        if (allows_saves &&
+            (slot = odroid_savestate_menu(curr_lang->s_Save_Quit, NULL, false, false, repaint)) >= 0) {
             odroid_system_emu_save_state(slot);
             odroid_system_switch_app(0);
         }
         break;
     case 30:
-        if ((slot = odroid_savestate_menu(curr_lang->s_Reload, NULL, true, true, NULL)) >= 0) {
+        if (allows_saves &&
+            (slot = odroid_savestate_menu(curr_lang->s_Reload, NULL, true, true, NULL)) >= 0) {
             odroid_system_emu_load_state(slot);
         }
         break;

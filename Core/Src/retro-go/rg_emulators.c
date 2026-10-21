@@ -564,6 +564,8 @@ static bool emulator_add_rom_file(retro_emulator_t *emu, const char *path,
                 strncpy(slot->name, hb.display_name, sizeof(slot->name) - 1);
                 slot->name[sizeof(slot->name) - 1] = '\0';
             }
+            if (hb.flags & GWHB_FLAG_NO_SAVESTATES)
+                slot->no_savestates = true;
 #if COVERFLOW != 0
             if (hb.cover_size != 0 && hb.cover_offset != 0) {
                 slot->cover_bin_offset = hb.cover_offset;
@@ -1252,10 +1254,16 @@ bool emulator_show_file_menu(retro_emulator_file_t *file)
         return false;
 
     int slot = -1;
-    char *sram_path = odroid_system_get_path(ODROID_PATH_SAVE_SRAM, file->path);
-    rg_emu_states_t *savestates = odroid_system_emu_get_states(file->path, 4);
-    bool has_save = savestates->used > 0;
-    bool has_sram = odroid_sdcard_get_filesize(sram_path) > 0;
+    const bool saves_ok = !file->no_savestates;
+    char *sram_path = saves_ok
+                          ? odroid_system_get_path(ODROID_PATH_SAVE_SRAM, file->path)
+                          : NULL;
+    rg_emu_states_t *savestates = saves_ok
+                                      ? odroid_system_emu_get_states(file->path, 4)
+                                      : NULL;
+    bool has_save = saves_ok && savestates && savestates->used > 0;
+    bool has_sram = saves_ok && sram_path
+                        && odroid_sdcard_get_filesize(sram_path) > 0;
     bool force_redraw = false;
 
 #if CHEAT_CODES == 1
@@ -1281,11 +1289,18 @@ bool emulator_show_file_menu(retro_emulator_file_t *file)
     const odroid_dialog_choice_t sep = ODROID_DIALOG_CHOICE_SEPARATOR;
     odroid_dialog_choice_t choices[12];
     int rows = 0;
-    choices[rows++] = (odroid_dialog_choice_t){0, curr_lang->s_Resume_game, (char *)"", (has_save) ? 1 : -1, NULL};
-    choices[rows++] = (odroid_dialog_choice_t){1, curr_lang->s_New_game, (char *)"", 1, NULL};
-    choices[rows++] = sep;
-    choices[rows++] = (odroid_dialog_choice_t){2, curr_lang->s_Delete_save, (char *)"", (has_save || has_sram) ? 1 : -1, NULL};
-    choices[rows++] = sep;
+    if (saves_ok) {
+        choices[rows++] = (odroid_dialog_choice_t){0, curr_lang->s_Resume_game, (char *)"", (has_save) ? 1 : -1, NULL};
+        choices[rows++] = (odroid_dialog_choice_t){1, curr_lang->s_New_game, (char *)"", 1, NULL};
+        choices[rows++] = sep;
+        choices[rows++] = (odroid_dialog_choice_t){2, curr_lang->s_Delete_save, (char *)"", (has_save || has_sram) ? 1 : -1, NULL};
+        choices[rows++] = sep;
+    } else {
+        /* Homebrew with GWHB_FLAG_NO_SAVESTATES: not necessarily a game,
+         * and it may manage its own saves — offer Start, not New game. */
+        choices[rows++] = (odroid_dialog_choice_t){1, curr_lang->s_Start, (char *)"", 1, NULL};
+        choices[rows++] = sep;
+    }
     choices[rows++] = (odroid_dialog_choice_t){3, is_fav ? curr_lang->s_Del_favorite : curr_lang->s_Add_favorite, (char *)"", 1, NULL};
 #if CHEAT_CODES == 1
     if (CHOSEN_FILE->cheat_count != 0) {
@@ -1312,7 +1327,7 @@ bool emulator_show_file_menu(retro_emulator_file_t *file)
         gui_save_current_tab();
         emulator_start(file, false, false, 0);
     }
-    else if (sel == 2) {
+    else if (sel == 2 && saves_ok && savestates) {
         while ((savestates->used > 0) &&
                ((slot = odroid_savestate_menu(curr_lang->s_Confirm_del_save, file->path, true, false, &gui_redraw_callback)) != -1))
         {
@@ -1342,13 +1357,12 @@ bool emulator_show_file_menu(retro_emulator_file_t *file)
 #endif
 
     free(sram_path);
-    /* savestates is static — no free needed */
+    free(savestates);
 
 #if CHEAT_CODES == 1
     CHOSEN_FILE = NULL;
 #endif
 
-    free(savestates);
     return force_redraw;
 }
 

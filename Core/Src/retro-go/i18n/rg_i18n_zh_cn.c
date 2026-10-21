@@ -180,6 +180,7 @@ const lang_t lang_zh_cn LANG_DATA = {
     .s_Info = "信息",
     .s_Name = "名称",
     .s_Version = "版本",
+    .s_Start = "启动",
     .fmt_Title_Date_Format = zh_cn_fmt_Title_Date_Format,
     .fmtDate = zh_cn_fmt_Date,
     .fmtTime = zh_cn_fmt_Time,

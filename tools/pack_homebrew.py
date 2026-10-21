@@ -330,7 +330,10 @@ def main() -> None:
                     help="X.Y.Z, git describe (vX.Y.Z…), or NOTAG → 0.0.0 (default: %(default)s)")
     ap.add_argument("--cover", type=Path, default=None,
                     help="optional JPEG cover (<= 10 KiB)")
-    ap.add_argument("--flags", type=lambda s: int(s, 0), default=0)
+    ap.add_argument("--flags", type=lambda s: int(s, 0), default=0,
+                    help="raw gwhb_meta_t.flags (ORed with --no-savestates)")
+    ap.add_argument("--no-savestates", action="store_true",
+                    help="set GWHB_FLAG_NO_SAVESTATES (hide Resume/Save/Reload UI)")
     ap.add_argument("--segment", action="append", default=[],
                     help="repeatable: region:start:code_end:bss_end:bin (segments 1..3)")
     ap.add_argument("--no-auto-segments", action="store_true",
@@ -423,11 +426,16 @@ def main() -> None:
     cover_size = len(cover)
     header_length = META_STRUCT_SIZE + cover_size
 
+    # GWHB_FLAG_NO_SAVESTATES = 1 << 0 (Core/Inc/retro-go/gwhb.h)
+    flags = args.flags
+    if args.no_savestates:
+        flags |= 1 << 0
+
     ver_maj, ver_min, ver_pat = parse_version(args.version)
     meta = pack_meta(
         required_abi_version,
         required_abi_min_size,
-        args.flags,
+        flags,
         segments,
         cover_offset,
         cover_size,
@@ -450,6 +458,7 @@ def main() -> None:
 
     print(f"pack_homebrew: wrote {args.out} ({len(envelope)} bytes)")
     print(f"  name={args.name!r} version={ver_maj}.{ver_min}.{ver_pat}")
+    print(f"  flags=0x{flags:x}" + (" (NO_SAVESTATES)" if flags & 1 else ""))
     print(f"  cover={cover_size}B")
     for i, (region, code_size, bss_size) in enumerate(segments):
         print(
