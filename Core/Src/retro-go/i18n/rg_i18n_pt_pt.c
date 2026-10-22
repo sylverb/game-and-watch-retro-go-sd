@@ -168,6 +168,7 @@ const lang_t lang_pt_pt LANG_DATA = {
     .s_Name = "Nome",
     .s_Version = "Versão",
     .s_Start = "Iniciar",
+    .s_Flash_cache_info = "Info cache flash",
     .fmt_Title_Date_Format = pt_pt_fmt_Title_Date_Format,
     .fmtDate = pt_pt_fmt_Date,
     .fmtTime = pt_pt_fmt_Time,

@@ -101,6 +101,19 @@ static bool GLOBAL_DATA main_menu_timeout_cb(odroid_dialog_choice_t *option, odr
     return event == ODROID_DIALOG_ENTER;
 }
 
+#if SD_CARD == 1
+static bool GLOBAL_DATA flash_cache_info_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
+{
+    bool show = odroid_settings_FlashCacheInfo_get();
+    if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
+        show = !show;
+        odroid_settings_FlashCacheInfo_set(show);
+    }
+    sprintf(option->value, "%s", show ? curr_lang->s_Yes : curr_lang->s_No);
+    return event == ODROID_DIALOG_ENTER;
+}
+#endif
+
 
 #if COVERFLOW != 0
 
@@ -480,6 +493,9 @@ static void GLOBAL_DATA handle_options_menu()
     char colors_value[16];
     char lang_value[64];
     char ov_value[64];
+#if SD_CARD == 1
+    char flash_cache_info_value[8];
+#endif
 
     odroid_dialog_choice_t choices[] = {
         ODROID_DIALOG_CHOICE_SEPARATOR,
@@ -491,6 +507,9 @@ static void GLOBAL_DATA handle_options_menu()
         {0x0F0F0E0E, curr_lang->s_Colors, colors_value, 1, &colors_update_cb},
         ODROID_DIALOG_CHOICE_SEPARATOR,
         {0, curr_lang->s_Idle_power_off, timeout_value, 1, &main_menu_timeout_cb},
+#if SD_CARD == 1
+        {0, curr_lang->s_Flash_cache_info, flash_cache_info_value, 1, &flash_cache_info_cb},
+#endif
         ODROID_DIALOG_CHOICE_SEPARATOR,
         {0, curr_lang->s_CPU_Overclock, ov_value, 1, &main_menu_cpu_oc_cb},
         ODROID_DIALOG_CHOICE_SEPARATOR,

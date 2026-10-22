@@ -1,5 +1,6 @@
 #include <odroid_system.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -16,6 +17,7 @@
 #include "gw_malloc.h"
 #include "appid.h"
 #include "gwhb.h"
+#include "odroid_settings.h"
 #if SD_CARD == 1
 #include "gw_flash_alloc.h"
 #endif
@@ -235,8 +237,12 @@ static bool gui_rom_flash_cache_probe(const retro_emulator_file_t *file);
  * uptime second so the SD metadata fopen + per-file stat stay cheap. */
 static void gui_idle_probe_flash_cache(tab_t *tab)
 {
-    static uint32_t last_probe_s;
+    /* UINT32_MAX so the first call is not skipped when uptime_get() is still 0. */
+    static uint32_t last_probe_s = UINT32_MAX;
 
+    /* Always probe (cheap once HIT/MISS are filled). The Options toggle only
+     * gates drawing — otherwise a hidden setting left every ROM UNKNOWN and
+     * turning the option On still showed no badge until a full rescan. */
     if (!tab || tab->is_empty || !tab->listbox.items || tab->listbox.length <= 0)
         return;
 
@@ -356,7 +362,8 @@ static bool gui_rom_flash_cache_probe(const retro_emulator_file_t *file)
 
 static bool gui_file_flash_cached(const retro_emulator_file_t *file)
 {
-    return file && file->ext && file->flash_cached == FLASH_CACHE_HIT;
+    return odroid_settings_FlashCacheInfo_get()
+        && file && file->ext && file->flash_cached == FLASH_CACHE_HIT;
 }
 
 #if COVERFLOW != 0

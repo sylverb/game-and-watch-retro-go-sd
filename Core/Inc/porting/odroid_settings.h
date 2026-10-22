@@ -96,6 +96,10 @@ bool odroid_settings_ActiveGameGenieCodes_set(char *game_path, int code_index, b
 bool odroid_settings_DebugMenuDebugClockAlwaysOn_get();
 void odroid_settings_DebugMenuDebugClockAlwaysOn_set(bool value);
 
+/* Launcher flash-cache markers ("* Name" / cover "C"). Default On. */
+bool odroid_settings_FlashCacheInfo_get(void);
+void odroid_settings_FlashCacheInfo_set(bool show);
+
 /** Welcome prompt state: 0 = not anchored, 1 = shown, else YYYYMMDD anchor date. */
 uint32_t odroid_settings_WelcomePrompt_get(void);
 void odroid_settings_WelcomePrompt_set(uint32_t value);

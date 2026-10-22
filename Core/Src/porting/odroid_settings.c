@@ -110,8 +110,12 @@ typedef struct persistent_config {
     /** Welcome prompt: 0 = not anchored, 1 = message already shown, else YYYYMMDD anchor (RTC >= 2026). */
     uint32_t welcome_prompt;
 
-    /* Per-emulator settings live in /data/<core>.cfg — not in this blob. */
-    uint8_t reserved_app[32];
+    /* 0 = show flash-cache markers in the launcher (default; matches former
+     * reserved_app[0]=0 so existing /CONFIG blobs keep CRC + On default).
+     * 1 = hide "* Name" / cover "C" badges. Per-core settings stay in
+     * /data/<core>.cfg — not in this blob. */
+    uint8_t flash_cache_info_hidden;
+    uint8_t reserved_app[31];
 
     uint32_t crc32;
 } persistent_config_t;
@@ -173,6 +177,7 @@ static const persistent_config_t persistent_config_default = {
     .main_menu_browse_subpath = {0},
     .debug_clock_always_on = false,
     .welcome_prompt = 0,
+    .flash_cache_info_hidden = 0, /* show markers by default */
     .reserved_app = {0},
 };
 
@@ -950,6 +955,19 @@ bool odroid_settings_DebugMenuDebugClockAlwaysOn_get()
 void odroid_settings_DebugMenuDebugClockAlwaysOn_set(bool value)
 {
     persistent_config_ram.debug_clock_always_on = value;
+}
+
+bool odroid_settings_FlashCacheInfo_get(void)
+{
+    /* Only an explicit 1 means "hide". Any other value (0 = default, or
+     * leftover garbage in the former reserved_app[0]) keeps markers On so
+     * a non-zero reserved byte cannot permanently blank the C / "*" UI. */
+    return persistent_config_ram.flash_cache_info_hidden != 1;
+}
+
+void odroid_settings_FlashCacheInfo_set(bool show)
+{
+    persistent_config_ram.flash_cache_info_hidden = show ? 0 : 1;
 }
 
 uint32_t odroid_settings_WelcomePrompt_get(void)

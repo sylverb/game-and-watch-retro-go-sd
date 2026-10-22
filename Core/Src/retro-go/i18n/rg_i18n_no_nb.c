@@ -169,6 +169,7 @@ const lang_t lang_no_nb LANG_DATA = {
     .s_Name = "Navn",
     .s_Version = "Versjon",
     .s_Start = "Start",
+    .s_Flash_cache_info = "Flash-cache-info",
     .fmt_Title_Date_Format = no_nb_fmt_Title_Date_Format,
     .fmtDate = no_nb_fmt_Date,
     .fmtTime = no_nb_fmt_Time,
