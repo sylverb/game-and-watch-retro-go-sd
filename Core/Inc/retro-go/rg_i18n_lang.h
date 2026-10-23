@@ -162,6 +162,9 @@ typedef struct
     /* Options: show flash-cache markers in the ROM browser (default On). */
     const char *s_Flash_cache_info;
 
+    /* In-game Options: continuous FPS / CPU busy overlay (default Off). */
+    const char *s_Show_FPS;
+
     const int (*fmt_Title_Date_Format)(char *outstr, const char *datefmt, uint16_t day, uint16_t month, const char *weekday, uint16_t hour, uint16_t minutes, uint16_t seconds);
     // const char *fmt_Title_Date_Format(outstr,datefmt,day,month,weekday,hour,minutes,seconds) sprintf(outstr,datefmt,day,month,weekday,hour,minutes,seconds)
     const int (*fmtDate)(char *outstr, const char *datefmt, uint16_t day, uint16_t month, uint16_t year, const char *weekday);

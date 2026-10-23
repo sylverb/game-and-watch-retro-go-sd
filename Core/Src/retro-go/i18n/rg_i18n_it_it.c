@@ -170,6 +170,7 @@ const lang_t lang_it_it LANG_DATA = {
     .s_Version = "Versione",
     .s_Start = "Avvia",
     .s_Flash_cache_info = "Info cache flash",
+    .s_Show_FPS = "Mostra FPS",
     .fmt_Title_Date_Format = it_it_fmt_Title_Date_Format,
     .fmtDate = it_it_fmt_Date,
     .fmtTime = it_it_fmt_Time,

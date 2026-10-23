@@ -182,6 +182,7 @@ const lang_t lang_ko_kr LANG_DATA = {
     .s_Version = "버전",
     .s_Start = "시작",
     .s_Flash_cache_info = "플래시 캐시 표시",
+    .s_Show_FPS = "FPS 표시",
     .fmt_Title_Date_Format = ko_kr_fmt_Title_Date_Format,
     .fmtDate = ko_kr_fmt_Date,
     .fmtTime = ko_kr_fmt_Time,

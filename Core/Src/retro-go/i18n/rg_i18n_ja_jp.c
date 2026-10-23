@@ -191,6 +191,7 @@ const lang_t lang_ja_jp LANG_DATA = {
     .s_Version = "バージョン",
     .s_Start = "開始",
     .s_Flash_cache_info = "フラッシュキャッシュ表示",
+    .s_Show_FPS = "FPS表示",
     .fmt_Title_Date_Format = ja_jp_fmt_Title_Date_Format,
     .fmtDate = ja_jp_fmt_Date,
     .fmtTime = ja_jp_fmt_Time,

@@ -1,7 +1,9 @@
 #include "common.h"
 #include <odroid_system.h>
 #include <odroid_overlay.h>
+#include <odroid_settings.h>
 
+#include <stdio.h>
 #include <string.h>
 #include "main.h"
 #include "bitmaps.h"
@@ -821,6 +823,29 @@ static uint8_t box_height(uint8_t n) {
     return ((INGAME_OVERLAY_BARS_IMG_Y - INGAME_OVERLAY_BOX_Y) / n) - INGAME_OVERLAY_BOX_GAP;
 }
 
+static void draw_fps_hud(void)
+{
+    /* Numbers refresh 4×/s (250 ms stats window); text is still stamped
+     * every frame because the emulator redraws the framebuffer. */
+    static uint32_t last_sample;
+    static char buf[32];
+    static int text_w;
+
+    if (buf[0] == '\0' || get_elapsed_time_since(last_sample) >= 250) {
+        runtime_stats_t stats = odroid_system_get_stats(true);
+        last_sample = get_elapsed_time();
+        snprintf(buf, sizeof(buf), "%d.%d fps / %d.%d%%",
+                 (int)stats.totalFPS, ((int)(stats.totalFPS * 10.f)) % 10,
+                 (int)stats.busyPercent, ((int)(stats.busyPercent * 10.f)) % 10);
+        text_w = i18n_get_text_width(buf);
+    }
+
+    const int x = 2, y = 1, pad_x = 2, pad_y = 1;
+    int height = i18n_get_text_height() + 2 * pad_y;
+    odroid_overlay_draw_fill_rect(x, y, text_w + 2 * pad_x, height, 0x0000);
+    i18n_draw_text_line(x + pad_x, y + pad_y, text_w, buf, 0xFFFF, 0x0000, 0);
+}
+
 void common_ingame_overlay(void) {
     rg_app_desc_t *app = odroid_system_get_app();
     pixel_t *fb = lcd_get_active_buffer();
@@ -828,13 +853,14 @@ void common_ingame_overlay(void) {
     uint8_t bh;
     uint8_t turbo_key;
     uint16_t by = INGAME_OVERLAY_BOX_Y;
+    bool show_fps = odroid_settings_ShowFPS_get();
 
     odroid_battery_state_t battery_state = odroid_input_read_battery();
     uint16_t percentage = battery_state.percentage;
     bool battery_blink = (percentage <= 15) &&
                          ((get_elapsed_time() % 1000) < 300);
     bool need_overlay_clut =
-        (common_emu_state.overlay != INGAME_OVERLAY_NONE) || battery_blink;
+        (common_emu_state.overlay != INGAME_OVERLAY_NONE) || battery_blink || show_fps;
 
     /* Full 256-colour carts overwrite overlay CLUT slots [64..]. Stamp the
      * theme (white/gray HUD colours) while chrome is visible; release on the
@@ -848,6 +874,9 @@ void common_ingame_overlay(void) {
         lcd_overlay_clut_end();
         ingame_clut_held = false;
     }
+
+    if (show_fps)
+        draw_fps_hud();
 
     if (battery_blink)
         odroid_overlay_draw_battery(battery_state, 150, 90);

@@ -169,6 +169,7 @@ const lang_t lang_de_de LANG_DATA = {
     .s_Version = "Version",
     .s_Start = "Starten",
     .s_Flash_cache_info = "Flash-Cache-Info",
+    .s_Show_FPS = "FPS anzeigen",
     .fmt_Title_Date_Format = de_de_fmt_Title_Date_Format,
     .fmtDate = de_de_fmt_Date,
     .fmtTime = de_de_fmt_Time,

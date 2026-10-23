@@ -114,6 +114,17 @@ static bool GLOBAL_DATA flash_cache_info_cb(odroid_dialog_choice_t *option, odro
 }
 #endif
 
+static bool GLOBAL_DATA show_fps_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
+{
+    bool show = odroid_settings_ShowFPS_get();
+    if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
+        show = !show;
+        odroid_settings_ShowFPS_set(show);
+    }
+    sprintf(option->value, "%s", show ? curr_lang->s_Yes : curr_lang->s_No);
+    return event == ODROID_DIALOG_ENTER;
+}
+
 
 #if COVERFLOW != 0
 
@@ -402,6 +413,7 @@ static void GLOBAL_DATA handle_debug_menu()
     char dbgmcu_id_str[16];
     char dbgmcu_cr_str[16];
     char dbgmcu_clock_str[16];
+    char show_fps_value[8];
 
     // Read jedec id and status register from the external flash
     OSPI_DisableMemoryMappedMode();
@@ -428,6 +440,7 @@ static void GLOBAL_DATA handle_debug_menu()
             {-1, curr_lang->s_DBGMCU_IDCODE, dbgmcu_id_str, 0, NULL},
             {-1, curr_lang->s_DBGMCU_CR, dbgmcu_cr_str, 0, debug_menu_debug_cr_cb},
             {1, curr_lang->s_DBGMCU_clock, dbgmcu_clock_str, 1, debug_menu_debug_clock_cb},
+            {2, curr_lang->s_Show_FPS, show_fps_value, 1, show_fps_cb},
             ODROID_DIALOG_CHOICE_SEPARATOR,
             {0, curr_lang->s_Close, "", 1, NULL},
             ODROID_DIALOG_CHOICE_LAST};

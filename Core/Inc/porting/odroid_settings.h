@@ -100,6 +100,10 @@ void odroid_settings_DebugMenuDebugClockAlwaysOn_set(bool value);
 bool odroid_settings_FlashCacheInfo_get(void);
 void odroid_settings_FlashCacheInfo_set(bool show);
 
+/* Continuous FPS / CPU busy HUD during emulation. Default Off. */
+bool odroid_settings_ShowFPS_get(void);
+void odroid_settings_ShowFPS_set(bool show);
+
 /** Welcome prompt state: 0 = not anchored, 1 = shown, else YYYYMMDD anchor date. */
 uint32_t odroid_settings_WelcomePrompt_get(void);
 void odroid_settings_WelcomePrompt_set(uint32_t value);

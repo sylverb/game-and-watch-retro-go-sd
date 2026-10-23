@@ -180,6 +180,7 @@ const lang_t lang_zh_tw LANG_DATA = {
     .s_Version = "版本",
     .s_Start = "啟動",
     .s_Flash_cache_info = "閃存快取標記",
+    .s_Show_FPS = "顯示幀率",
     .fmt_Title_Date_Format = zh_tw_fmt_Title_Date_Format,
     .fmtDate = zh_tw_fmt_Date,
     .fmtTime = zh_tw_fmt_Time,

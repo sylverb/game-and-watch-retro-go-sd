@@ -169,6 +169,7 @@ const lang_t lang_ru_ru LANG_DATA = {
     .s_Version = "Версия",
     .s_Start = "Запуск",
     .s_Flash_cache_info = "Инфо кэша flash",
+    .s_Show_FPS = "Показать FPS",
     .fmt_Title_Date_Format = ru_ru_fmt_Title_Date_Format,
     .fmtDate = ru_ru_fmt_Date,
     .fmtTime = ru_ru_fmt_Time,

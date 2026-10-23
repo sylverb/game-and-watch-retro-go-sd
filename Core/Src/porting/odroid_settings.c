@@ -115,7 +115,9 @@ typedef struct persistent_config {
      * 1 = hide "* Name" / cover "C" badges. Per-core settings stay in
      * /data/<core>.cfg — not in this blob. */
     uint8_t flash_cache_info_hidden;
-    uint8_t reserved_app[31];
+    /* 0 = off (default), 1 = continuous FPS/CPU HUD during emulation. */
+    uint8_t show_fps;
+    uint8_t reserved_app[30];
 
     uint32_t crc32;
 } persistent_config_t;
@@ -178,6 +180,7 @@ static const persistent_config_t persistent_config_default = {
     .debug_clock_always_on = false,
     .welcome_prompt = 0,
     .flash_cache_info_hidden = 0, /* show markers by default */
+    .show_fps = 0,                /* FPS HUD off by default */
     .reserved_app = {0},
 };
 
@@ -968,6 +971,16 @@ bool odroid_settings_FlashCacheInfo_get(void)
 void odroid_settings_FlashCacheInfo_set(bool show)
 {
     persistent_config_ram.flash_cache_info_hidden = show ? 0 : 1;
+}
+
+bool odroid_settings_ShowFPS_get(void)
+{
+    return persistent_config_ram.show_fps == 1;
+}
+
+void odroid_settings_ShowFPS_set(bool show)
+{
+    persistent_config_ram.show_fps = show ? 1 : 0;
 }
 
 uint32_t odroid_settings_WelcomePrompt_get(void)
