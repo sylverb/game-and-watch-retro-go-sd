@@ -243,6 +243,9 @@ void wdog_enable()
 {
   MX_WWDG1_Init();
   wdog_enabled = true;
+  /* Same moment the app is considered running — avoid panic during early boot
+   * / flash hold-POWER procedures. */
+  panic_power_reset_set(true);
 }
 
 void wdog_refresh()

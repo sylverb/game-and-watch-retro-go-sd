@@ -773,19 +773,31 @@ void retro_loop()
             gui_event(TAB_IDLE, tab);
         }
 
+        /* POWER: short press (release) → sleep; hold ≥2s → SysTick panic
+         * reset. Must be outside the last_key gate so release is seen while
+         * the button is still the active last_key. */
+        if (gui.joystick.values[ODROID_INPUT_POWER]) {
+            if (!power_key_pressed) {
+                if ((gui.joystick.values[ODROID_INPUT_UP]) || (gui.joystick.values[ODROID_INPUT_DOWN]) ||
+                    (gui.joystick.values[ODROID_INPUT_LEFT]) || (gui.joystick.values[ODROID_INPUT_RIGHT]))
+                {
+                    odroid_system_switch_app(0);
+                    return;
+                }
+                power_key_pressed = true;
+            }
+        } else if (power_key_pressed) {
+            power_key_pressed = false;
+            odroid_system_sleep_ex(SLEEP_ENTER_SLEEP_WITH_ANIMATION, NULL);
+            emulators_resync_after_wake();
+        }
+
         if ((last_key < 0) || ((repeat >= 30) && (repeat % 5 == 0)))
         {
             for (int i = 0; i < ODROID_INPUT_MAX; i++)
             {
-                uint8_t key_state = gui.joystick.values[i];
-                if (key_state)
-                {
+                if (gui.joystick.values[i] && i != ODROID_INPUT_POWER)
                     last_key = i;
-                }
-                else if (i == ODROID_INPUT_POWER && power_key_pressed)
-                {
-                    power_key_pressed = false;
-                }
             }
 
             if ((last_key == ODROID_INPUT_START) || (last_key == ODROID_INPUT_X))
@@ -848,20 +860,6 @@ void retro_loop()
             {
                 if (!rg_emulator_tab_in_rom_subfolder(tab))
                     gui_event(KEY_PRESS_B, tab);
-            }
-            else if (last_key == ODROID_INPUT_POWER && !power_key_pressed)
-            {
-                if ((gui.joystick.values[ODROID_INPUT_UP]) || (gui.joystick.values[ODROID_INPUT_DOWN]) ||
-                    (gui.joystick.values[ODROID_INPUT_LEFT]) || (gui.joystick.values[ODROID_INPUT_RIGHT]))
-                {
-                    odroid_system_switch_app(0);
-                    return;
-                }
-                else {
-                    odroid_system_sleep_ex(SLEEP_ENTER_SLEEP_WITH_ANIMATION, NULL);
-                    emulators_resync_after_wake();
-                    power_key_pressed = true;
-                }
             }
         }
         if (repeat > 0)

@@ -46,6 +46,18 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 
+static volatile bool panic_power_armed;
+static volatile bool panic_power_was_enabled; /* set once app starts; stays set */
+static uint16_t panic_power_hold_ms;
+static uint16_t panic_power_disarm_ms;
+
+#define PANIC_POWER_HOLD_MS   4000u
+/* If intentional sleep/power-off stalls (e.g. savestate hang) with panic
+ * disarmed, re-arm so a long POWER hold can still recover. Normal sleep
+ * reaches STOP/STANDBY well before this. Not counted before first enable
+ * (boot / flash hold-POWER). */
+#define PANIC_POWER_DISARM_MS 8000u
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -198,6 +210,15 @@ void PendSV_Handler(void)
   /* USER CODE END PendSV_IRQn 1 */
 }
 
+void panic_power_reset_set(bool enable)
+{
+  if (enable)
+    panic_power_was_enabled = true;
+  panic_power_armed = enable;
+  panic_power_hold_ms = 0;
+  panic_power_disarm_ms = 0;
+}
+
 /**
   * @brief This function handles System tick timer.
   */
@@ -208,6 +229,25 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+
+  /* Panic reset: POWER held 4s. Runs in SysTick so a hung main loop still
+   * recovers as long as interrupts are not masked. Disabled around intentional
+   * sleep so a normal power-off hold cannot race the fade/standby path. */
+  if (!panic_power_armed) {
+    if (panic_power_was_enabled &&
+        ++panic_power_disarm_ms >= PANIC_POWER_DISARM_MS) {
+      panic_power_armed = true;
+      panic_power_disarm_ms = 0;
+      panic_power_hold_ms = 0;
+    }
+  } else if (HAL_GPIO_ReadPin(BTN_PWR_GPIO_Port, BTN_PWR_Pin) == GPIO_PIN_RESET) {
+    if (++panic_power_hold_ms >= PANIC_POWER_HOLD_MS) {
+      panic_power_hold_ms = 0;
+      HAL_NVIC_SystemReset();
+    }
+  } else {
+    panic_power_hold_ms = 0;
+  }
 
   /* USER CODE END SysTick_IRQn 1 */
 }

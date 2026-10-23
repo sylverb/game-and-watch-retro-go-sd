@@ -473,16 +473,24 @@ void common_emu_input_loop(odroid_gamepad_state_t *joystick, odroid_dialog_choic
         lcd_clear_active_buffer();
     }
 
-    if (joystick->values[ODROID_INPUT_POWER]) {
-        // Save-state and poweroff
-        audio_stop_playing();
-        odroid_system_sleep_ex(SLEEP_SHOW_ANIMATION, NULL);
+    /* POWER short press (release) → save + sleep. Hold ≥2s → panic reset
+     * via SysTick (must not sleep-on-press or the hold never completes). */
+    {
+        static bool power_held;
+        if (joystick->values[ODROID_INPUT_POWER]) {
+            power_held = true;
+        } else if (power_held) {
+            power_held = false;
+            audio_stop_playing();
+            panic_power_reset_set(false);
+            odroid_system_sleep_ex(SLEEP_SHOW_ANIMATION, NULL);
 #if OFF_SAVESTATE == 1 || SD_CARD == 1
-        odroid_system_emu_save_state(-1);
+            odroid_system_emu_save_state(-1);
 #else
-        odroid_system_emu_save_state(0);
+            odroid_system_emu_save_state(0);
 #endif
-        sleep_and_open_pause_menu(game_options, _repaint, true, ODROID_MENU_FLAG_DRAW_ONLY);
+            sleep_and_open_pause_menu(game_options, _repaint, true, ODROID_MENU_FLAG_DRAW_ONLY);
+        }
     }
 
     if (common_emu_state.pause_after_frames > 0) {

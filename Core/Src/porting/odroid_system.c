@@ -652,6 +652,8 @@ static void odroid_system_sleep_post_wakeup_handler() {
 static void odroid_system_sleep_internal(system_sleep_flags_t flags, sleep_pre_wakeup_callback_t pre_wakeup_callback)
 {
     if (flags & (SLEEP_ENTER_SLEEP | SLEEP_ENTER_STANDBY)) {
+        /* Before fade/logo: POWER is still held on a normal power-off. */
+        panic_power_reset_set(false);
         odroid_system_sram_save();
     }
 

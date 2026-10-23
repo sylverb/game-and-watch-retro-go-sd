@@ -401,7 +401,8 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
 
     odroid_gamepad_state_t joystick;
-    bool power_key_debounce = true;
+    bool power_key_debounce = true; /* ignore POWER until released after wake */
+    bool power_held = false;
     bool any_key_debounce = false;
     uint32_t start_time = get_elapsed_time();
 
@@ -487,6 +488,7 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
             odroid_input_read_gamepad(&joystick);
             if (!joystick.values[ODROID_INPUT_POWER]) {
                 power_key_debounce = false;
+                power_held = false;
             }
         }
 
@@ -496,15 +498,19 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
                 break;
         }
 
-        if (joystick.values[ODROID_INPUT_POWER]) // G&W POWER button
+        if (!power_key_debounce && joystick.values[ODROID_INPUT_POWER])
         {
-            if (!power_key_debounce && !any_key_debounce)
-            {
-                _save_state_and_sleep();
-                continue;
-            }
+            /* Hold ≥2s → panic reset; sleep only on release. */
+            if (!any_key_debounce)
+                power_held = true;
         }
-        else
+        else if (!power_key_debounce && power_held)
+        {
+            power_held = false;
+            _save_state_and_sleep();
+            continue;
+        }
+        else if (!joystick.values[ODROID_INPUT_POWER])
         {
             // Wait for any button except Power, then wait until all buttons are released
             bool any_button_pressed = odroid_input_key_is_pressed(ODROID_INPUT_ANY);
@@ -902,7 +908,8 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     int repeat = 0;
     bool select = false;
     bool debounce = true;
-    bool power_key_debounce = false;
+    bool power_key_debounce = false; /* ignore POWER until released after wake */
+    bool power_held = false;
     odroid_gamepad_state_t joystick;
 
     /* Full 256-colour carts: stamp theme CLUT only while the dialog is up. */
@@ -976,8 +983,18 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
 
         odroid_input_read_gamepad(&joystick);
 
-        if (!joystick.values[ODROID_INPUT_POWER] && power_key_debounce) {
-            power_key_debounce = false;
+        if (power_key_debounce) {
+            if (!joystick.values[ODROID_INPUT_POWER]) {
+                power_key_debounce = false;
+                power_held = false;
+            }
+        } else if (joystick.values[ODROID_INPUT_POWER]) {
+            power_held = true;
+        } else if (power_held) {
+            power_held = false;
+            save_state_and_sleep(false, NULL);
+            power_key_debounce = true;
+            continue;
         }
 
         // Ignore all buttons until all buttons are released once (only on entry)
@@ -1044,13 +1061,6 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
                 sel = -1;
                 break;
             }
-            else if (joystick.values[ODROID_INPUT_POWER] && !power_key_debounce) // G&W POWER button
-            {
-                save_state_and_sleep(false, NULL);
-                power_key_debounce = true;
-                continue;
-            }
-
             if (options[sel].enabled >= 1)
             {
                 select = false;

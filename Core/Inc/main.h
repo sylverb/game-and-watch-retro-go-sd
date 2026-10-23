@@ -130,6 +130,8 @@ uint32_t uptime_get(void);
 /* USER CODE BEGIN EFP */
 uint32_t GW_GetBootButtons(void);
 void wdog_refresh(void);
+/* Hold POWER ≥2s → NVIC_SystemReset (SysTick). Off during intentional sleep. */
+void panic_power_reset_set(bool enable);
 void MX_SPI1_Init(void);
 void app_logo(void);
 void app_sleep_logo(void);
