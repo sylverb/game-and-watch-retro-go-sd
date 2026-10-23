@@ -5,6 +5,9 @@
 #include <string.h>
 #include <time.h>
 #include "gw_littlefs.h"
+#if SD_CARD == 0
+#include "gw_layout_superblock.h"
+#endif
 #include "gw_sleep.h"
 #include "porting/lib/littlefs/lfs.h"
 #include "tamp/compressor.h"
@@ -277,7 +280,15 @@ static void corrupt_filesystem_screen(void){
  * Initialize and mount the filesystem. Format the filesystem if unmountable (and then reattempt mount).
  */
 void fs_init(void){
+#if SD_CARD == 0
+    // FrogFS (flash) build: the LittleFS partition geometry comes from the layout
+    // superblock (host-determined from the probe-detected chip size + the FrogFS
+    // image), falling back to the linker symbols when unpatched. This is what lets
+    // one binary serve any extflash size. See gw_layout_superblock.h.
+    lfs_cfg.context = (void *)gw_layout_littlefs_top();
+#else
     lfs_cfg.context = &__FILESYSTEM_END__;  // We work "backwards"
+#endif
     lfs_cfg.block_size = OSPI_GetSmallestEraseSize();
     lfs_cfg.block_count = 0;
 
@@ -285,7 +296,11 @@ void fs_init(void){
     // this should only happen on the first boot
     if (lfs_mount(&lfs, &lfs_cfg)) {
         corrupt_filesystem_screen();
+#if SD_CARD == 0
+        lfs_cfg.block_count = gw_layout_littlefs_size() / lfs_cfg.block_size;
+#else
         lfs_cfg.block_count = (&__FILESYSTEM_END__ - &__FILESYSTEM_START__) / lfs_cfg.block_size;
+#endif
         // If we get here, it means that the user chose to reformat the filesystem.
         assert(lfs_mount(&lfs, &lfs_cfg) == 0);
     }
@@ -387,6 +402,10 @@ error:
 
 int fs_delete(const char *path){
     return lfs_remove(&lfs,path);
+}
+
+int fs_rename(const char *old_path, const char *new_path){
+    return lfs_rename(&lfs, old_path, new_path);
 }
 
 int fs_mkdir(const char *path){

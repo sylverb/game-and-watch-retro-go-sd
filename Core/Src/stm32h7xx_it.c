@@ -46,6 +46,18 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 
+static volatile bool panic_power_armed;
+static volatile bool panic_power_was_enabled; /* set once app starts; stays set */
+static uint16_t panic_power_hold_ms;
+static uint16_t panic_power_disarm_ms;
+
+#define PANIC_POWER_HOLD_MS   4000u
+/* If intentional sleep/power-off stalls (e.g. savestate hang) with panic
+ * disarmed, re-arm so a long POWER hold can still recover. Normal sleep
+ * reaches STOP/STANDBY well before this. Not counted before first enable
+ * (boot / flash hold-POWER). */
+#define PANIC_POWER_DISARM_MS 8000u
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -102,6 +114,11 @@ extern DMA_HandleTypeDef hdma_sai1_a;
 extern SAI_HandleTypeDef hsai_BlockA1;
 extern TIM_HandleTypeDef htim1;
 extern WWDG_HandleTypeDef hwwdg1;
+#if SD_CARD == 1
+extern SPI_HandleTypeDef hspi1;
+extern DMA_HandleTypeDef hdma_spi1_tx;
+extern DMA_HandleTypeDef hdma_spi1_rx;
+#endif
 /* USER CODE BEGIN EV */
 
 /* USER CODE END EV */
@@ -193,6 +210,15 @@ void PendSV_Handler(void)
   /* USER CODE END PendSV_IRQn 1 */
 }
 
+void panic_power_reset_set(bool enable)
+{
+  if (enable)
+    panic_power_was_enabled = true;
+  panic_power_armed = enable;
+  panic_power_hold_ms = 0;
+  panic_power_disarm_ms = 0;
+}
+
 /**
   * @brief This function handles System tick timer.
   */
@@ -203,6 +229,25 @@ void SysTick_Handler(void)
   /* USER CODE END SysTick_IRQn 0 */
   HAL_IncTick();
   /* USER CODE BEGIN SysTick_IRQn 1 */
+
+  /* Panic reset: POWER held 4s. Runs in SysTick so a hung main loop still
+   * recovers as long as interrupts are not masked. Disabled around intentional
+   * sleep so a normal power-off hold cannot race the fade/standby path. */
+  if (!panic_power_armed) {
+    if (panic_power_was_enabled &&
+        ++panic_power_disarm_ms >= PANIC_POWER_DISARM_MS) {
+      panic_power_armed = true;
+      panic_power_disarm_ms = 0;
+      panic_power_hold_ms = 0;
+    }
+  } else if (HAL_GPIO_ReadPin(BTN_PWR_GPIO_Port, BTN_PWR_Pin) == GPIO_PIN_RESET) {
+    if (++panic_power_hold_ms >= PANIC_POWER_HOLD_MS) {
+      panic_power_hold_ms = 0;
+      HAL_NVIC_SystemReset();
+    }
+  } else {
+    panic_power_hold_ms = 0;
+  }
 
   /* USER CODE END SysTick_IRQn 1 */
 }
@@ -241,6 +286,32 @@ void DMA1_Stream0_IRQHandler(void)
 
   /* USER CODE END DMA1_Stream0_IRQn 1 */
 }
+
+#if SD_CARD == 1
+/**
+  * @brief This function handles DMA1 stream1 global interrupt (SPI1 TX).
+  */
+void DMA1_Stream1_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_spi1_tx);
+}
+
+/**
+  * @brief This function handles DMA1 stream2 global interrupt (SPI1 RX).
+  */
+void DMA1_Stream2_IRQHandler(void)
+{
+  HAL_DMA_IRQHandler(&hdma_spi1_rx);
+}
+
+/**
+  * @brief This function handles SPI1 global interrupt (EOT / errors for DMA).
+  */
+void SPI1_IRQHandler(void)
+{
+  HAL_SPI_IRQHandler(&hspi1);
+}
+#endif
 
 /**
   * @brief This function handles ADC1 and ADC2 global interrupts.

@@ -35,6 +35,7 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
   SystemClock_Config(odroid_settings_cpu_oc_level_get());
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_ResumeTick();
+  panic_power_reset_set(true);
 
   // Restore charger
   bq24072_interrupts_enable();
@@ -93,11 +94,20 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
 }
 
 void GW_EnterDeepSleep(bool standby, sleep_pre_wakeup_callback_t pre_wakeup_callback, sleep_post_wakeup_callback_t post_wakeup_callback) {
+  /* POWER is often still held when entering sleep; keep panic reset off until
+   * we come back (or forever for standby). */
+  panic_power_reset_set(false);
+
   // Turn off speaker
   HAL_GPIO_WritePin(GPIO_Speaker_enable_GPIO_Port, GPIO_Speaker_enable_Pin, GPIO_PIN_RESET);
 
   // Stop SAI DMA (audio)
   audio_stop_playing();
+
+#if SD_CARD == 1
+  /* Close/sync the volume before cutting LCD rails / SD VCC. */
+  sdcard_deinit();
+#endif
 
   // Deinit the LCD, save power.
   lcd_backlight_off();
@@ -105,11 +115,6 @@ void GW_EnterDeepSleep(bool standby, sleep_pre_wakeup_callback_t pre_wakeup_call
 
   // Enable wakup by PIN1, the power button
   HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1_LOW);
-
-#if SD_CARD == 1
-  // Unmount Fs and Deinit SD Card if needed
-  sdcard_deinit();
-#endif
 
   // Delay 500ms to give us a chance to attach a debugger in case
   // we end up in a suspend-loop.

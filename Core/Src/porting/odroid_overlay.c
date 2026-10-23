@@ -46,6 +46,7 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
 #include "rg_rtc.h"
 #include "rg_i18n.h"
 #include "rg_storage.h"
+#include "rg_emulators.h"
 #include "gw_flash_alloc.h"
 #if SD_CARD == 0
 #include "rg_frogfs.h"
@@ -335,17 +336,24 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int 
     }
 }
 
+static bool running_file_allows_savestates(void)
+{
+    return !(ACTIVE_FILE && ACTIVE_FILE->no_savestates);
+}
+
 static void save_state_and_sleep(bool standby, void_callback_t after_screen_off_cb)
 {
     odroid_system_sleep_ex(standby ? SLEEP_SHOW_LOGO | SLEEP_SHOW_ANIMATION | SLEEP_ANIMATION_SLOW : SLEEP_SHOW_ANIMATION, NULL);
     if (after_screen_off_cb) {
         after_screen_off_cb();
     }
+    if (running_file_allows_savestates()) {
 #if OFF_SAVESTATE == 1 || SD_CARD == 1
-    odroid_system_emu_save_state(-1);
+        odroid_system_emu_save_state(-1);
 #else
-    odroid_system_emu_save_state(0);
+        odroid_system_emu_save_state(0);
 #endif
+    }
     if (standby)
     {
         odroid_system_shutdown();
@@ -393,9 +401,12 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     void draw_darken_rounded_rectangle(pixel_t *fb, uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2);
 
     odroid_gamepad_state_t joystick;
-    bool power_key_debounce = true;
+    bool power_key_debounce = true; /* ignore POWER until released after wake */
+    bool power_held = false;
     bool any_key_debounce = false;
     uint32_t start_time = get_elapsed_time();
+
+    lcd_overlay_clut_begin();
 
     void _draw_banner(bool draw_only)
     {
@@ -457,6 +468,7 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     if (flags & ODROID_MENU_FLAG_DRAW_ONLY)
     {
         _repaint(true);
+        /* Leave overlay CLUT live across sleep → game menu. */
         return;
     }
 
@@ -476,6 +488,7 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
             odroid_input_read_gamepad(&joystick);
             if (!joystick.values[ODROID_INPUT_POWER]) {
                 power_key_debounce = false;
+                power_held = false;
             }
         }
 
@@ -485,15 +498,19 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
                 break;
         }
 
-        if (joystick.values[ODROID_INPUT_POWER]) // G&W POWER button
+        if (!power_key_debounce && joystick.values[ODROID_INPUT_POWER])
         {
-            if (!power_key_debounce && !any_key_debounce)
-            {
-                _save_state_and_sleep();
-                continue;
-            }
+            /* Hold ≥2s → panic reset; sleep only on release. */
+            if (!any_key_debounce)
+                power_held = true;
         }
-        else
+        else if (!power_key_debounce && power_held)
+        {
+            power_held = false;
+            _save_state_and_sleep();
+            continue;
+        }
+        else if (!joystick.values[ODROID_INPUT_POWER])
         {
             // Wait for any button except Power, then wait until all buttons are released
             bool any_button_pressed = odroid_input_key_is_pressed(ODROID_INPUT_ANY);
@@ -513,6 +530,11 @@ void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flag
     }
 
     odroid_audio_mute(false);
+    if (lcd_overlay_clut_end_will_restore()) {
+        lcd_sleep_while_swap_pending();
+        lcd_clear_active_buffer();
+    }
+    lcd_overlay_clut_end();
 }
 
 static int get_dialog_items_count(odroid_dialog_choice_t *options)
@@ -561,14 +583,12 @@ uint16_t get_shined_pixel(uint16_t color, uint16_t shined)
 __attribute__((optimize("unroll-loops")))
 void odroid_overlay_darken_all()
 {
-    /* LUT8 mode: each pixel is a 1-byte CLUT index. lcd_set_clut() programs
-     * a darkened twin of every entry into slots [count..2*count), so just OR
-     * LCD_DARKEN_BIT into each pixel and the LTDC's own CLUT does the dim
-     * lookup at scanout — exact RGB darkening, no nearest-match approximation. */
+    /* LUT8: lcd_darken_active_buffer() uses twin slots when present, else a
+     * nearest-match of darkened RGB (256-colour carts have no twin room —
+     * the old `|= LCD_DARKEN_BIT` turned cleared letterbox 0 into NES $20
+     * white). */
     if (lcd_get_mode() == LCD_MODE_LUT8) {
-        uint8_t *fb = (uint8_t *)lcd_get_active_buffer();
-        size_t n = lcd_get_frame_size();
-        for (size_t i = 0; i < n; i++) fb[i] |= LCD_DARKEN_BIT;
+        lcd_darken_active_buffer();
         return;
     }
 
@@ -888,8 +908,12 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     int repeat = 0;
     bool select = false;
     bool debounce = true;
-    bool power_key_debounce = false;
+    bool power_key_debounce = false; /* ignore POWER until released after wake */
+    bool power_held = false;
     odroid_gamepad_state_t joystick;
+
+    /* Full 256-colour carts: stamp theme CLUT only while the dialog is up. */
+    lcd_overlay_clut_begin();
 
     /* Snapshot header + labels (+ values that may point into lang
      * strings). i18n_load_language() keeps only one non-en_us language
@@ -953,13 +977,24 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     {
         _repaint();
         if (flags & ODROID_MENU_FLAG_DRAW_ONLY) {
+            /* Leave overlay CLUT live for a follow-up sleep/menu paint. */
             return sel;
         }
 
         odroid_input_read_gamepad(&joystick);
 
-        if (!joystick.values[ODROID_INPUT_POWER] && power_key_debounce) {
-            power_key_debounce = false;
+        if (power_key_debounce) {
+            if (!joystick.values[ODROID_INPUT_POWER]) {
+                power_key_debounce = false;
+                power_held = false;
+            }
+        } else if (joystick.values[ODROID_INPUT_POWER]) {
+            power_held = true;
+        } else if (power_held) {
+            power_held = false;
+            save_state_and_sleep(false, NULL);
+            power_key_debounce = true;
+            continue;
         }
 
         // Ignore all buttons until all buttons are released once (only on entry)
@@ -1026,13 +1061,6 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
                 sel = -1;
                 break;
             }
-            else if (joystick.values[ODROID_INPUT_POWER] && !power_key_debounce) // G&W POWER button
-            {
-                save_state_and_sleep(false, NULL);
-                power_key_debounce = true;
-                continue;
-            }
-
             if (options[sel].enabled >= 1)
             {
                 select = false;
@@ -1094,6 +1122,14 @@ int odroid_overlay_dialog(const char *header, odroid_dialog_choice_t *options, i
     } while (joystick.values[last_key] == 1);
     sel = tmp_sel;
 
+    /* Drop chrome before restoring cart CLUT — otherwise the still-visible
+     * menu frame flashes PLAYPAL colours into theme slots for one vblank.
+     * Nested dialogs (depth>1) skip clear/restore. */
+    if (lcd_overlay_clut_end_will_restore()) {
+        lcd_sleep_while_swap_pending();
+        lcd_clear_active_buffer();
+    }
+    lcd_overlay_clut_end();
     return sel < 0 ? sel : options[sel].id;
 }
 
@@ -1332,7 +1368,7 @@ void draw_game_status_bar(runtime_stats_t* stats)
                  (int)stats->busyPercent, (int)fmod(stats->busyPercent * 10, 10));
     }
 
-    snprintf(bottom, 80, "%s", ACTIVE_FILE ? (ACTIVE_FILE->name) : "N/A");
+    snprintf(bottom, sizeof(bottom), "%.79s", ACTIVE_FILE ? ACTIVE_FILE->name : "N/A");
 
     odroid_overlay_draw_fill_rect(0, 0, ODROID_SCREEN_WIDTH, height, curr_colors->main_c);
     odroid_overlay_draw_fill_rect(0, ODROID_SCREEN_HEIGHT - height, ODROID_SCREEN_WIDTH, height, curr_colors->main_c);
@@ -1527,7 +1563,9 @@ int odroid_savestate_menu(const char *title, const char *rom_path, bool show_pre
     rg_emu_states_t *savestates = odroid_system_emu_get_states(rom_path ?: app->romPath, 4);
     
     if (skip_on_single_used_slot && savestates->used <= 1) {
-        int result = savestates->used == 1 ? 0 : -1;
+        int result = (savestates->used == 1 && savestates->lastused)
+                         ? savestates->lastused->id
+                         : -1;
         free(savestates);
         return result;
     }
@@ -1588,42 +1626,64 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
         draw_game_status_bar(&stats);
     }
 
+    char core_name_value[24];
+    char core_version_value[16];
+    char core_path_value[64];
+    char core_date_value[24];
+    bool show_core_info = rg_emulators_get_running_core_info(
+        core_name_value, sizeof(core_name_value),
+        core_version_value, sizeof(core_version_value),
+        core_path_value, sizeof(core_path_value),
+        core_date_value, sizeof(core_date_value));
+
+    const bool allows_saves = running_file_allows_savestates();
+
 #if CHEAT_CODES == 1
-    odroid_dialog_choice_t choices[12];
+    odroid_dialog_choice_t choices[14];
     CHOSEN_FILE = ACTIVE_FILE;
     bool cheat_update_support = odroid_system_get_app()->handlers.cheat_update != NULL;
 
     int index=0;
-    choices[index].id = 10;
-    choices[index].label = curr_lang->s_Save_Cont;
-    choices[index].value = "";
-    choices[index].enabled = true;
-    choices[index].update_cb = NULL;
-    index++;
-    choices[index].id = 20;
-    choices[index].label = curr_lang->s_Save_Quit;
-    choices[index].value = "";
-    choices[index].enabled = true;
-    choices[index].update_cb = NULL;
-    index++;
-    choices[index].id = 0x0F0F0F0E;
-    choices[index].label = "-";
-    choices[index].value = "-";
-    choices[index].enabled = -1;
-    choices[index].update_cb = NULL;
-    index++;
-    choices[index].id = 30;
-    choices[index].label = curr_lang->s_Reload;
-    choices[index].value = "";
-    choices[index].enabled = 1;
-    choices[index].update_cb = NULL;
-    index++;
+    if (allows_saves) {
+        choices[index].id = 10;
+        choices[index].label = curr_lang->s_Save_Cont;
+        choices[index].value = "";
+        choices[index].enabled = true;
+        choices[index].update_cb = NULL;
+        index++;
+        choices[index].id = 20;
+        choices[index].label = curr_lang->s_Save_Quit;
+        choices[index].value = "";
+        choices[index].enabled = true;
+        choices[index].update_cb = NULL;
+        index++;
+        choices[index].id = 0x0F0F0F0E;
+        choices[index].label = "-";
+        choices[index].value = "-";
+        choices[index].enabled = -1;
+        choices[index].update_cb = NULL;
+        index++;
+        choices[index].id = 30;
+        choices[index].label = curr_lang->s_Reload;
+        choices[index].value = "";
+        choices[index].enabled = 1;
+        choices[index].update_cb = NULL;
+        index++;
+    }
     choices[index].id = 40;
     choices[index].label = curr_lang->s_Options;
     choices[index].value = "";
     choices[index].enabled = 1;
     choices[index].update_cb = NULL;
     index++;
+    if (show_core_info) {
+        choices[index].id = 70;
+        choices[index].label = curr_lang->s_Info;
+        choices[index].value = "";
+        choices[index].enabled = 1;
+        choices[index].update_cb = NULL;
+        index++;
+    }
     if ((ACTIVE_FILE->cheat_count != 0) && (cheat_update_support)) {
         choices[index].id = 60;
         choices[index].label = curr_lang->s_Cheat_Codes;
@@ -1662,20 +1722,22 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     choices[index].enabled = 0xFFFF;
     choices[index].update_cb = NULL;
 #else
-    odroid_dialog_choice_t choices[] = {
-        // {0, "Continue", "",  1, NULL},
-        {10, curr_lang->s_Save_Cont, "", 1, NULL},
-        {20, curr_lang->s_Save_Quit, "", 1, NULL},
-        ODROID_DIALOG_CHOICE_SEPARATOR,
-        {30, curr_lang->s_Reload, "", 1, NULL},
-        {40, curr_lang->s_Options, "", 1, NULL},
-        // {50, "Tools", "", 1, NULL},
-        ODROID_DIALOG_CHOICE_SEPARATOR,
-        {90, curr_lang->s_Power_off, "", 1, NULL},
-        ODROID_DIALOG_CHOICE_SEPARATOR,
-        {100, curr_lang->s_Quit_to_menu, "", 1, NULL},
-        ODROID_DIALOG_CHOICE_LAST,
-    };
+    odroid_dialog_choice_t choices[12];
+    int index = 0;
+    if (allows_saves) {
+        choices[index++] = (odroid_dialog_choice_t){10, curr_lang->s_Save_Cont, "", 1, NULL};
+        choices[index++] = (odroid_dialog_choice_t){20, curr_lang->s_Save_Quit, "", 1, NULL};
+        choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+        choices[index++] = (odroid_dialog_choice_t){30, curr_lang->s_Reload, "", 1, NULL};
+    }
+    choices[index++] = (odroid_dialog_choice_t){40, curr_lang->s_Options, "", 1, NULL};
+    if (show_core_info)
+        choices[index++] = (odroid_dialog_choice_t){70, curr_lang->s_Info, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+    choices[index++] = (odroid_dialog_choice_t){90, curr_lang->s_Power_off, "", 1, NULL};
+    choices[index++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_SEPARATOR;
+    choices[index++] = (odroid_dialog_choice_t){100, curr_lang->s_Quit_to_menu, "", 1, NULL};
+    choices[index] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_LAST;
 #endif
 
     odroid_audio_mute(true);
@@ -1692,17 +1754,20 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     switch (r)
     {
     case 10:
-        if ((slot = odroid_savestate_menu(curr_lang->s_Save_Cont, NULL, false, false, repaint)) >= 0)
+        if (allows_saves &&
+            (slot = odroid_savestate_menu(curr_lang->s_Save_Cont, NULL, false, false, repaint)) >= 0)
             odroid_system_emu_save_state(slot);
         break;
     case 20:
-        if ((slot = odroid_savestate_menu(curr_lang->s_Save_Quit, NULL, false, false, repaint)) >= 0) {
+        if (allows_saves &&
+            (slot = odroid_savestate_menu(curr_lang->s_Save_Quit, NULL, false, false, repaint)) >= 0) {
             odroid_system_emu_save_state(slot);
             odroid_system_switch_app(0);
         }
         break;
     case 30:
-        if ((slot = odroid_savestate_menu(curr_lang->s_Reload, NULL, true, true, NULL)) >= 0) {
+        if (allows_saves &&
+            (slot = odroid_savestate_menu(curr_lang->s_Reload, NULL, true, true, NULL)) >= 0) {
             odroid_system_emu_load_state(slot);
         }
         break;
@@ -1717,6 +1782,27 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
         show_cheat_dialog();
         break;
 #endif
+    case 70:
+        if (show_core_info) {
+            /* Refresh date in case the file was touched; other fields are
+             * already filled from launch-time meta. */
+            rg_emulators_get_running_core_info(
+                core_name_value, sizeof(core_name_value),
+                core_version_value, sizeof(core_version_value),
+                core_path_value, sizeof(core_path_value),
+                core_date_value, sizeof(core_date_value));
+            odroid_dialog_choice_t info_choices[] = {
+                {-1, curr_lang->s_Name, core_name_value, 0, NULL},
+                {-1, curr_lang->s_Version, core_version_value, 0, NULL},
+                {-1, curr_lang->s_File, core_path_value, 0, NULL},
+                {-1, curr_lang->s_Date, core_date_value, 0, NULL},
+                ODROID_DIALOG_CHOICE_SEPARATOR,
+                {1, curr_lang->s_Close, "", 1, NULL},
+                ODROID_DIALOG_CHOICE_LAST
+            };
+            odroid_overlay_dialog(curr_lang->s_Info, info_choices, -1, &_repaint, flags | ODROID_MENU_FLAG_NO_BG_DARKEN);
+        }
+        break;
     case 90:
         save_state_and_sleep(true, NULL);
         break;
@@ -1733,68 +1819,111 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
     return r;
 }
 
-void odroid_overlay_draw_progress_bar(const char *header, uint8_t progress)
+/* Shared cancel latch for cancellable progress UIs only. */
+static bool s_prog_b_armed = false;
+static bool s_prog_b_latched = false;
+
+bool odroid_overlay_progress_poll_cancel(void)
 {
-    // Replace defines with local variables
+    odroid_gamepad_state_t joy;
+    odroid_input_read_gamepad(&joy);
+    if (!s_prog_b_armed) {
+        if (!joy.values[ODROID_INPUT_B])
+            s_prog_b_armed = true;
+    } else if (joy.values[ODROID_INPUT_B]) {
+        s_prog_b_latched = true;
+    }
+    return s_prog_b_latched;
+}
+
+static void draw_progress_bar_ex(const char *header, uint8_t progress, bool with_cancel_hint)
+{
+    /* Launcher chrome stays on screen under the modal bar during a long
+     * flash-cache write; refresh clock/battery so they do not freeze. */
+    gui_draw_status(gui_get_current_tab());
+
     int progress_bar_height = 12;
     int border_thickness = 2;
     int padding = 6;
     int box_width = 250;
     int box_padding = 6;
-
-    // Compute dynamic dimensions
     int text_height = i18n_get_text_height();
     int header_height = header ? (text_height + padding) : 0;
-    int content_height = header_height + progress_bar_height + 2 * padding;
+    const char *hint = NULL;
+    int footer_height = 0;
 
-    // Center the box on the screen
+    if (with_cancel_hint) {
+        hint = (curr_lang && curr_lang->s_Caching_Cancel)
+                   ? curr_lang->s_Caching_Cancel
+                   : "B: Cancel";
+        footer_height = text_height + padding;
+    }
+
+    int bar_section_height = progress_bar_height + 2 * padding;
+    int total_height = header_height + bar_section_height + footer_height;
+
     int box_x = (ODROID_SCREEN_WIDTH - box_width) / 2;
-    int box_y = (ODROID_SCREEN_HEIGHT - content_height) / 2;
-
-    // Compute the width of the progress bar
+    int box_y = (ODROID_SCREEN_HEIGHT - total_height) / 2;
     int bar_width = box_width - 2 * padding;
 
-    // Colors
     int box_color = curr_colors->bg_c;
     int border_color = curr_colors->dis_c;
     int progress_color = curr_colors->sel_c;
     int header_color = curr_colors->sel_c;
     int header_bg_color = curr_colors->main_c;
 
-    // Draw header if provided
     int y_offset = box_y;
-    if (header)
-    {
-        // Draw header background and border
-        odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness, 
-                                 box_width + 2 * border_thickness, header_height + 2 * border_thickness, 
+    if (header) {
+        odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness,
+                                 box_width + 2 * border_thickness, header_height + 2 * border_thickness,
                                  border_thickness, border_color);
-
         odroid_overlay_draw_fill_rect(box_x, y_offset, box_width, header_height, header_bg_color);
-
-        // Draw header text
-        int text_x = box_x + box_padding;
-        int text_y = y_offset + (header_height - text_height) / 2;
-        i18n_draw_text_line(text_x, text_y, box_width - 2 * box_padding, header, header_color, header_bg_color, 0);
-
+        i18n_draw_text_line(box_x + box_padding,
+                            y_offset + (header_height - text_height) / 2,
+                            box_width - 2 * box_padding, header,
+                            header_color, header_bg_color, 0);
         y_offset += header_height;
     }
 
-    // Draw box background and border
-    odroid_overlay_draw_fill_rect(box_x, y_offset, box_width, content_height, box_color);
-    odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness, 
-                             box_width + 2 * border_thickness, content_height + 2 * border_thickness, 
+    odroid_overlay_draw_fill_rect(box_x, y_offset, box_width, bar_section_height, box_color);
+    odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness,
+                             box_width + 2 * border_thickness, bar_section_height + 2 * border_thickness,
                              border_thickness, border_color);
 
-    // Draw progress bar border
     int bar_x = box_x + padding;
-    int bar_y = y_offset + (content_height - progress_bar_height) / 2;
+    int bar_y = y_offset + (bar_section_height - progress_bar_height) / 2;
     odroid_overlay_draw_rect(bar_x, bar_y, bar_width, progress_bar_height, border_thickness, border_color);
-
-    // Draw filled portion of the progress bar
     int filled_width = (progress * (bar_width - 2 * border_thickness)) / 100;
-    odroid_overlay_draw_fill_rect(bar_x + border_thickness, bar_y + border_thickness, 
+    odroid_overlay_draw_fill_rect(bar_x + border_thickness, bar_y + border_thickness,
                                   filled_width, progress_bar_height - 2 * border_thickness, progress_color);
+    y_offset += bar_section_height;
+
+    if (with_cancel_hint) {
+        odroid_overlay_draw_fill_rect(box_x, y_offset, box_width, footer_height, header_bg_color);
+        odroid_overlay_draw_rect(box_x - border_thickness, y_offset - border_thickness,
+                                 box_width + 2 * border_thickness, footer_height + 2 * border_thickness,
+                                 border_thickness, border_color);
+        i18n_draw_text_line(box_x + box_padding,
+                            y_offset + (footer_height - text_height) / 2,
+                            box_width - 2 * box_padding, hint,
+                            header_color, header_bg_color, 0);
+    }
+}
+
+void odroid_overlay_draw_progress_bar(const char *header, uint8_t progress)
+{
+    draw_progress_bar_ex(header, progress, false);
+}
+
+bool odroid_overlay_draw_progress_bar_cancellable(const char *header, uint8_t progress)
+{
+    if (progress == 0) {
+        s_prog_b_latched = false;
+        s_prog_b_armed = false;
+    }
+    bool cancelled = odroid_overlay_progress_poll_cancel();
+    draw_progress_bar_ex(header, progress, true);
+    return !cancelled;
 }
 
 uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *file_size_p, bool byte_swap)
@@ -1802,14 +1931,15 @@ uint8_t *odroid_overlay_cache_file_in_flash(const char *file_path, uint32_t *fil
     return odroid_overlay_cache_file_in_flash_relocate(file_path, file_size_p, byte_swap, NULL);
 }
 
-uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
-                                                     bool byte_swap, flash_relocate_cb_t relocate_cb)
+uint8_t *odroid_overlay_cache_file_in_flash_cancellable(const char *file_path, uint32_t *file_size_p,
+                                                        bool byte_swap)
 {
+    return odroid_overlay_cache_file_in_flash_relocate_cancellable(file_path, file_size_p, byte_swap, NULL);
+}
+
 #if SD_CARD == 0
-    (void)byte_swap;
-    /* FrogFS maps the file where it already sits in the firmware image, so there
-     * is no copy to relocate. Callers that need one must not use this build. */
-    (void)relocate_cb;
+static uint8_t *cache_file_frogfs(const char *file_path, uint32_t *file_size_p)
+{
     const uint8_t *data = NULL;
     uint32_t file_size = 0;
 
@@ -1824,19 +1954,72 @@ uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint
         *file_size_p = file_size;
 
     return (uint8_t *)data;
+}
+#endif
+
+uint8_t *odroid_overlay_cache_file_in_flash_relocate(const char *file_path, uint32_t *file_size_p,
+                                                     bool byte_swap, flash_relocate_cb_t relocate_cb)
+{
+#if SD_CARD == 0
+    (void)byte_swap;
+    (void)relocate_cb;
+    return cache_file_frogfs(file_path, file_size_p);
 #else
-    void progress_cb(uint32_t total_size, uint32_t total_processed, uint8_t progress)
+    bool progress_cb(uint32_t total_size, uint32_t total_processed, uint8_t progress)
     {
-        if (lcd_is_swap_pending())
-            return;
+        (void)total_size;
+        (void)total_processed;
 
+        lcd_sleep_while_swap_pending();
         odroid_overlay_draw_progress_bar(curr_lang->s_Caching_Game, progress);
-
-        // Show
+        lcd_sync();
         lcd_swap();
+        return true;
     }
 
     return store_file_in_flash_relocate(file_path, file_size_p, byte_swap, progress_cb, relocate_cb);
+#endif
+}
+
+uint8_t *odroid_overlay_cache_file_in_flash_relocate_cancellable(const char *file_path,
+                                                                 uint32_t *file_size_p,
+                                                                 bool byte_swap,
+                                                                 flash_relocate_cb_t relocate_cb)
+{
+#if SD_CARD == 0
+    (void)byte_swap;
+    (void)relocate_cb;
+    return cache_file_frogfs(file_path, file_size_p);
+#else
+    bool cancelled = false;
+
+    bool progress_cb(uint32_t total_size, uint32_t total_processed, uint8_t progress)
+    {
+        (void)total_size;
+        (void)total_processed;
+
+        if (odroid_overlay_progress_poll_cancel()) {
+            cancelled = true;
+            return false;
+        }
+
+        lcd_sleep_while_swap_pending();
+
+        if (!odroid_overlay_draw_progress_bar_cancellable(curr_lang->s_Caching_Game, progress)) {
+            cancelled = true;
+            return false;
+        }
+
+        lcd_sync();
+        lcd_swap();
+        return true;
+    }
+
+    uint8_t *result = store_file_in_flash_relocate(file_path, file_size_p, byte_swap,
+                                                   progress_cb, relocate_cb);
+    if (cancelled)
+        odroid_system_abort_to_launcher();
+    return result;
 #endif
 }
 
@@ -1865,10 +2048,9 @@ size_t odroid_overlay_cache_file_in_ram_with_offset(const char *file_path, uint8
 
         debounce_time = uptime_get();
 
-        // Draw
+        lcd_sleep_while_swap_pending();
         odroid_overlay_draw_banner_text(ODROID_SCREEN_WIDTH / 2, ODROID_SCREEN_HEIGHT / 2, curr_lang->s_Loading_Banner);
-
-        // Show
+        lcd_sync();
         lcd_swap();
     }
 
