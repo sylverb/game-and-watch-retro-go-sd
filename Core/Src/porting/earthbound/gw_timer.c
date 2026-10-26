@@ -30,6 +30,7 @@
 
 extern void wdog_refresh(void);
 extern void eb_audio_pump(void);
+extern bool eb_audio_pump_waited;
 
 /* IIR-filtered frame period in ms, scaled by (1 << FPS_IIR_SHIFT). 60 FPS →
  * 16.67 ms → steady-state period_acc ≈ 267. Shift=4 (factor 1/16) matches
@@ -159,7 +160,17 @@ bool platform_timer_should_render(void)
      * a hibernation resume — see the declaration comment above. */
     uint64_t period = platform_timer_ticks_per_sec() / 60;
     uint64_t now = platform_timer_ticks();
-    if (!skip_inited) { skip_deadline = now; skip_inited = true; }
+    /* Re-baseline whenever the previous frame's audio pump had to wait for a
+     * free ring slot: the loop is then on time by the SAI DMA clock, which is
+     * what actually paces it. Without this the debt drifts upward forever,
+     * because `period` (exactly 60 Hz) is shorter than the audio frame
+     * (534 samples @ 32 kHz = 16.6875 ms, plus any PLL error): ~0.02 ms/frame,
+     * so after ~13 s of keeping up the controller believed it was a whole frame
+     * behind and dropped to 30 fps until the clamp below reset it ~13 s later.
+     * Skipping can't pay that phantom debt down, since the loop still blocks on
+     * audio. With the re-baseline, DWT debt only accrues while we really are
+     * behind (pump didn't wait). */
+    if (!skip_inited || eb_audio_pump_waited) { skip_deadline = now; skip_inited = true; }
 
     bool do_render;
     if ((int64_t)(now - skip_deadline) > (int64_t)period &&

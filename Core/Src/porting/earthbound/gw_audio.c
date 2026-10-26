@@ -217,6 +217,11 @@ static void eb_produce_frame(void)
     eb_audio_prod_frames++;
 }
 
+/* True when the last eb_audio_pump() had to wait for a free slot, i.e. the loop
+ * is keeping up with the SAI DMA (the real master clock). Read by
+ * platform_timer_should_render() (gw_timer.c) to re-baseline its skip deadline. */
+bool eb_audio_pump_waited;
+
 void eb_audio_pump(void)
 {
     /* Real-time-paced production. Two regimes:
@@ -236,7 +241,9 @@ void eb_audio_pump(void)
      *   the APU for at most EB_RING_FRAMES frames (~16 ms of work) — safe under
      *   the WWDG. Watchdog refreshed each spin in case the preceding render ran
      *   long. */
+    eb_audio_pump_waited = false;
     while (eb_ring_count() >= EB_RING_FRAMES) {
+        eb_audio_pump_waited = true;
         wdog_refresh();
         /* Issue any deferred LCD present (gw_video.c) — the vblank latch we
          * would otherwise block on in end_frame passes during this wait, so
