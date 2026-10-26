@@ -777,6 +777,10 @@ CXXLIBS = -lstdc++
 LIBDIR +=
 LDFLAGS += $(MCU) -specs=nano.specs -T$(LDSCRIPT) $(LIBDIR) $(LIBS) $(CXXLIBS) -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections
 LDFLAGS += -Wl,--wrap=fflush
+# Keep the resolved relocations in the ELF so scripts/check_eb_rodata_relocs.py
+# can find pointers inside .rodata_earthbound that target it (not relocated at
+# runtime; such tables must be EB_NORELOC). Does not change the flashed images.
+LDFLAGS += -Wl,--emit-relocs
 
 # default action: build all (FrogFS has no gw_*_extflash.bin payload — flash frogfs.bin instead)
 ifeq ($(DOCKER),1)
@@ -953,6 +957,7 @@ $(BUILD_DIR)/memcpy-armv7m.o: Core/Src/memcpy-armv7m.s Makefile.common Makefile 
 $(BUILD_DIR)/$(TARGET).elf: $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(EARTHBOUND_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) Makefile.common Makefile $(BUILD_DIR)/fceumm_mappers.ld $(LDSCRIPT)
 	$(V)$(ECHO) [ LD ] $(notdir $@)
 	$(V)$(CC) $(OBJECTS) $(FATFS_OBJECTS) $(TAMP_OBJECTS) $(A7800_OBJECTS) $(NES_OBJECTS) $(NES_FCEU_OBJECTS) $(TGBDUAL_OBJECTS) $(SMSPLUSGX_OBJECTS) $(PCE_OBJECTS) $(MSX_OBJECTS) $(GW_OBJECTS) $(WSV_OBJECTS) $(MD_OBJECTS) $(AMSTRAD_OBJECTS) $(VIDEOPAC_OBJECTS) $(CELESTE_OBJECTS) $(CXX_OBJECTS) $(TGBDUAL_CXX_OBJECTS) $(A2600_OBJECTS) $(A2600_CXX_OBJECTS) $(ZELDA3_OBJECTS) $(SMW_OBJECTS) $(EARTHBOUND_OBJECTS) $(TAMA_OBJECTS) $(PKMINI_OBJECTS) $(PICO8_OBJECTS) $(LDFLAGS) -o $@
+	$(V)$(PYTHON3) scripts/check_eb_rodata_relocs.py $(if $(GCC_PATH),$(GCC_PATH)/)$(PREFIX) $@ || (rm -f $@; exit 1)
 ifeq ($(SD_CARD), 0)
 	$(V)./scripts/extflash_size.sh $@
 endif
