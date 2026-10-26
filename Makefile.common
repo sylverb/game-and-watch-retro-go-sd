@@ -1197,6 +1197,8 @@ $(eval $(foreach obj,$(SMW_C_SOURCES),$(call smw_obj_prereq_gen,$(obj))))
 # stale -D<old> is silently ignored and the knob reverts to its default.
 # EB_HAVE_SAVESTATE_BACKEND drops src/platform/savestate_backend_stub.c so our
 # gw_savestate.c platform_savestate_* implementation links instead.
+# TAMP_EXTENDED must stay on (tamp's default): state_dump compresses with
+# .extended = 1, which tamp_compressor_init rejects when it isn't compiled in.
 C_DEFS_EARTHBOUND =  \
 -DEB_EMBEDDED=1 \
 -DEB_NORELOC_REQUIRED=1 \
@@ -1210,7 +1212,6 @@ C_DEFS_EARTHBOUND =  \
 -DEB_PPU_FORCE_SPEED_OPT=1 \
 -DEB_HAVE_SAVESTATE_BACKEND=1 \
 -DTAMP_STREAM=0 \
--DTAMP_EXTENDED=0 \
 -include Core/Inc/porting/earthbound/eb_alloc.h \
 
 # Items/music headers come from `ebtools generate items-header` and
@@ -1336,11 +1337,23 @@ $(EARTHBOUND_GEN_DIR)/music_generated.h: $(EARTHBOUND_ASSETS_MANIFEST) | $(BUILD
 external/earthbound/earthbound.sfc: $(EARTHBOUND_SFC)
 	@ln -sf $(abspath $<) $@
 
-$(EARTHBOUND_ASSETS_MANIFEST): external/earthbound/earthbound.sfc
+# Families pack-all writes as decompressed .raw copies that the C port reads in
+# place; their .lzhal originals are excluded from the registry (mirrors
+# external/earthbound/src/CMakeLists.txt).
+EARTHBOUND_RAW_FAMILIES = maps/arrangements maps/gfx maps/anim_gfx maps/anim_pal battle_sprites
+
+# Re-extract when earthbound.yml changes (a submodule bump can add assets);
+# unix-extract skips extraction while the manifest exists, so drop it first.
+$(EARTHBOUND_ASSETS_MANIFEST): external/earthbound/earthbound.sfc external/earthbound/earthbound.yml
 	@echo "[ ebtools extract ] from $(EARTHBOUND_SFC)"
+	@rm -f $@
 	@$(MAKE) -C external/earthbound unix-venv unix-extract
 
-$(EARTHBOUND_GEN_HEADERS) &: $(EARTHBOUND_ASSETS_MANIFEST) Makefile.common | $(BUILD_DIR)
+# A packer change can add or reshape packed files, so ebtools itself is a
+# prerequisite too.
+EARTHBOUND_EBTOOLS_PY = $(shell find external/earthbound/ebtools -name '*.py' 2>/dev/null)
+
+$(EARTHBOUND_GEN_HEADERS) &: $(EARTHBOUND_ASSETS_MANIFEST) external/earthbound/commondefs.yml $(EARTHBOUND_EBTOOLS_PY) $(wildcard external/earthbound/src/custom_assets/maps/*.json) Makefile.common | $(BUILD_DIR)
 	@echo "[ ebtools pack-all       ]"
 	# EB's gnw-port branch keeps human-authored YAML/JSON sources under
 	# port/assets/ (not src/assets/). pack-all also generates a C header
@@ -1348,11 +1361,13 @@ $(EARTHBOUND_GEN_HEADERS) &: $(EARTHBOUND_ASSETS_MANIFEST) Makefile.common | $(B
 	# as <assets_dir>/../data, which would be port/data — a directory that
 	# doesn't exist. The C port includes the header as "data/text_refs.h",
 	# so we want it written into src/data/. --text-refs-dir overrides the
-	# inferred location.
+	# inferred location. --custom-dir likewise: its default is
+	# <assets_dir>/../custom_assets, which would be port/custom_assets.
 	@cd external/earthbound && . .venv/bin/activate && ebtools pack-all \
 		port/assets $(abspath $(EARTHBOUND_PACKED_DIR)) \
 		-b asm/bin -y earthbound.yml -c commondefs.yml \
-		--text-refs-dir src/data
+		--text-refs-dir src/data \
+		--custom-dir src/custom_assets
 	@echo "[ ebtools embed-registry ]"
 	@cd external/earthbound && . .venv/bin/activate && ebtools embed-registry \
 		asm/bin/assets.manifest asm/bin $(abspath $(EARTHBOUND_GEN_DIR)) src/vendor/incbin \
@@ -1380,7 +1395,8 @@ $(EARTHBOUND_GEN_HEADERS) &: $(EARTHBOUND_ASSETS_MANIFEST) Makefile.common | $(B
 		--exclude "data/E1[0-9]*.bin" \
 		--exclude "dialogue/addr_remap.bin" \
 		--exclude "data/compressed_text_data.bin" \
-		--exclude "data/compressed_text_ptrs.bin"
+		--exclude "data/compressed_text_ptrs.bin" \
+		$(foreach f,$(EARTHBOUND_RAW_FAMILIES),--exclude "$(f)/*.lzhal" --exclude "US/$(f)/*.lzhal")
 
 $(BUILD_DIR):
 	$(V)mkdir $@

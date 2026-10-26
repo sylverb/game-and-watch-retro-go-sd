@@ -521,7 +521,7 @@ By default, dialogues extracted from the US ROM are in english. You can replace 
 
 ### EarthBound
 
-EarthBound runs from a C reimplementation of the game ([`external/earthbound`](external/earthbound)) rather than an emulated SNES ROM. Unlike Zelda 3 and Super Mario World, there is no separate `*_assets.dat` step — the firmware build itself extracts the 3 MB of game data from your donor ROM, packs it into a `.rodata_earthbound` linker section, and emits it as `earthbound.ro` alongside the firmware binaries.
+EarthBound runs from a C reimplementation of the game ([`external/earthbound`](external/earthbound)) rather than an emulated SNES ROM. Unlike Zelda 3 and Super Mario World, there is no separate `*_assets.dat` step — the firmware build itself extracts the ~4 MB of game data from your donor ROM, packs it into a `.rodata_earthbound` linker section, and emits it as `earthbound.ro` alongside the firmware binaries. At launch the whole `earthbound.ro` is cached into external flash, so the device needs that much external flash free beyond the stock firmware's footprint.
 
 To build:
 
