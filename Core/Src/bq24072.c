@@ -85,43 +85,26 @@ typedef struct {
 } bq24072_level_table_t;
 
 /*
- * Threshold tables extracted verbatim from OFW FUN_00003148 / FUN_0000320e.
+ * Threshold tables from the OFW (internal flash, 0x08003148 / 0x0800320e).
  *
- * The OFW selects the active table based on two runtime flags:
+ * The OFW has two table pairs selected by a board-revision flag
+ * (RAM 0x2000ab92). That flag is NOT an ADC range: it is set by
+ * 0x0800ee8e, which reads PC8 with a pull-up (PC8 strapped low -> flag=1).
+ * The same flag selects the POWER_GOOD/wakeup pin: PA2 when flag=1,
+ * PC5 when flag=0. Retail units use PA2 for POWER_GOOD (PC5 is the
+ * TIME button), so they always use the tables below. The flag=0 tables
+ * (0x8f28..0xa35e / 0x95e5..0xaa1b) belong to another board revision
+ * and are not used here.
  *
- *   1. Domain flag (DAT_000033fc):
- *        == 0  -> "high" domain  (ADC reading >= 0x4000, normal operation)
- *        != 0  -> "low"  domain  (ADC reading <  0x4000, low-battery range)
- *      In our implementation this maps to: adc_value < 0x4000.
- *
- *   2. Charging-context bit (bit 1 of FUN_000034ac() return in FUN_00003148,
- *      or bit 7 of *DAT_00003404 in FUN_0000320e — same semantic):
- *        bit SET   -> charging/full table
- *        bit CLEAR -> discharging table
- *      In our implementation: state == CHARGING || state == FULL.
- *
- * th[3] of bq24072_levels_high_discharging is 0x9d79, which Ghidra shows as
- * "(uint)&LAB_00009d78 + 1" — a relocation artefact; the numeric value is correct.
- *
- * th[3] of bq24072_levels_high_charging is 0xa436, shown by Ghidra as
- * "(uint)FUN_0000a436" — likewise a relocation artefact; value is correct.
+ * The OFW picks the charging table only while the debounced CHG pin
+ * (PE7) is active, not when the charge is complete (FULL).
  */
-static const bq24072_level_table_t bq24072_levels_low_discharging = {
+static const bq24072_level_table_t bq24072_levels_discharging = {
     .th = { 0x29a5, 0x29c5, 0x2cb5, 0x2dcf, 0x2f86 },
 };
 
-static const bq24072_level_table_t bq24072_levels_low_charging = {
+static const bq24072_level_table_t bq24072_levels_charging = {
     .th = { 0x2a62, 0x2a81, 0x2d71, 0x2e8c, 0x3043 },
-};
-
-static const bq24072_level_table_t bq24072_levels_high_discharging = {
-    /* th[3] = &LAB_00009d78 + 1 = 0x9d79  (Ghidra relocation artefact) */
-    .th = { 0x8f28, 0x8f94, 0x99af, 0x9d79, 0xa35e },
-};
-
-static const bq24072_level_table_t bq24072_levels_high_charging = {
-    /* th[3] = (uint)FUN_0000a436 = 0xa436  (Ghidra relocation artefact) */
-    .th = { 0x95e5, 0x9651, 0xa06c, 0xa436, 0xaa1b },
 };
 
 /* ======================================================================
@@ -191,29 +174,13 @@ static int bq24072_percent_from_table(uint16_t adc_value,
 }
 
 /*
- * Selects the appropriate threshold table based on the current ADC
- * domain and charge state.
- *
- * Mirrors the OFW logic that reads DAT_000033fc (domain flag) and the
- * charging bit from FUN_000034ac() / *DAT_00003404:
- *   - adc_value < 0x4000  <->  DAT_000033fc != 0  (low domain)
- *   - adc_value >= 0x4000 <->  DAT_000033fc == 0  (high domain)
- *   - CHARGING / FULL     <->  charging-context bit SET
- *   - DISCHARGING         <->  charging-context bit CLEAR
+ * Selects the threshold table like the OFW: charging table only while
+ * the charger reports an active charge (CHG low).
  */
-static const bq24072_level_table_t* bq24072_select_table(uint16_t adc_value,
-                                                           bq24072_state_t state)
+static const bq24072_level_table_t* bq24072_select_table(bq24072_state_t state)
 {
-    bool low_domain       = (adc_value < 0x4000);
-    bool charging_context = (state == BQ24072_STATE_CHARGING) ||
-                            (state == BQ24072_STATE_FULL);
-
-    if (low_domain)
-        return charging_context ? &bq24072_levels_low_charging
-                                : &bq24072_levels_low_discharging;
-
-    return charging_context ? &bq24072_levels_high_charging
-                            : &bq24072_levels_high_discharging;
+    return (state == BQ24072_STATE_CHARGING) ? &bq24072_levels_charging
+                                             : &bq24072_levels_discharging;
 }
 
 /* ======================================================================
@@ -236,11 +203,11 @@ static const bq24072_level_table_t* bq24072_select_table(uint16_t adc_value,
  *      the counter AFTER increment.  The first publish therefore occurs
  *      on the 9th sample, not the 8th.  Fixed: >= 9u.
  *
- *  (b) RUNNING vs WINDOWED ACCUMULATOR — The OFW never resets sample_sum
- *      or sample_count after publishing (running accumulator).  We use a
- *      windowed accumulator instead to prevent uint32_t overflow on long
- *      uptimes.  Behavior is identical at steady state; the only visible
- *      difference is during the very first 9-sample window at boot.
+ *  (b) WINDOW — The OFW restarts the window every 10 s (0x08003310 clears
+ *      sum and count), takes one conversion per second and publishes after
+ *      9 of them. Each OFW conversion is a 1024x hardware oversample.
+ *      Here one sample is taken per bq24072_poll() and the window is reset
+ *      after each publish, which gives the same cadence.
  *
  *  (c) MONOTONICITY FILTER — OFW FUN_00001b58 maintains a non-increasing
  *      ADC floor ("stored_min" at DAT_00003408+0x1c).  After each window:
@@ -316,7 +283,11 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
             /* First publish: unconditionally seed filtered_value. */
             bq24072_data.filtered_value = new_avg;
         } else if ((new_avg <= bq24072_data.filtered_value) ||
-                    bq24072_data.adc_reset_pending) {
+                    bq24072_data.adc_reset_pending ||
+                    bq24072_data.charging) {
+            /* OFW (0x0800333a) re-arms the reset flag on every tick while
+             * CHG is active, so the floor follows the voltage up while
+             * charging. Without this the level freezes while charging. */
             /* Accept: discharge step or explicit charger-state reset. */
             bq24072_data.filtered_value = new_avg;
         }
@@ -451,7 +422,7 @@ int bq24072_get_percent(void)
     state = bq24072_get_state();
     if (state == BQ24072_STATE_MISSING) return 0;
 
-    table   = bq24072_select_table(bq24072_data.filtered_value, state);
+    table   = bq24072_select_table(state);
     percent = bq24072_percent_from_table(bq24072_data.filtered_value, table);
 
     /* Keep level helper reachable; useful for correlating with OFW logs
@@ -547,4 +518,20 @@ void bq24072_poll(void)
 {
     bq24072_data.adc_settle_pending = true;
     HAL_ADC_Start_IT(&hadc1);
+}
+
+/* ======================================================================
+ * Critical battery check
+ *
+ * OFW main loop (0x0800fd64): when not on external power (POWER_GOOD
+ * inactive) and the level is <= 1 (ADC <= th[1] of the discharging
+ * table), it powers the console off. Unlike a percent check, this also
+ * catches readings that drop straight to level 0.
+ * ====================================================================== */
+bool bq24072_is_critical(void)
+{
+    if (!bq24072_data.sample_valid || bq24072_data.power_good)
+        return false;
+
+    return bq24072_data.filtered_value <= bq24072_levels_discharging.th[1];
 }
