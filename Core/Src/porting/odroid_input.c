@@ -88,6 +88,7 @@ bool odroid_input_key_is_pressed(odroid_gamepad_key_t key)
 
 odroid_battery_state_t odroid_input_read_battery()
 {
+    static bool battery_auto_poweroff_latched = false;
     odroid_battery_state_t ret;
 
     ret.millivolts = 0;
@@ -98,6 +99,20 @@ odroid_battery_state_t odroid_input_read_battery()
         case BQ24072_STATE_CHARGING:        ret.state = ODROID_BATTERY_CHARGE_STATE_CHARGING;           break;
         case BQ24072_STATE_DISCHARGING:     ret.state = ODROID_BATTERY_CHARGE_STATE_DISCHARGING;        break;
         case BQ24072_STATE_FULL:            ret.state = ODROID_BATTERY_CHARGE_STATE_FULL;               break;
+    }
+
+    /*
+     * Power off when the battery is critical, like the OFW: level <= 1
+     * of the OFW table while not on external power. This protects the
+     * RTC backup domain from deep drain.
+     */
+    if (!battery_auto_poweroff_latched && bq24072_is_critical()) {
+        battery_auto_poweroff_latched = true;
+        odroid_system_shutdown();
+        odroid_system_sleep_ex(
+            SLEEP_ENTER_STANDBY | SLEEP_SHOW_LOGO | SLEEP_SHOW_ANIMATION | SLEEP_ANIMATION_SLOW,
+            NULL
+        );
     }
 
     return ret;

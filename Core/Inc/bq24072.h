@@ -1,4 +1,6 @@
 #pragma once
+
+#include <stdbool.h>
 #ifndef BQ24072_H
 #define BQ24072_H
 
@@ -22,6 +24,7 @@ void bq24072_handle_charging(void);
 bq24072_state_t bq24072_get_state(void);
 int bq24072_get_percent(void);
 int bq24072_get_percent_filtered(void);
+bool bq24072_is_critical(void);
 
 void bq24072_poll(void);
 
