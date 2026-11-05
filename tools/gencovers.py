@@ -1,5 +1,6 @@
 import os
 import argparse
+import struct
 from pathlib import Path
 from PIL import Image
 
@@ -112,6 +113,70 @@ def process_images_in_roms(roms_directory, covers_directory, width=None, height=
                 print(f"Creating thumbnail for {img_path} and saving to {output_file}...")
                 write_thumbnail(img_path, output_file, width, height, jpg_quality)
 
+# --- Cover packs: <covers>/<system>.pak (read by Core/Src/retro-go/gui.c) ---
+#
+# Layout (little endian):
+#   "GWCP" | u16 version (1) | u16 reserved | u32 count
+#   count * { u32 hash1, u32 hash2, u32 offset, u32 size }  sorted by (hash1, hash2)
+#   cover data
+# Key: cover path relative to <covers>/<system>/ without ".img", UTF-8,
+# hashed with FNV-1a (ASCII case folded) using two seeds.
+
+PAK_MAGIC = b"GWCP"
+PAK_VERSION = 1
+PAK_SEED1 = 0x811C9DC5
+PAK_SEED2 = 0x9747B28C
+COVER_MAX_BYTES = 10 * 1024  # COVER_SIZE in gui.c
+
+
+def _pak_hash(key: bytes, h: int) -> int:
+    for c in key:
+        if 0x41 <= c <= 0x5A:
+            c += 0x20
+        h = ((h ^ c) * 0x01000193) & 0xFFFFFFFF
+    return h
+
+
+def pack_covers(covers_directory) -> None:
+    """Build one <system>.pak per system folder found in covers_directory."""
+    root = Path(covers_directory)
+    if not root.is_dir():
+        print(f"Covers directory not found: {root}")
+        return
+
+    for sysdir in sorted(p for p in root.iterdir() if p.is_dir()):
+        entries = {}
+        for img in sorted(sysdir.rglob("*.img")):
+            key = img.relative_to(sysdir).with_suffix("").as_posix().encode("utf-8")
+            data = img.read_bytes()
+            if not data or len(data) > COVER_MAX_BYTES:
+                print(f"Skipping {img}: {len(data)} bytes (max {COVER_MAX_BYTES})")
+                continue
+            hashes = (_pak_hash(key, PAK_SEED1), _pak_hash(key, PAK_SEED2))
+            if hashes in entries:
+                print(f"Skipping {img}: same key as {entries[hashes][0].decode()}")
+                continue
+            entries[hashes] = (key, data)
+
+        pak_file = root / f"{sysdir.name}.pak"
+        if not entries:
+            if pak_file.exists():
+                pak_file.unlink()
+            continue
+
+        ordered = sorted(entries.items())
+        header = PAK_MAGIC + struct.pack("<HHI", PAK_VERSION, 0, len(ordered))
+        offset = len(header) + 16 * len(ordered)
+        index = bytearray()
+        blob = bytearray()
+        for (h1, h2), (_, data) in ordered:
+            index += struct.pack("<IIII", h1, h2, offset + len(blob), len(data))
+            blob += data
+
+        pak_file.write_bytes(header + index + blob)
+        print(f"Packed {len(ordered)} covers into {pak_file} ({pak_file.stat().st_size} bytes)")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate thumbnails for images.")
     parser.add_argument("--src", type=str, default="roms", help="Path to the source directory")
@@ -121,8 +186,22 @@ if __name__ == "__main__":
     parser.add_argument("--jpg_quality", type=int, default=85, help="JPEG quality (0-100)")
     parser.add_argument("--image", type=str, help="Path to a single image file to process")
     parser.add_argument("--output", type=str, help="Output path for the single image (only used with --image)")
+    parser.add_argument(
+        "--pack",
+        action="store_true",
+        help="After generating, build <dst>/<system>.pak cover packs (faster lookup on the console)",
+    )
+    parser.add_argument(
+        "--pack-only",
+        action="store_true",
+        help="Only build <dst>/<system>.pak from the existing .img files in --dst",
+    )
     
     args = parser.parse_args()
+    
+    if args.pack_only:
+        pack_covers(args.dst)
+        raise SystemExit(0)
     
     # If --image is specified, process a single image
     if args.image:
@@ -139,3 +218,5 @@ if __name__ == "__main__":
     else:
         # Process all images in the source directory
         process_images_in_roms(args.src, args.dst, args.width, args.height, args.jpg_quality)
+        if args.pack:
+            pack_covers(args.dst)

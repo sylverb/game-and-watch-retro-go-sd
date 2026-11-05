@@ -234,6 +234,17 @@ The script automatically resizes images to fit within 186x100 pixels while maint
 
 The `.img` files have to be stored in the /covers folder of your sd card : for the game `/roms/msx/Aleste.rom`, the cover file should be `/covers/msx/Aleste.img`.
 
+#### Cover packs (faster browsing)
+
+With many covers per system, browsing gets slower the further down the list you go, because the SD card folder is searched entry by entry each time a cover is opened. To avoid that, pack the covers of each system into one file:
+
+```bash
+python tools/gencovers.py --pack-only --dst /path/to/sd/covers
+# Creates /covers/<system>.pak next to the system folders (e.g. /covers/msx.pak)
+```
+
+You can also add `--pack` to a normal `gencovers.py` run to pack right after generating the thumbnails. The `.img` files can stay where they are: the console reads the `.pak` first and falls back to the loose `.img` files when a system has no pack or a cover is missing from it. Run `--pack-only` again whenever you add or change covers.
+
 ### Pico-8 Cover Art  Generator ( pico8covers.py ) 
 
 Extract PICO-8 cart labels and generate G&W cover art (.img JPEG files).

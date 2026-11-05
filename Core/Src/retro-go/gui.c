@@ -47,6 +47,7 @@ static listbox_item_t *global_items = NULL;
 #if COVERFLOW != 0
 /* instances for JPEG decoder */
 #include "hw_jpeg_decoder.h"
+#include "ff.h"
 
 // reuse existing buffer from gw_lcd.h
 #define JPEG_BUFFER_SIZE 256*1024
@@ -637,6 +638,125 @@ static void initialize_cache()
     }
 }
 
+/*
+ * Cover packs: /covers/<system>.pak, built by tools/gencovers.py --pack.
+ *
+ * Opening a loose /covers/<system>/<game>.img makes FatFs scan the folder
+ * entry by entry, so the cost grows with the game's position in the folder.
+ * A pack is looked up with a binary search done directly on the SD card:
+ * no index is kept in RAM.
+ *
+ * Layout (little endian):
+ *   "GWCP" | u16 version (1) | u16 reserved | u32 count
+ *   count * { u32 hash1, u32 hash2, u32 offset, u32 size }  sorted by (hash1, hash2)
+ *   cover data
+ * The key is the cover path relative to /covers/<system>/ without ".img",
+ * hashed with FNV-1a (ASCII case folded, like FAT name lookups) using two
+ * different seeds.
+ */
+#define COVER_PAK_MAGIC   0x50435747u /* "GWCP" */
+#define COVER_PAK_VERSION 1u
+#define COVER_PAK_HDR     12u
+#define COVER_PAK_ENTRY   16u
+
+static uint32_t cover_pak_hash(const char *s, size_t n, uint32_t h)
+{
+    while (n--) {
+        uint8_t c = (uint8_t)*s++;
+        if (c >= 'A' && c <= 'Z')
+            c += 'a' - 'A';
+        h = (h ^ c) * 0x01000193u;
+    }
+    return h;
+}
+
+/* Returns the cover size, 0 if the pack has no usable entry for it,
+ * or -1 if there is no pack for this system. */
+static int cover_pak_read(const char *coverpath, uint8_t *buf)
+{
+    static const char prefix[] = ODROID_BASE_PATH_COVERS "/";
+    if (strncmp(coverpath, prefix, sizeof(prefix) - 1) != 0)
+        return -1;
+
+    const char *sys = coverpath + sizeof(prefix) - 1;
+    const char *slash = strchr(sys, '/');
+    const char *dot = strrchr(coverpath, '.');
+    if (!slash || !dot || dot <= slash)
+        return -1;
+
+    char pakpath[64];
+    int n = snprintf(pakpath, sizeof(pakpath), "%s%.*s.pak", prefix, (int)(slash - sys), sys);
+    if (n <= 0 || n >= (int)sizeof(pakpath))
+        return -1;
+
+    FIL f;
+    if (f_open(&f, pakpath, FA_READ) != FR_OK)
+        return -1;
+
+    int ret = 0;
+    UINT br;
+    uint32_t hdr[3];
+    if (f_read(&f, hdr, sizeof(hdr), &br) != FR_OK || br != sizeof(hdr) ||
+        hdr[0] != COVER_PAK_MAGIC || (hdr[1] & 0xffff) != COVER_PAK_VERSION) {
+        ret = -1;
+        goto out;
+    }
+
+    const char *key = slash + 1;
+    size_t key_len = dot - key;
+    uint32_t h1 = cover_pak_hash(key, key_len, 0x811c9dc5u);
+    uint32_t h2 = cover_pak_hash(key, key_len, 0x9747b28cu);
+
+    uint32_t lo = 0, hi = hdr[2];
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        uint32_t e[4];
+        if (f_lseek(&f, COVER_PAK_HDR + mid * COVER_PAK_ENTRY) != FR_OK ||
+            f_read(&f, e, sizeof(e), &br) != FR_OK || br != sizeof(e))
+            break;
+
+        if (e[0] == h1 && e[1] == h2) {
+            if (e[3] > 0 && e[3] <= COVER_SIZE &&
+                f_lseek(&f, e[2]) == FR_OK &&
+                f_read(&f, buf, e[3], &br) == FR_OK && br == e[3])
+                ret = (int)e[3];
+            break;
+        }
+        if (e[0] < h1 || (e[0] == h1 && e[1] < h2))
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+
+out:
+    f_close(&f);
+    return ret;
+}
+
+/* Loads a cover into buf: from the system pack when there is one,
+ * otherwise (or when the pack misses it) from the loose .img file.
+ * Returns the size, or 0 when there is no usable cover. */
+static int cover_load(const char *coverpath, uint8_t *buf)
+{
+    int size = cover_pak_read(coverpath, buf);
+    if (size > 0)
+        return size;
+
+    FILE *file = fopen(coverpath, "rb");
+    if (!file)
+        return 0;
+
+    fseek(file, 0, SEEK_END);
+    long fsize = ftell(file);
+    fseek(file, 0, SEEK_SET);
+
+    size = 0;
+    if (fsize > 0 && fsize <= COVER_SIZE && fread(buf, fsize, 1, file) == 1)
+        size = (int)fsize;
+    fclose(file);
+    return size;
+}
+
 static uint8_t *get_coverfile(char *rom_path)
 {
     static int next_cache_index = 0;
@@ -650,30 +770,21 @@ static uint8_t *get_coverfile(char *rom_path)
         }
     }
 
+    uint8_t *buf = cover_cache[next_cache_index].buffer;
     char *coverpath = odroid_system_get_path(ODROID_PATH_COVER_FILE, rom_path);
-    FILE *file = fopen(coverpath, "rb");
-    if (!file)
-    {
-        // No cover exists for this game
-        free (coverpath);
-        return NULL;
-    }
-
-    // Check that file can fit in buffer
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-
-    if (size > COVER_SIZE) {
-        // file too big, ignore it
-        fclose(file);
-        free (coverpath);
-        return NULL;
-    }
-
-    fread(cover_cache[next_cache_index].buffer, size, 1, file);
-    fclose(file);
+    int size = cover_load(coverpath, buf);
     free(coverpath);
+
+    if (size <= 0)
+    {
+        // No cover exists for this game. The buffer may have been partly
+        // written by a failed read, so drop whatever this slot cached.
+        if (cover_cache[next_cache_index].rom_path) {
+            free(cover_cache[next_cache_index].rom_path);
+            cover_cache[next_cache_index].rom_path = NULL;
+        }
+        return NULL;
+    }
 
     // If a previous file was cached, free text memory
     if (cover_cache[next_cache_index].rom_path) {
