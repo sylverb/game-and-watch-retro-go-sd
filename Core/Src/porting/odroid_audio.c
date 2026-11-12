@@ -16,6 +16,9 @@ uint8_t audio_level = ODROID_AUDIO_VOLUME_MAX;
 // NOT sync with VSYNC TODO
 #define GW_AUDIO_FREQUENCY 32768
 
+// Neo Geo YM2610 ADPCM-A native rate: 8 MHz / 432 = 18518.52 Hz (MCKDIV mode)
+#define NEOGEO_AUDIO_FREQ 18518
+
 uint32_t audio_frequency = GW_AUDIO_FREQUENCY;
 
 /* set audio frequency  */
@@ -169,6 +172,24 @@ static void set_audio_frequency(uint32_t frequency)
         PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
         PeriphClkInitStruct.PLL2.PLL2FRACN = 4566;
 
+    }
+    /*
+    Neo Geo: the YM2610's own ADPCM-A rate, 8 MHz / 432 = 18518.5185 Hz
+    DIVM2=24, DIVN2=96, FRACN2=0, DIVP2=6, MCKDIV=9 =>
+    64 MHz / 24 * 96 / 6 / (9 * 256) = 18518.5185 Hz (exact)
+    VCO input: 2.67 MHz
+    VCO output: 256.00 MHz
+    */
+    /* SAI mode is MCKDIV mode */
+    else if (frequency == NEOGEO_AUDIO_FREQ) {
+        PeriphClkInitStruct.PLL2.PLL2M = 24;
+        PeriphClkInitStruct.PLL2.PLL2N = 96;
+        PeriphClkInitStruct.PLL2.PLL2P = 6;
+        PeriphClkInitStruct.PLL2.PLL2Q = 2;
+        PeriphClkInitStruct.PLL2.PLL2R = 5;
+        PeriphClkInitStruct.PLL2.PLL2RGE = RCC_PLL2VCIRANGE_1;
+        PeriphClkInitStruct.PLL2.PLL2VCOSEL = RCC_PLL2VCOWIDE;
+        PeriphClkInitStruct.PLL2.PLL2FRACN = 0;
     } else if (frequency == 44100) {
         PeriphClkInitStruct.PLL2.PLL2M = 18;
         PeriphClkInitStruct.PLL2.PLL2N = 127;
@@ -247,6 +268,10 @@ static void set_audio_frequency(uint32_t frequency)
     {
         hsai_BlockA1.Init.AudioFrequency = SAI_AUDIO_FREQUENCY_MCKDIV;
         hsai_BlockA1.Init.Mckdiv = 4;
+    } else if (frequency == NEOGEO_AUDIO_FREQ)
+    {
+        hsai_BlockA1.Init.AudioFrequency = SAI_AUDIO_FREQUENCY_MCKDIV;
+        hsai_BlockA1.Init.Mckdiv = 9;
     /* Set Audio sample rate at various standard frequencies using AudioFrequency mode */
 //    } else if (frequency == 12000) {
     } else {
