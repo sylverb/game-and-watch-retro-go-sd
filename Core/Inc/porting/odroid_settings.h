@@ -96,9 +96,18 @@ bool odroid_settings_ActiveGameGenieCodes_set(char *game_path, int code_index, b
 bool odroid_settings_DebugMenuDebugClockAlwaysOn_get();
 void odroid_settings_DebugMenuDebugClockAlwaysOn_set(bool value);
 
-/* Launcher flash-cache markers ("* Name" / cover "C"). Default On. */
-bool odroid_settings_FlashCacheInfo_get(void);
-void odroid_settings_FlashCacheInfo_set(bool show);
+/* Launcher flash-cache markers. Stored in flash_cache_info_hidden:
+ * 0 = cover badge + "* Name" (default; former "show"),
+ * 1 = off (former "hide"),
+ * 2 = "* Name" only. */
+typedef enum {
+    ODROID_FLASH_CACHE_INFO_COVER_TEXT = 0,
+    ODROID_FLASH_CACHE_INFO_OFF = 1,
+    ODROID_FLASH_CACHE_INFO_TEXT_ONLY = 2,
+} odroid_flash_cache_info_t;
+
+odroid_flash_cache_info_t odroid_settings_FlashCacheInfo_get(void);
+void odroid_settings_FlashCacheInfo_set(odroid_flash_cache_info_t mode);
 
 /* Continuous FPS / CPU busy HUD during emulation. Default Off. */
 bool odroid_settings_ShowFPS_get(void);

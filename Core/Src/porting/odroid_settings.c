@@ -110,10 +110,8 @@ typedef struct persistent_config {
     /** Welcome prompt: 0 = not anchored, 1 = message already shown, else YYYYMMDD anchor (RTC >= 2026). */
     uint32_t welcome_prompt;
 
-    /* 0 = show flash-cache markers in the launcher (default; matches former
-     * reserved_app[0]=0 so existing /CONFIG blobs keep CRC + On default).
-     * 1 = hide "* Name" / cover "C" badges. Per-core settings stay in
-     * /data/<core>.cfg — not in this blob. */
+    /* Flash-cache UI: 0 = cover + "* Name" (default), 1 = off, 2 = text only.
+     * Same byte as the former hide flag so old /CONFIG blobs stay valid. */
     uint8_t flash_cache_info_hidden;
     /* 0 = off (default), 1 = continuous FPS/CPU HUD during emulation. */
     uint8_t show_fps;
@@ -179,7 +177,7 @@ static const persistent_config_t persistent_config_default = {
     .main_menu_browse_subpath = {0},
     .debug_clock_always_on = false,
     .welcome_prompt = 0,
-    .flash_cache_info_hidden = 0, /* show markers by default */
+    .flash_cache_info_hidden = ODROID_FLASH_CACHE_INFO_COVER_TEXT,
     .show_fps = 0,                /* FPS HUD off by default */
     .reserved_app = {0},
 };
@@ -960,17 +958,22 @@ void odroid_settings_DebugMenuDebugClockAlwaysOn_set(bool value)
     persistent_config_ram.debug_clock_always_on = value;
 }
 
-bool odroid_settings_FlashCacheInfo_get(void)
+odroid_flash_cache_info_t odroid_settings_FlashCacheInfo_get(void)
 {
-    /* Only an explicit 1 means "hide". Any other value (0 = default, or
-     * leftover garbage in the former reserved_app[0]) keeps markers On so
-     * a non-zero reserved byte cannot permanently blank the C / "*" UI. */
-    return persistent_config_ram.flash_cache_info_hidden != 1;
+    uint8_t v = persistent_config_ram.flash_cache_info_hidden;
+    if (v == ODROID_FLASH_CACHE_INFO_OFF ||
+        v == ODROID_FLASH_CACHE_INFO_TEXT_ONLY)
+        return (odroid_flash_cache_info_t)v;
+    /* 0 = default Cover+text; any other leftover garbage → Cover+text. */
+    return ODROID_FLASH_CACHE_INFO_COVER_TEXT;
 }
 
-void odroid_settings_FlashCacheInfo_set(bool show)
+void odroid_settings_FlashCacheInfo_set(odroid_flash_cache_info_t mode)
 {
-    persistent_config_ram.flash_cache_info_hidden = show ? 0 : 1;
+    if (mode != ODROID_FLASH_CACHE_INFO_OFF &&
+        mode != ODROID_FLASH_CACHE_INFO_TEXT_ONLY)
+        mode = ODROID_FLASH_CACHE_INFO_COVER_TEXT;
+    persistent_config_ram.flash_cache_info_hidden = (uint8_t)mode;
 }
 
 bool odroid_settings_ShowFPS_get(void)

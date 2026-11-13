@@ -104,12 +104,33 @@ static bool GLOBAL_DATA main_menu_timeout_cb(odroid_dialog_choice_t *option, odr
 #if SD_CARD == 1
 static bool GLOBAL_DATA flash_cache_info_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
-    bool show = odroid_settings_FlashCacheInfo_get();
-    if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
-        show = !show;
-        odroid_settings_FlashCacheInfo_set(show);
+    /* Cycle: Cover+text → Text only → Off → Cover+text … */
+    static const odroid_flash_cache_info_t order[] = {
+        ODROID_FLASH_CACHE_INFO_COVER_TEXT,
+        ODROID_FLASH_CACHE_INFO_TEXT_ONLY,
+        ODROID_FLASH_CACHE_INFO_OFF,
+    };
+    odroid_flash_cache_info_t mode = odroid_settings_FlashCacheInfo_get();
+    int idx = 0;
+    for (int i = 0; i < 3; i++) {
+        if (order[i] == mode) {
+            idx = i;
+            break;
+        }
     }
-    sprintf(option->value, "%s", show ? curr_lang->s_Yes : curr_lang->s_No);
+    if (event == ODROID_DIALOG_NEXT)
+        idx = (idx + 1) % 3;
+    else if (event == ODROID_DIALOG_PREV)
+        idx = (idx + 2) % 3;
+    if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT)
+        odroid_settings_FlashCacheInfo_set(order[idx]);
+    mode = order[idx];
+    if (mode == ODROID_FLASH_CACHE_INFO_OFF)
+        strcpy(option->value, curr_lang->s_Flash_cache_Off);
+    else if (mode == ODROID_FLASH_CACHE_INFO_TEXT_ONLY)
+        strcpy(option->value, curr_lang->s_Flash_cache_Text_only);
+    else
+        strcpy(option->value, curr_lang->s_Flash_cache_Cover_text);
     return event == ODROID_DIALOG_ENTER;
 }
 #endif
@@ -507,7 +528,7 @@ static void GLOBAL_DATA handle_options_menu()
     char lang_value[64];
     char ov_value[64];
 #if SD_CARD == 1
-    char flash_cache_info_value[8];
+    char flash_cache_info_value[40];
 #endif
 
     odroid_dialog_choice_t choices[] = {

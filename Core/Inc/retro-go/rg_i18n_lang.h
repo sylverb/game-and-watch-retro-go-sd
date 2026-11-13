@@ -159,8 +159,11 @@ typedef struct
     /* Homebrew without savestates (GWHB_FLAG_NO_SAVESTATES) — not "New game". */
     const char *s_Start;
 
-    /* Options: show flash-cache markers in the ROM browser (default On). */
+    /* Options: flash-cache markers in the ROM browser (3-state). */
     const char *s_Flash_cache_info;
+    const char *s_Flash_cache_Off;
+    const char *s_Flash_cache_Cover_text;
+    const char *s_Flash_cache_Text_only;
 
     /* In-game Options: continuous FPS / CPU busy overlay (default Off). */
     const char *s_Show_FPS;

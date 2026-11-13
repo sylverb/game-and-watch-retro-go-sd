@@ -360,10 +360,21 @@ static bool gui_rom_flash_cache_probe(const retro_emulator_file_t *file)
     return flash_data_is_cached(key);
 }
 
-static bool gui_file_flash_cached(const retro_emulator_file_t *file)
+static bool gui_file_flash_cache_hit(const retro_emulator_file_t *file)
 {
-    return odroid_settings_FlashCacheInfo_get()
-        && file && file->ext && file->flash_cached == FLASH_CACHE_HIT;
+    return file && file->ext && file->flash_cached == FLASH_CACHE_HIT;
+}
+
+static bool gui_flash_cache_show_text(const retro_emulator_file_t *file)
+{
+    return odroid_settings_FlashCacheInfo_get() != ODROID_FLASH_CACHE_INFO_OFF
+        && gui_file_flash_cache_hit(file);
+}
+
+static bool gui_flash_cache_show_cover(const retro_emulator_file_t *file)
+{
+    return odroid_settings_FlashCacheInfo_get() == ODROID_FLASH_CACHE_INFO_COVER_TEXT
+        && gui_file_flash_cache_hit(file);
 }
 
 #if COVERFLOW != 0
@@ -428,7 +439,7 @@ static void gui_format_cached_title(const retro_emulator_file_t *file,
 {
     if (!file || !buf || buflen == 0)
         return;
-    if (gui_file_flash_cached(file))
+    if (gui_flash_cache_show_text(file))
         snprintf(buf, buflen, "* %s", file->name);
     else
         snprintf(buf, buflen, "%s", file->name);
@@ -893,7 +904,7 @@ static const char *gui_list_item_label(const listbox_item_t *item, char *buf, si
     if (!item->arg || rg_rom_list_arg_is_parent(item->arg))
         return item->text ? item->text : "";
     const retro_emulator_file_t *file = (const retro_emulator_file_t *)item->arg;
-    if (file->ext && gui_file_flash_cached(file)) {
+    if (file->ext && gui_flash_cache_show_text(file)) {
         gui_format_cached_title(file, buf, buflen);
         return buf;
     }
@@ -1349,7 +1360,7 @@ void gui_draw_coverlight_h(retro_emulator_file_t *file, int cover_position)
         odroid_display_write_rect(cover_x + COVER_BORDER, cover_y + COVER_BORDER, cover_width, cover_height, cover_width, pCover_Buffer);
 
 #if SD_CARD == 1
-    if (gui_file_flash_cached(file))
+    if (gui_flash_cache_show_cover(file))
         gui_draw_flash_cache_label(cover_x + COVER_BORDER, cover_y + COVER_BORDER,
                                    (int)cover_width, (int)cover_height);
 #endif
@@ -1453,7 +1464,7 @@ void gui_draw_coverlight_v(retro_emulator_file_t *file, int cover_position)
         odroid_display_write_rect(cover_x + COVER_BORDER, cover_y + COVER_BORDER, cover_width, cover_height, cover_width, pCover_Buffer);
 
 #if SD_CARD == 1
-    if (gui_file_flash_cached(file))
+    if (gui_flash_cache_show_cover(file))
         gui_draw_flash_cache_label(cover_x + COVER_BORDER, cover_y + COVER_BORDER,
                                    (int)cover_width, (int)cover_height);
 #endif
@@ -1543,7 +1554,7 @@ static void gui_coverflow_h_card(listbox_item_t *item, int center_x, int center_
                                       selected ? curr_colors->main_c : curr_colors->dis_c,
                                       C_BLACK);
 #if SD_CARD == 1
-        if (gui_file_flash_cached(file))
+        if (gui_flash_cache_show_cover(file))
             gui_draw_flash_cache_label(x0, y0, (int)draw_width, (int)draw_height);
 #endif
         return;
@@ -1569,7 +1580,7 @@ static void gui_coverflow_h_card(listbox_item_t *item, int center_x, int center_
         }
     }
 #if SD_CARD == 1
-    if (gui_file_flash_cached(file))
+    if (gui_flash_cache_show_cover(file))
         gui_draw_flash_cache_label(x0, y0, (int)draw_width, (int)draw_height);
 #endif
 }
@@ -1729,7 +1740,7 @@ void gui_draw_coverflow_v(tab_t *tab, int start_posx) // ||||||||
             odroid_display_write_rect(start_posx + 3 + (cover_width - jpeg_cover_width) / 2, start_ypos + p_height + 16 + (cover_height - jpeg_cover_height) / 2, jpeg_cover_width, jpeg_cover_height, jpeg_cover_width, pCover_Buffer);
         };
 #if SD_CARD == 1
-        if (gui_file_flash_cached(file))
+        if (gui_flash_cache_show_cover(file))
             gui_draw_flash_cache_label(start_posx + 3, start_ypos + p_height + 16,
                                        (int)cover_width, (int)cover_height);
 #endif
