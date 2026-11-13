@@ -128,6 +128,8 @@ void uptime_inc(void);
 uint32_t uptime_get(void);
 
 /* USER CODE BEGIN EFP */
+/* Stock Mario/Zelda re-run ADC2 init on every fuel-gauge poll. */
+void MX_ADC2_Init(void);
 uint32_t GW_GetBootButtons(void);
 void wdog_refresh(void);
 /* Hold POWER ≥2s → NVIC_SystemReset (SysTick). Off during intentional sleep. */
@@ -199,7 +201,7 @@ int odroid_overlay_draw_text_line(uint16_t x_pos, uint16_t y_pos, uint16_t width
 #define GPIO_CHARGER_POWERGOOD_GPIO_Port GPIOA
 #define GPIO_CHARGER_POWERGOOD_EXTI_IRQn EXTI2_IRQn
 
-// ADC1_INP4
+// ADC2_INP4 (stock Mario battery sense)
 #define GPIO_CHARGER_BAT_LEVEL_Pin GPIO_PIN_4
 #define GPIO_CHARGER_BAT_LEVEL_GPIO_Port GPIOC
 

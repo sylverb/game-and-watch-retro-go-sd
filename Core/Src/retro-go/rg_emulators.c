@@ -31,6 +31,7 @@
 #include "heap.hpp"
 #include "gw_flash.h"
 #include "gw_flash_alloc.h"
+#include "bq24072.h"
 #include "crc32.h"
 #if SD_CARD == 0
 #include "rg_frogfs.h"
@@ -2100,6 +2101,8 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
         return;
 
     printf("Retro-Go: Starting game: %s\n", file->name);
+    /* Stock Zelda 0x800ee42: rare fuel latch at mode entry (skipped if /PG). */
+    bq24072_mode_entry_resample();
     // odroid_settings_StartAction_set(load_state ? ODROID_START_ACTION_RESUME : ODROID_START_ACTION_NEWGAME);
     // odroid_settings_commit();
 

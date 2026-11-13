@@ -9,6 +9,7 @@
 
 #include "main.h"
 #include "bitmaps.h"
+#include "bq24072.h"
 #include "odroid_colors.h"
 #include "odroid_overlay.h"
 #include "odroid_input.h"
@@ -82,6 +83,16 @@ void sdcard_error_screen(void) {
  */
 FATFS FatFs;  // Fatfs handle
 void sdcard_init(void) {
+    /*
+     * SD VCC + mount is a large current spike. On a near-empty pack this
+     * browns out the SoC and leaves the unit frozen — refuse before any
+     * bus/VCC touch and show the stock low-battery power-off path.
+     */
+    if (bq24072_battery_too_low_for_sd()) {
+        printf("sdcard: battery too low — skip SD, power off\n");
+        odroid_overlay_low_battery_power_off();
+    }
+
     // Check if SD Card is connected to SPI1
     sdcard_init_spi1();
     sdcard_hw_type = SDCARD_HW_SPI1;

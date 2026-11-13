@@ -36,9 +36,12 @@ int odroid_overlay_game_menu(odroid_dialog_choice_t *extra_options, void_callbac
 #include "gw_lcd.h"
 #include "bitmaps/font_basic.h"
 #include "gw_lcd.h"
+#include "gw_sleep.h"
+#include "bq24072.h"
 #include "common.h"
 #include "odroid_system.h"
 #include "odroid_overlay.h"
+#include "odroid_colors.h"
 #include "main.h"
 #include "rom_manager.h"
 #include "bitmaps.h"
@@ -259,15 +262,76 @@ void odroid_overlay_clock(int x_pos, int y_pos)
     draw_clock_digit(hour / 10, x_pos, y_pos, curr_colors->sel_c);
 };
 
+bool odroid_overlay_battery_blink_on(void)
+{
+    /* ~500 ms on / 500 ms off — close to stock Mario's visible warning cadence. */
+    return (get_elapsed_time() % 1000) < 500;
+}
+
+/*
+ * Stock Mario HUD battery (tiles 0x36..0x39): 16×12 content, terminal on the
+ * left, up to four 2px vertical bars growing from the right. One bar is always
+ * the critical red/orange tile (0x39), even while charging; 2–4 bars are green.
+ * Charging adds the center bolt overlay only.
+ */
+#define MARIO_BATT_W           16
+#define MARIO_BATT_H           12
+#define MARIO_BATT_GREEN       0x07C0
+#define MARIO_BATT_CRITICAL    0xD940
+
+static int mario_battery_bar_count(int level)
+{
+    /*
+     * Stock Mario/Zelda HUD (e.g. Zelda 0x80092a0):
+     *   mapped = (level <= 1) ? 0 : (level < 6 ? level - 2 : 3);
+     *   bars   = mapped + 1  →  level 0–2:1, 3:2, 4:3, 5:4
+     */
+    int mapped;
+
+    if (level <= 1)
+        mapped = 0;
+    else if (level < 6)
+        mapped = level - 2;
+    else
+        mapped = 3;
+    return mapped + 1;
+}
+
+static void draw_mario_battery_outline(int x, int y, uint16_t color)
+{
+    /* Top / bottom rails (skip terminal column). */
+    odroid_overlay_draw_fill_rect(x + 1, y, 15, 1, color);
+    odroid_overlay_draw_fill_rect(x + 1, y + 11, 15, 1, color);
+    /* Left / right body walls. */
+    odroid_overlay_draw_fill_rect(x + 1, y + 1, 1, 10, color);
+    odroid_overlay_draw_fill_rect(x + 15, y + 1, 1, 10, color);
+    /* Positive terminal (left nub), rows 4..7 of the 12px glyph. */
+    odroid_overlay_draw_fill_rect(x, y + 4, 1, 4, color);
+}
+
+static void draw_mario_battery_bars(int x, int y, int bars, uint16_t color)
+{
+    /* Bar columns from the right: 12-13, 9-10, 6-7, 3-4 (stock tile layout). */
+    static const int bar_x[4] = {12, 9, 6, 3};
+    int i;
+
+    if (bars < 1)
+        bars = 1;
+    if (bars > 4)
+        bars = 4;
+
+    for (i = 0; i < bars; i++) {
+        odroid_overlay_draw_fill_rect(x + bar_x[i], y + 2, 2, 8, color);
+    }
+}
+
 void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int y_pos)
 {
-    uint16_t percentage = battery.percentage;
+    int level = odroid_battery_level(battery);
     odroid_battery_charge_state_t battery_state = battery.state;
-    uint16_t color_fill = curr_colors->sel_c;
-    uint16_t color_border = curr_colors->sel_c;
     uint16_t color_empty = curr_colors->main_c;
-    uint16_t width_fill = 14 * percentage / 100;
-    uint16_t width_empty = 16; // - width_fill;
+    int bars = mario_battery_bar_count(level);
+    uint16_t bar_color = (bars == 1) ? MARIO_BATT_CRITICAL : MARIO_BATT_GREEN;
     const unsigned char IMG_C_OUT[] = {
         // width8, height:10
         0x0e, //  ____###_
@@ -295,45 +359,137 @@ void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x_pos, int 
         0x00, //  ________
     };
 
-    if (percentage < 20) color_fill = C_RED;
-    else if (percentage < 40)
-        color_fill = C_ORANGE;
-
-    odroid_overlay_draw_rect(x_pos, y_pos, 18, 10, 1, color_border);
-    odroid_overlay_draw_rect(x_pos + 17, y_pos + 3, 1, 4, 1, color_empty);
-    odroid_overlay_draw_rect(x_pos + 18, y_pos + 2, 1, 6, 1, color_border);
-    odroid_overlay_draw_rect(x_pos + 19, y_pos + 3, 1, 4, 1, color_border);
+    /* Clear behind the icon so theme bg does not show through the hollow body. */
+    odroid_overlay_draw_fill_rect(x_pos, y_pos, MARIO_BATT_W, MARIO_BATT_H, color_empty);
+    draw_mario_battery_outline(x_pos, y_pos, C_WHITE);
 
     switch (battery_state)
     {
-    case ODROID_BATTERY_CHARGE_STATE_BATTERY_MISSING:
+    case ODROID_BATTERY_CHARGE_STATE_DISCHARGING:
+        draw_mario_battery_bars(x_pos, y_pos, bars, bar_color);
+        break;
+    case ODROID_BATTERY_CHARGE_STATE_FULL:
+        draw_mario_battery_bars(x_pos, y_pos, 4, MARIO_BATT_GREEN);
+        break;
     case ODROID_BATTERY_CHARGE_STATE_CHARGING:
-        odroid_overlay_draw_fill_rect(x_pos + 2, y_pos + 2, width_fill, 6, (battery_state == ODROID_BATTERY_CHARGE_STATE_BATTERY_MISSING) ? 0x00 : 0x07E0);
-        if ((get_elapsed_time() % 1000) < 800)
-        {
-            lcd_pen_t pen_white = lcd_pen(0xFFFF);
+        /* Stock: keep bar colour from level tile (1 bar stays red). */
+        draw_mario_battery_bars(x_pos, y_pos, bars, bar_color);
+        /* Center bolt overlay (blink). */
+        if ((get_elapsed_time() % 1000) < 800) {
+            lcd_pen_t pen_white = lcd_pen(C_WHITE);
             lcd_pen_t pen_empty = lcd_pen(color_empty);
-            for (int y = 0; y < 10; y++)
-            {
-                for (int x = 0; x < 8; x++)
-                {
-                    int off = (y_pos + y) * ODROID_SCREEN_WIDTH + x_pos + 5 + x;
+            int y, x;
+
+            for (y = 0; y < 10; y++) {
+                for (x = 0; x < 8; x++) {
+                    int off = (y_pos + 1 + y) * ODROID_SCREEN_WIDTH + x_pos + 4 + x;
                     if (IMG_C[y] & (0x80 >> x))
                         lcd_pen_set(&pen_white, off);
                     else if (IMG_C_OUT[y] & (0x80 >> x))
                         lcd_pen_set(&pen_empty, off);
-                };
-            };
-        };
+                }
+            }
+        }
         break;
-    case ODROID_BATTERY_CHARGE_STATE_DISCHARGING:
-        odroid_overlay_draw_fill_rect(x_pos + 2, y_pos + 2, width_fill, 6, color_fill);
-        //odroid_overlay_draw_fill_rect(x_pos + 22 / 2 - 3, y_pos + 10 / 2 - 1, 6, 2, color_battery);
-        break;
-    case ODROID_BATTERY_CHARGE_STATE_FULL:
-        odroid_overlay_draw_fill_rect(x_pos + 2, y_pos + 2, width_empty - 2, 6, 0x07E0);
+    case ODROID_BATTERY_CHARGE_STATE_BATTERY_MISSING:
+        /* Hollow outline only. */
         break;
     }
+}
+
+/*
+ * Stock Mario G&W HUD tile 0x39 (4bpp @ 0x900ab164): critical battery,
+ * white outline + single red bar. Color0 is transparent. Extracted from
+ * decrypted external flash (OTFDEC); there is no separate "crossed battery"
+ * asset — 0x900aec48 is the PAUSE text tiles.
+ */
+static const uint16_t mario_batt_critical_16x16[256] = {
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+    0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+    0x0000, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xFFFF,
+    0x0000, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xD940, 0xD940, 0x0000, 0xFFFF,
+    0x0000, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xD940, 0xD940, 0x0000, 0xFFFF,
+    0xFFFF, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xD940, 0xD940, 0x0000, 0xFFFF,
+    0xFFFF, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xD940, 0xD940, 0x0000, 0xFFFF,
+    0xFFFF, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xD940, 0xD940, 0x0000, 0xFFFF,
+    0xFFFF, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xD940, 0xD940, 0x0000, 0xFFFF,
+    0x0000, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xD940, 0xD940, 0x0000, 0xFFFF,
+    0x0000, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xD940, 0xD940, 0x0000, 0xFFFF,
+    0x0000, 0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0xFFFF,
+    0x0000, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF,
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+    0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000,
+};
+
+static void draw_mario_critical_battery_icon(int x, int y, int scale)
+{
+    lcd_pen_t pen_white = lcd_pen(0xFFFF);
+    lcd_pen_t pen_red = lcd_pen(0xD940);
+    int ty, tx, sy, sx;
+
+    if (scale < 1)
+        scale = 1;
+
+    for (ty = 0; ty < 16; ty++) {
+        for (tx = 0; tx < 16; tx++) {
+            uint16_t c = mario_batt_critical_16x16[ty * 16 + tx];
+            lcd_pen_t *pen;
+
+            if (c == 0x0000)
+                continue;
+            pen = (c == 0xFFFF) ? &pen_white : &pen_red;
+            for (sy = 0; sy < scale; sy++) {
+                for (sx = 0; sx < scale; sx++) {
+                    int off = (y + ty * scale + sy) * ODROID_SCREEN_WIDTH
+                            + (x + tx * scale + sx);
+                    lcd_pen_set(pen, off);
+                }
+            }
+        }
+    }
+}
+
+void odroid_overlay_draw_low_battery_warning(odroid_battery_state_t battery)
+{
+    /* Center stock Mario critical battery (2×) on a black panel. */
+    const int scale = 2;
+    const int icon = 16 * scale;
+    const int w = 0x58;
+    const int h = 0x28;
+    const int x = (ODROID_SCREEN_WIDTH - w) / 2;
+    const int y = (ODROID_SCREEN_HEIGHT - h) / 2;
+    (void)battery;
+
+    odroid_overlay_draw_fill_rect(x, y, w, h, 0x0000);
+    draw_mario_critical_battery_icon(x + (w - icon) / 2, y + (h - icon) / 2, scale);
+}
+
+void odroid_overlay_low_battery_power_off(void)
+{
+    /* Was 1.5 s; longer hold so the icon is readable and a charger can cancel. */
+    const uint32_t hold_ms = 5000;
+    const uint32_t poll_ms = 50;
+    odroid_battery_state_t battery = {0};
+    uint32_t elapsed = 0;
+
+    lcd_backlight_on();
+    odroid_overlay_draw_fill_rect(0, 0, ODROID_SCREEN_WIDTH, ODROID_SCREEN_HEIGHT, 0x0000);
+    odroid_overlay_draw_low_battery_warning(battery);
+    lcd_sync();
+
+    while (elapsed < hold_ms) {
+        wdog_refresh();
+        if (bq24072_charger_connected()) {
+            printf("bq24072: low-batt power-off cancelled (charger)\n");
+            /* Refresh HUD latch + clear the 5 s debounce so we don't re-trip. */
+            bq24072_wake_resample();
+            return;
+        }
+        HAL_Delay(poll_ms);
+        elapsed += poll_ms;
+    }
+    GW_EnterDeepSleep(true, NULL, NULL);
 }
 
 static bool running_file_allows_savestates(void)
@@ -1379,17 +1535,8 @@ void draw_game_status_bar(runtime_stats_t* stats)
     }
 
     odroid_battery_state_t battery_state = odroid_input_read_battery();
-    odroid_overlay_draw_battery(battery_state, ODROID_SCREEN_WIDTH - 24, pad_text + 1);
-
-    bool show_battery_percentage =
-        battery_state.state == ODROID_BATTERY_CHARGE_STATE_DISCHARGING ||
-        battery_state.state == ODROID_BATTERY_CHARGE_STATE_FULL;
-    if (show_battery_percentage) {
-        snprintf(header, 60, "%u%%", battery_state.percentage);
-
-        int battery_percentage_width = i18n_get_text_width(header);
-        i18n_draw_text_line(ODROID_SCREEN_WIDTH - 30 - battery_percentage_width, pad_text, 40, header, curr_colors->sel_c, curr_colors->main_c, 1);
-    }
+    if (!odroid_battery_is_low(battery_state) || odroid_overlay_battery_blink_on())
+        odroid_overlay_draw_battery(battery_state, ODROID_SCREEN_WIDTH - 24, pad_text + 1);
 
     i18n_draw_text_line(0, ODROID_SCREEN_HEIGHT - height + pad_text, ODROID_SCREEN_WIDTH, bottom, curr_colors->sel_c, curr_colors->main_c, 0);
 }

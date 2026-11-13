@@ -788,22 +788,11 @@ void gui_draw_status(tab_t *tab)
     odroid_overlay_draw_logo(8, 16, RG_LOGO_RGW, curr_colors->sel_c);
 
     odroid_battery_state_t battery_state = odroid_input_read_battery();
-    if ((battery_state.percentage > 20) || ((get_elapsed_time() % 1000) < 800))
+    /* Icon only (no %): blink when stock Mario would warn (bar < 2). */
+    if (!odroid_battery_is_low(battery_state) || odroid_overlay_battery_blink_on())
         odroid_overlay_draw_battery(battery_state, ODROID_SCREEN_WIDTH - 28, 17);
 
-    bool show_battery_percentage =
-        battery_state.state == ODROID_BATTERY_CHARGE_STATE_DISCHARGING ||
-        battery_state.state == ODROID_BATTERY_CHARGE_STATE_FULL;
-    int battery_percentage_width = 0;
-    if (show_battery_percentage) {
-        char header[10];
-        snprintf(header, 10, "%u%%", battery_state.percentage);
-
-        battery_percentage_width = i18n_get_text_width(header);
-        i18n_draw_text_line(ODROID_SCREEN_WIDTH - 35 - battery_percentage_width, 16, 40, header, curr_colors->sel_c, curr_colors->main_c, 1);
-    }
-
-    odroid_overlay_clock(ODROID_SCREEN_WIDTH - 74 - (show_battery_percentage ? battery_percentage_width + 5 : 0), 17);
+    odroid_overlay_clock(ODROID_SCREEN_WIDTH - 74, 17);
 }
 
 listbox_item_t *gui_get_selected_prior_item(tab_t *tab)

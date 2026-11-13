@@ -7,6 +7,7 @@
 #include <string.h>
 #include "main.h"
 #include "bitmaps.h"
+#include "bq24072.h"
 #include "gw_buttons.h"
 #include "gw_lcd.h"
 #include "gw_audio.h"
@@ -96,6 +97,9 @@ bool common_emu_frame_loop(void){
      * negative space (which would randomly "credit" pacing error). */
     int32_t elapsed_10us = 100 * (int32_t)get_elapsed_time_since(common_emu_state.last_sync_time);
     bool draw_frame = common_emu_state.skip_frames < 2;
+
+    /* Stock Mario: sustained bar < 2 while discharging → power off. */
+    bq24072_enforce_low_battery();
 
     /* Overload guard: under sustained slowdown, skip_frames can stay >=2
      * long enough to leave the screen visually frozen. Force one drawn
@@ -864,11 +868,11 @@ void common_ingame_overlay(void) {
     bool show_fps = odroid_settings_ShowFPS_get();
 
     odroid_battery_state_t battery_state = odroid_input_read_battery();
-    uint16_t percentage = battery_state.percentage;
-    bool battery_blink = (percentage <= 15) &&
-                         ((get_elapsed_time() % 1000) < 300);
+    /* Stock Mario: centered low-battery panel while discharging with bar < 2. */
+    bool battery_low = odroid_battery_is_low(battery_state);
+    bool battery_blink = battery_low && odroid_overlay_battery_blink_on();
     bool need_overlay_clut =
-        (common_emu_state.overlay != INGAME_OVERLAY_NONE) || battery_blink || show_fps;
+        (common_emu_state.overlay != INGAME_OVERLAY_NONE) || battery_low || show_fps;
 
     /* Full 256-colour carts overwrite overlay CLUT slots [64..]. Stamp the
      * theme (white/gray HUD colours) while chrome is visible; release on the
@@ -887,7 +891,7 @@ void common_ingame_overlay(void) {
         draw_fps_hud();
 
     if (battery_blink)
-        odroid_overlay_draw_battery(battery_state, 150, 90);
+        odroid_overlay_draw_low_battery_warning(battery_state);
 
     switch(common_emu_state.overlay)
     {

@@ -88,29 +88,29 @@ void HAL_MspInit(void)
 void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-  if(hadc->Instance==ADC1)
+  if(hadc->Instance==ADC2)
   {
-  /* USER CODE BEGIN ADC1_MspInit 0 */
+  /* USER CODE BEGIN ADC2_MspInit 0 */
 
-  /* USER CODE END ADC1_MspInit 0 */
-    /* Peripheral clock enable */
+  /* USER CODE END ADC2_MspInit 0 */
+    /* Peripheral clock enable (ADC1/ADC2 share ADC12) */
     __HAL_RCC_ADC12_CLK_ENABLE();
 
     __HAL_RCC_GPIOC_CLK_ENABLE();
-    /**ADC1 GPIO Configuration
-    PC4     ------> ADC1_INP4
+    /**ADC2 GPIO Configuration
+    PC4     ------> ADC2_INP4 (stock Mario battery sense)
     */
     GPIO_InitStruct.Pin = GPIO_CHARGER_BAT_LEVEL_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
     HAL_GPIO_Init(GPIO_CHARGER_BAT_LEVEL_GPIO_Port, &GPIO_InitStruct);
 
-    /* ADC1 interrupt Init */
+    /* ADC1/ADC2 share ADC_IRQn */
     HAL_NVIC_SetPriority(ADC_IRQn, 0, 0);
     HAL_NVIC_EnableIRQ(ADC_IRQn);
-  /* USER CODE BEGIN ADC1_MspInit 1 */
+  /* USER CODE BEGIN ADC2_MspInit 1 */
 
-  /* USER CODE END ADC1_MspInit 1 */
+  /* USER CODE END ADC2_MspInit 1 */
   }
 
 }
@@ -123,24 +123,24 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
 */
 void HAL_ADC_MspDeInit(ADC_HandleTypeDef* hadc)
 {
-  if(hadc->Instance==ADC1)
+  if(hadc->Instance==ADC2)
   {
-  /* USER CODE BEGIN ADC1_MspDeInit 0 */
+  /* USER CODE BEGIN ADC2_MspDeInit 0 */
 
-  /* USER CODE END ADC1_MspDeInit 0 */
+  /* USER CODE END ADC2_MspDeInit 0 */
     /* Peripheral clock disable */
     __HAL_RCC_ADC12_CLK_DISABLE();
 
-    /**ADC1 GPIO Configuration
-    PC4     ------> ADC1_INP4
+    /**ADC2 GPIO Configuration
+    PC4     ------> ADC2_INP4
     */
     HAL_GPIO_DeInit(GPIO_CHARGER_BAT_LEVEL_GPIO_Port, GPIO_CHARGER_BAT_LEVEL_Pin);
 
-    /* ADC1 interrupt DeInit */
+    /* ADC interrupt DeInit */
     HAL_NVIC_DisableIRQ(ADC_IRQn);
-  /* USER CODE BEGIN ADC1_MspDeInit 1 */
+  /* USER CODE BEGIN ADC2_MspDeInit 1 */
 
-  /* USER CODE END ADC1_MspDeInit 1 */
+  /* USER CODE END ADC2_MspDeInit 1 */
   }
 
 }

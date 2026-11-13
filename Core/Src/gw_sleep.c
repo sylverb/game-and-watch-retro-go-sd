@@ -37,10 +37,11 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
   HAL_ResumeTick();
   panic_power_reset_set(true);
 
-  // Restore charger
+  // Restore charger IRQs; fuel HUD latch waits until LCD/SD are drawing
+  // current (see bq24072_wake_resample below) so a long STOP2 matches
+  // cold-boot SoC instead of rested open-circuit voltage.
   bq24072_interrupts_enable();
-  bq24072_handle_charging();
-  bq24072_handle_power_good();
+  bq24072_wake_prepare();
 
   // Restore LCD
   lcd_backlight_off();
@@ -85,6 +86,10 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
   odroid_audio_init(odroid_audio_sample_rate_get());
   audio_start_playing_full_length(audio_get_buffer_full_length());
   HAL_GPIO_WritePin(GPIO_Speaker_enable_GPIO_Port, GPIO_Speaker_enable_Pin, GPIO_PIN_SET);
+
+  /* Under-load latch: backlight + SD (and audio rail) are up — comparable
+   * to a post-init cold-boot reading after the pack has been exercised. */
+  bq24072_wake_resample();
 
   if (post_wakeup_callback != NULL) {
     post_wakeup_callback();

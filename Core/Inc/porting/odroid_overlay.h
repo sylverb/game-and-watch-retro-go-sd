@@ -58,6 +58,15 @@ int  odroid_overlay_draw_text(uint16_t x, uint16_t y, uint16_t width, const char
 void odroid_overlay_draw_rect(int x, int y, int width, int height, int border, uint16_t color);
 void odroid_overlay_draw_fill_rect(int x, int y, int width, int height, uint16_t color);
 void odroid_overlay_draw_battery(odroid_battery_state_t battery, int x, int y);
+/* Stock Mario centered low-battery warning (88x24 @ 116,108). */
+void odroid_overlay_draw_low_battery_warning(odroid_battery_state_t battery);
+/*
+ * Full black screen + critical battery icon, hold, then standby.
+ * Returns without sleeping if a charger is plugged during the hold.
+ */
+void odroid_overlay_low_battery_power_off(void);
+/* True during the visible half of the low-battery blink period. */
+bool odroid_overlay_battery_blink_on(void);
 void odroid_overlay_draw_dialog(const char *header, odroid_dialog_choice_t *options, int sel);
 void odroid_overlay_draw_banner_text(int center_x, int center_y, const char *text);
 void odroid_overlay_sleep_pause_banner(void_callback_t repaint, odroid_menu_flags_t flags, pause_input_callback_t input_cb);

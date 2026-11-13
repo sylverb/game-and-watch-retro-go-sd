@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "appid.h"
+#include "bq24072.h"
 #include "main.h"
 #include "rg_emulators.h"
 #include "favorites.h"
@@ -894,6 +895,9 @@ void retro_loop()
             }
             gui.idle_start = uptime_get();
         }
+
+        /* Stock Mario: sustained bar < 2 while discharging → power off. */
+        bq24072_enforce_low_battery();
 
         idle_s = uptime_get() - gui.idle_start;
         if (odroid_settings_MainMenuTimeoutS_get() != 0 &&

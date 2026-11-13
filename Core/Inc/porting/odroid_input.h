@@ -42,9 +42,14 @@ typedef enum
 typedef struct
 {
 	int millivolts;
-	int percentage;
+	int percentage; /* stock bars as level * 20 (0,20,...,100) */
     odroid_battery_charge_state_t state;
 } odroid_battery_state_t;
+
+/* Stock Mario bars 0..5 (percentage / 20). */
+int odroid_battery_level(odroid_battery_state_t battery);
+/* Stock Mario warns / blinks while discharging with bar < 2. */
+bool odroid_battery_is_low(odroid_battery_state_t battery);
 
 void odroid_input_init();
 void odroid_input_terminate();
