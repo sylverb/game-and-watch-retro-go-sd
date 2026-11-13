@@ -9,6 +9,7 @@
 
 #include "main.h"
 #include "bitmaps.h"
+#include "bq24072.h"
 #include "odroid_colors.h"
 #include "odroid_overlay.h"
 #include "odroid_input.h"
@@ -16,10 +17,24 @@
 #include "gui.h"
 #include "error_screens.h"
 #include "ff.h"
+#include "diskio.h"
 #include "gw_sdcard.h"
 
 bool fs_mounted = false;
 static FRESULT cause;
+
+static void (*s_sd_io_poll)(void);
+
+void sd_io_set_poll(void (*fn)(void))
+{
+    s_sd_io_poll = fn;
+}
+
+void sd_io_poll(void)
+{
+    if (s_sd_io_poll)
+        s_sd_io_poll();
+}
 
 void sdcard_error_screen(void) {
     lcd_backlight_set(180);
@@ -68,6 +83,16 @@ void sdcard_error_screen(void) {
  */
 FATFS FatFs;  // Fatfs handle
 void sdcard_init(void) {
+    /*
+     * SD VCC + mount is a large current spike. On a near-empty pack this
+     * browns out the SoC and leaves the unit frozen — refuse before any
+     * bus/VCC touch and show the stock low-battery power-off path.
+     */
+    if (bq24072_battery_too_low_for_sd()) {
+        printf("sdcard: battery too low — skip SD, power off\n");
+        odroid_overlay_low_battery_power_off();
+    }
+
     // Check if SD Card is connected to SPI1
     sdcard_init_spi1();
     sdcard_hw_type = SDCARD_HW_SPI1;
@@ -98,6 +123,12 @@ void sdcard_init(void) {
 
 void sdcard_deinit(void) {
     if (fs_mounted) {
+      /* Close any FILE still held by the launcher/cores, then wait for the
+       * card to finish programming before we tear the bus / cut VCC.
+       * Skipping this left FatFs' tiny shared window dirty across sleep
+       * and hot boot — intermittent FAT corruption on the next mount. */
+      file_table_close_all();
+      disk_ioctl(0, CTRL_SYNC, 0);
       f_unmount("");
       fs_mounted = false;
     }

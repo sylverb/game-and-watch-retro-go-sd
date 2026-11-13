@@ -35,11 +35,13 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
   SystemClock_Config(odroid_settings_cpu_oc_level_get());
   HAL_TIM_Base_Start_IT(&htim1);
   HAL_ResumeTick();
+  panic_power_reset_set(true);
 
-  // Restore charger
+  // Restore charger IRQs; fuel HUD latch waits until LCD/SD are drawing
+  // current (see bq24072_wake_resample below) so a long STOP2 matches
+  // cold-boot SoC instead of rested open-circuit voltage.
   bq24072_interrupts_enable();
-  bq24072_handle_charging();
-  bq24072_handle_power_good();
+  bq24072_wake_prepare();
 
   // Restore LCD
   lcd_backlight_off();
@@ -85,6 +87,10 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
   audio_start_playing_full_length(audio_get_buffer_full_length());
   HAL_GPIO_WritePin(GPIO_Speaker_enable_GPIO_Port, GPIO_Speaker_enable_Pin, GPIO_PIN_SET);
 
+  /* Under-load latch: backlight + SD (and audio rail) are up — comparable
+   * to a post-init cold-boot reading after the pack has been exercised. */
+  bq24072_wake_resample();
+
   if (post_wakeup_callback != NULL) {
     post_wakeup_callback();
   }
@@ -93,11 +99,20 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
 }
 
 void GW_EnterDeepSleep(bool standby, sleep_pre_wakeup_callback_t pre_wakeup_callback, sleep_post_wakeup_callback_t post_wakeup_callback) {
+  /* POWER is often still held when entering sleep; keep panic reset off until
+   * we come back (or forever for standby). */
+  panic_power_reset_set(false);
+
   // Turn off speaker
   HAL_GPIO_WritePin(GPIO_Speaker_enable_GPIO_Port, GPIO_Speaker_enable_Pin, GPIO_PIN_RESET);
 
   // Stop SAI DMA (audio)
   audio_stop_playing();
+
+#if SD_CARD == 1
+  /* Close/sync the volume before cutting LCD rails / SD VCC. */
+  sdcard_deinit();
+#endif
 
   // Deinit the LCD, save power.
   lcd_backlight_off();
@@ -105,11 +120,6 @@ void GW_EnterDeepSleep(bool standby, sleep_pre_wakeup_callback_t pre_wakeup_call
 
   // Enable wakup by PIN1, the power button
   HAL_PWR_EnableWakeUpPin(PWR_WAKEUP_PIN1_LOW);
-
-#if SD_CARD == 1
-  // Unmount Fs and Deinit SD Card if needed
-  sdcard_deinit();
-#endif
 
   // Delay 500ms to give us a chance to attach a debugger in case
   // we end up in a suspend-loop.

@@ -26,7 +26,7 @@ There are no automated tests. Verification is manual: build, flash, run on hardw
 - `INTFLASH_BANK={1,2}` (or `INTFLASH_ADDRESS=0x08...`) — selects which 128k/256k internal-flash bank the code is linked into. Bank 2 is used with dual-boot OFW patches.
 - `SD_CARD=1` (default for this repo) — enables FatFS, omits ROM compression, and uses `STM32H7B0VBTx_SDCARD.ld`. Setting `SD_CARD=0` switches to the all-in-flash variant (different link script, different feature set).
 - `EXTFLASH_SIZE_MB`, `EXTFLASH_OFFSET`, `LARGE_FLASH` — external flash sizing (deprecated in favor of `EXTFLASH_SIZE_MB`).
-- `CHEAT_CODES=1`, `COVERFLOW=1`, `SHARED_HIBERNATE_SAVESTATE=1`, `DISABLE_SPLASH_SCREEN=1`, `MSX_USE_BANK_2=1`, `FORCE_NOFRENDO=1` — feature toggles. The Docker release build enables `COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 INTFLASH_BANK=2 CHEAT_CODES=1`.
+- `CHEAT_CODES=1`, `COVERFLOW=1`, `SHARED_HIBERNATE_SAVESTATE=1`, `DISABLE_SPLASH_SCREEN=1` — feature toggles. The Docker release build enables `COVERFLOW=1 SHARED_HIBERNATE_SAVESTATE=1 DISABLE_SPLASH_SCREEN=1 INTFLASH_BANK=2 CHEAT_CODES=1`.
 - `CODEPAGE`, `UICODEPAGE`, individual locale flags (`FR_FR`, `RU_RU`, …) — controls font/i18n inclusion.
 
 **Submodule hygiene.** `external/` holds each emulator core as a git submodule. The build refuses to run if submodules are dirty or out of sync — fix with `git submodule update --init --recursive`, or pass `CHECK_DIRTY_SUBMODULE=0` to bypass (the Docker target does this).
@@ -43,25 +43,27 @@ A single ELF (`build/gw_retro_go.elf`) is partitioned by linker sections into th
 
 Adding a new emulator means: add its sources to `Makefile`, give it a `.overlay_<name>` section in the linker script, and add a `--only-section=.overlay_<name>` extraction line to `create_sd_data` plus an `sdpush` line in `flash_sd`.
 
+**This monolithic-overlay model is being phased out in favor of standalone "core" binaries** built entirely outside the firmware ELF and discovered dynamically from `/cores/*.bin` at boot (`emulators_scan_cores()` in `Core/Src/retro-go/rg_emulators.c`) instead of a compile-time dispatch table. See [Core/Src/porting/core_common/CLAUDE.md](Core/Src/porting/core_common/CLAUDE.md) for the full model and the checklist for porting a new one. Remaining in-tree classic overlays still follow the description above.
+
 ### Source tree layout
 
 - `Core/Src/main.c`, `Core/Src/gw_*.c` — STM32 HAL bring-up, LCD, audio (SAI), buttons, SD driver, RTC, battery (BQ24072), flash chip access, low-level memory allocator. Headers in `Core/Inc/`.
 - `Core/Src/porting/<system>/main_<system>.c` — the per-emulator porting layer. This is where most emulator-specific Game & Watch work happens: input mapping, video scaling, audio bridging, savestate hooks, ROM loading, options menus.
 - `Core/Src/porting/lib/` — shared helpers used by porting code: FatFs vendor copy, LZ4/LZMA decompressors, HW JPEG decoder, HW SHA1, softspi.
-- `Core/Src/porting/odroid_*.c` — the retro-go shell's portability glue (input, display, audio, overlay, sdcard, system). Names come from the original Odroid-GO Retro-Go.
-- `retro-go-stm32/` — vendored snapshot of upstream retro-go (launcher UI, settings, common emulator-side helpers in `components/odroid/`, plus three emulator cores `gnuboy-go`, `nofrendo-go`, `pce-go`, `smsplusgx-go`).
-- `external/` — git submodules for every other emulator core (`fceumm-go`, `blueMSX-go`, `caprice32-go`, `gwenesis`, `LCD-Game-Emulator`, `stella2014-go`, `prosystem-go`, `PokeMini-go`, `potator`, `tamalib`, `tgbdual-go`, `ccleste-go`, `zelda3`, `smw`, `o2em-go`, `firmware_update`). Each is a third-party emulator/port with its own license; we patch them via `genpatch.py`-managed `.patch` files where present.
+- `Core/Src/porting/odroid_*.c` / `Core/Inc/porting/odroid_*.h` — the retro-go shell's portability glue (input, display, audio, overlay, sdcard, system). Names come from the original Odroid-GO Retro-Go; headers live in-tree under `Core/Inc/porting/`.
+- `Core/Src/retro-go/` — launcher UI, settings, emulator discovery (`rg_emulators.c`), logos, i18n.
+- `external/` — git submodules for emulator engines used by in-tree or drop-in cores (`firmware_update`, …). Each is a third-party emulator/port with its own license; we patch them via `genpatch.py`-managed `.patch` files where present.
 - `tools/` — Python utilities. The user-facing ones (per README):
   - `gencovers.py` — generate `.img` cover thumbnails for ROMs (uses `requirements.txt`).
-  - `fonttool/`, `png_to_logo.py`, `img2bin.py`, `pllgen.py`, `gen_fceu_palettes_table.py` — asset converters used by the build.
+  - `fonttool/`, `png_to_logo.py`, `img2bin.py`, `pllgen.py` — asset converters used by the build.
 - `scripts/` — shell helpers invoked from the Makefile (size reporting, git tag stamping, release packaging, rom discovery). Run from the repo root.
-- `assets/`, `icons/`, `smw_redefines`, `zelda3_redefines` — graphics, system icons, SNES symbol-rename headers for the homebrew SNES ports.
+- `assets/`, `icons/` — graphics and system icons.
 
 ### Adding/modifying a core
 
 Emulator main loop happens in `Core/Src/porting/<system>/`, a loop iteration should run the generation of a frame and to write it in the framebuffer, and to generate the audio samples for the frame. The submodule under `external/<system>` contains machine emulation logic.
 
-The `retro-go-stm32/components/odroid/` API (`odroid_system`, `odroid_overlay`, `odroid_display`, `odroid_input`, `odroid_audio`, `odroid_sdcard`, `odroid_netplay`) is the contract between the launcher and an emulator core. New cores implement against it.
+The `Core/Inc/porting/odroid_*.h` API (`odroid_system`, `odroid_overlay`, `odroid_display`, `odroid_input`, `odroid_audio`, `odroid_sdcard`, `odroid_netplay`) is the contract between the launcher and an emulator core. New cores implement against it.
 
 ## Things that are easy to get wrong
 
@@ -77,7 +79,7 @@ The `retro-go-stm32/components/odroid/` API (`odroid_system`, `odroid_overlay`, 
 - **Faults self-label.** `main()` sets `SCB->SHCSR` BUSFAULTENA/USGFAULTENA/MEMFAULTENA, so the BSOD title reads "Busfault" / "Usagefault" / "Memfault" instead of a generic "Hardfault". The BSOD also prints `CFSR/HFSR/BFAR/MMFAR/ABFSR`.
 - **Imprecise BusFault (`CFSR` bit10 IMPRECISERR, `CFSR=0x…400`, BFAR invalid) = a buffered store to a no-slave address; the reported PC is drain-time noise, not the culprit.** Read **`ABFSR` (`0xE000EFA8`, on the BSOD)** — it names the bus interface the wild access used: bit2 **AHBP** = peripheral space `0x40000000–0x5FFFFFFF`, bit3 **AXIM** = all RAM/flash, bit0/1 = ITCM/DTCM. This instantly tells you RAM-corruption vs a wild pointer into peripherals.
 - **GDB over an ST-Link (or pico-probe).** `gnwmanager gdbserver` spawns OpenOCD (auto-detects the probe via `interface/*.cfg`) with a gdbserver on `:3333`; then `make gdb` (or `arm-none-eabi-gdb build/gw_retro_go.elf -ex 'target extended-remote :3333'`). Use **`hbreak`, not `break`, for flash addresses** (`0x08xxxxxx`) — a software breakpoint silently fails to write flash. RAM/overlay addresses (`0x24xxxxxx`) take either. This gdb build has **no Python**; use native `-ex printf`/`x`. To catch a fault with full context, `hbreak common_fault_handler_c` and read `*frame` (the stacked r0–r3/lr/PC) plus live r4–r11.
-- **Overlay RAM addresses alias.** Every core's overlay links at the same RAM_EMU VMA, so `gdb`/`addr2line` resolve a `0x24xxxxxx` address to *whichever* overlay's symbol it finds first (often zelda3/SMW, not the running core). Resolve EB addresses via `build/gw_retro_go.map` filtered to `build/earthbound/*.o`, or disassemble the specific `build/<core>/<file>.o`.
+- **Overlay RAM addresses alias.** Every classic core's overlay links at the same RAM_EMU VMA, so `gdb`/`addr2line` resolve a `0x24xxxxxx` address to *whichever* overlay's symbol it finds first (not necessarily the running core). Prefer `build/gw_retro_go.map` filtered to `build/<core>/*.o`, or disassemble that core's object.
 
 ## Emulator-specific notes
 
@@ -85,6 +87,6 @@ Detailed debugging guides live next to each porting layer (not in this file — 
 
 | System | Guide |
 |--------|-------|
-| PCE / PCE CD | [Core/Src/porting/pce/CLAUDE.md](Core/Src/porting/pce/CLAUDE.md) — harness `linux/Makefile.pce` |
+| Standalone "core" SDK (dynamic `/cores/*.bin`) | [Core/Src/porting/core_common/CLAUDE.md](Core/Src/porting/core_common/CLAUDE.md) — ABI bridge, `cores/_template/`, `tools/pack_core.py` |
 
 Add a `CLAUDE.md` under `Core/Src/porting/<system>/` (and optionally `.cursor/rules/<system>.mdc`) when an emulator accumulates non-obvious debug knowledge.

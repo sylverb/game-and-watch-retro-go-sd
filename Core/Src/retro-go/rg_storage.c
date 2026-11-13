@@ -6,11 +6,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include "main.h"
 #if SD_CARD == 1
 #include "ff.h"
 #else
 #include "rg_frogfs.h"
+#include "gw_littlefs.h"
 #endif
 #include "rg_storage.h"
 #include <unistd.h>
@@ -98,6 +100,50 @@ static int delete_cb(const rg_scandir_t *file, void *arg)
 {
     rg_storage_delete(file->path);
     return RG_SCANDIR_CONTINUE;
+}
+
+bool rg_storage_free_space(const char *path, uint64_t *free_bytes, uint64_t *total_bytes)
+{
+#if SD_CARD == 1
+    FATFS *fs;
+    DWORD free_clusters;
+    (void)path;   /* single volume */
+    if (f_getfree("", &free_clusters, &fs) != FR_OK)
+        return false;
+#if FF_MAX_SS != FF_MIN_SS
+    uint64_t cluster_bytes = (uint64_t)fs->csize * fs->ssize;
+#else
+    uint64_t cluster_bytes = (uint64_t)fs->csize * FF_MAX_SS;
+#endif
+    if (free_bytes)
+        *free_bytes = (uint64_t)free_clusters * cluster_bytes;
+    if (total_bytes)
+        *total_bytes = (uint64_t)(fs->n_fatent - 2) * cluster_bytes;
+    return true;
+#else
+    (void)path; (void)free_bytes; (void)total_bytes;
+    return false;
+#endif
+}
+
+/* newlib's rename() is _link()+_unlink(), and _link() is an always-fail stub in
+ * this toolchain, so it can never work here — go straight at the backend. */
+bool rg_storage_rename(const char *old_path, const char *new_path)
+{
+    CHECK_PATH(old_path);
+    CHECK_PATH(new_path);
+
+    /* Neither backend replaces an existing destination, so clear it first — unless the new name
+     * only changes case: FAT names ignore case, so "BOOT.IMG" -> "BOOT.img" would delete the
+     * file being renamed (and then the rename fails). FatFs' f_rename handles that case itself. */
+    if (strcasecmp(old_path, new_path) != 0)
+        remove(new_path);
+
+#if SD_CARD == 1
+    return f_rename(old_path, new_path) == FR_OK;
+#else
+    return fs_rename(old_path, new_path) == 0;
+#endif
 }
 
 bool rg_storage_delete(const char *path)
@@ -224,7 +270,7 @@ bool rg_storage_scandir(const char *path, rg_scandir_cb_t *callback, void *arg, 
     if (!fs)
         return false;
 
-    const frogfs_entry_t *dir_entry = frogfs_get_entry(fs, path);
+    const frogfs_entry_t *dir_entry = rg_frogfs_lookup(path);
     if (!dir_entry || !frogfs_is_dir(dir_entry))
         return false;
 
@@ -246,23 +292,18 @@ bool rg_storage_scandir(const char *path, rg_scandir_cb_t *callback, void *arg, 
     {
         wdog_refresh();
 
-        char *name = frogfs_get_name(entry);
-        if (!name)
+        char name[RG_FROGFS_NAME_MAX];
+        if (!rg_frogfs_entry_name(entry, name, sizeof(name)))
             continue;
 
         if (name[0] == '.' && (!name[1] || name[1] == '.'))
-        {
-            free(name);
             continue;
-        }
 
         int written;
         if (strcmp(path, "/") == 0)
             written = snprintf(result->path, sizeof(result->path), "/%s", name);
         else
             written = snprintf(result->path, sizeof(result->path), "%s/%s", path, name);
-
-        free(name);
 
         if (written < 0 || (size_t)written >= sizeof(result->path))
         {
@@ -348,7 +389,19 @@ static size_t rg_storage_copy_file_to_ram_impl(char *file_path, uint8_t *ram_des
         wdog_refresh();
         total_written += bytes_read;
         if (file_progress_cb) {
-            file_progress_cb(total_size, total_written, (uint8_t)((total_written * 100) / (total_size)));
+            /* Same as circular_flash_write: no done*100 overflow, no uint64 div. */
+            uint32_t pct;
+            if (total_size == 0)
+                pct = 0;
+            else if (total_written >= total_size)
+                pct = 100;
+            else if (total_written <= 0xffffffffu / 100u)
+                pct = (total_written * 100u) / total_size;
+            else
+                pct = total_written / (total_size / 100u);
+            if (pct > 100)
+                pct = 100;
+            file_progress_cb(total_size, total_written, (uint8_t)pct);
         }
     }
 
@@ -407,7 +460,18 @@ size_t rg_storage_copy_file_range_to_ram(char *file_path, uint8_t *ram_dest, uin
         wdog_refresh();
         total_written += bytes_read;
         if (file_progress_cb) {
-            file_progress_cb(length, total_written, (uint8_t)((total_written * 100) / length));
+            uint32_t pct;
+            if (length == 0)
+                pct = 0;
+            else if (total_written >= length)
+                pct = 100;
+            else if (total_written <= 0xffffffffu / 100u)
+                pct = (total_written * 100u) / length;
+            else
+                pct = total_written / (length / 100u);
+            if (pct > 100)
+                pct = 100;
+            file_progress_cb(length, total_written, (uint8_t)pct);
         }
     }
 
@@ -460,7 +524,13 @@ bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next
             if (need_prev && cmp < 0) {
                 // If we don't have a previous file yet, or this one is higher than our current best
                 if (!best_prev[0] || strcasecmp(fno.fname, best_prev + strlen(dir) + 1) > 0) {
-                    sprintf(best_prev, "%s/%s", dir, fno.fname);
+                    size_t dlen = strlen(dir);
+                    size_t flen = strlen(fno.fname);
+                    if (dlen + 1 + flen < sizeof(best_prev)) {
+                        memcpy(best_prev, dir, dlen);
+                        best_prev[dlen] = '/';
+                        memcpy(best_prev + dlen + 1, fno.fname, flen + 1);
+                    }
                 }
             }
             
@@ -468,7 +538,13 @@ bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next
             if (need_next && cmp > 0) {
                 // If we don't have a next file yet, or this one is lower than our current best
                 if (!best_next[0] || strcasecmp(fno.fname, best_next + strlen(dir) + 1) < 0) {
-                    sprintf(best_next, "%s/%s", dir, fno.fname);
+                    size_t dlen = strlen(dir);
+                    size_t flen = strlen(fno.fname);
+                    if (dlen + 1 + flen < sizeof(best_next)) {
+                        memcpy(best_next, dir, dlen);
+                        best_next[dlen] = '/';
+                        memcpy(best_next + dlen + 1, fno.fname, flen + 1);
+                    }
                 }
             }
         }
@@ -490,7 +566,7 @@ bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next
     if (!fs)
         return false;
 
-    const frogfs_entry_t *dir_entry = frogfs_get_entry(fs, dir);
+    const frogfs_entry_t *dir_entry = rg_frogfs_lookup(dir);
     if (!dir_entry || !frogfs_is_dir(dir_entry))
         return false;
 
@@ -505,14 +581,12 @@ bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next
         if (!frogfs_is_file(entry))
             continue;
 
-        char *name = frogfs_get_name(entry);
-        if (!name)
+        char name[RG_FROGFS_NAME_MAX];
+        if (!rg_frogfs_entry_name(entry, name, sizeof(name)))
             continue;
 
-        if (name[0] == '.') {
-            free(name);
+        if (name[0] == '.')
             continue;
-        }
 
         const char *file_ext = rg_extension(name);
         if (file_ext && strcasecmp(file_ext, ext) == 0) {
@@ -530,8 +604,6 @@ bool rg_storage_get_adjacent_files(const char *path, char *prev_path, char *next
                 }
             }
         }
-
-        free(name);
     }
 
     frogfs_closedir(dir_obj);

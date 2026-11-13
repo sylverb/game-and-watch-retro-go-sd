@@ -33,7 +33,6 @@ SYSTEM_MAP = {
     "amstrad": "Amstrad_-_CPC",
     "col": "Coleco_-_ColecoVision",
     "msx": "Microsoft_-_MSX",
-    "videopac": "Magnavox_-_Odyssey2",
 }
 
 EXCLUDED_EXTENSIONS = {

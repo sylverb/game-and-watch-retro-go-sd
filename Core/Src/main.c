@@ -36,6 +36,7 @@
 #include "odroid_system.h"
 #include "odroid_overlay.h"
 #include "bq24072.h"
+#include "gw_sleep.h"
 
 #include <string.h>
 #include <assert.h>
@@ -63,7 +64,7 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc1;
+ADC_HandleTypeDef hadc2;
 
 DAC_HandleTypeDef hdac1;
 DAC_HandleTypeDef hdac2;
@@ -80,6 +81,8 @@ DMA_HandleTypeDef hdma_sai1_a;
 #if SD_CARD == 1
 sdcard_hw_type_t sdcard_hw_type = SDCARD_HW_UNDETECTED;
 SPI_HandleTypeDef hspi1;
+DMA_HandleTypeDef hdma_spi1_tx;
+DMA_HandleTypeDef hdma_spi1_rx;
 #endif
 SPI_HandleTypeDef hspi2;
 
@@ -113,7 +116,7 @@ static void MX_RTC_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_DAC2_Init(void);
 static void MX_WWDG1_Init(void);
-static void MX_ADC1_Init(void);
+void MX_ADC2_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_NVIC_Init(void);
 /* USER CODE BEGIN PFP */
@@ -241,6 +244,9 @@ void wdog_enable()
 {
   MX_WWDG1_Init();
   wdog_enabled = true;
+  /* Same moment the app is considered running — avoid panic during early boot
+   * / flash hold-POWER procedures. */
+  panic_power_reset_set(true);
 }
 
 void wdog_refresh()
@@ -261,10 +267,6 @@ int main(void)
   /* USER CODE BEGIN 1 */
   uint8_t trigger_wdt_bsod = 0;
   uint8_t boot_mode = BOOT_MODE_APP;
-
-#ifdef REMOTE_INPUT
-  *(volatile uint32_t *)SRAM_REMOTE_INPUT_ADDR = 0;
-#endif
 
 #if 0
   for(int i = 0; i < 1000000; i++) {
@@ -320,6 +322,13 @@ int main(void)
   /* MPU Configuration--------------------------------------------------------*/
   MPU_Config();
 
+#ifdef REMOTE_INPUT
+  /* Clear remote-input shadow once the AHB .persistent pad is MPU
+   * non-cacheable (see MPU_Config region 7). Must happen before any
+   * buttons_get() so garbage SRAM cannot OR phantom presses over GPIO. */
+  *(volatile uint32_t *)SRAM_REMOTE_INPUT_ADDR = 0;
+#endif
+
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
@@ -353,7 +362,7 @@ int main(void)
   MX_RTC_Init();
   MX_DAC1_Init();
   MX_DAC2_Init();
-  MX_ADC1_Init();
+  MX_ADC2_Init();
   MX_TIM1_Init();
 
   /* Initialize interrupts */
@@ -388,6 +397,13 @@ int main(void)
 
   bq24072_init();
 
+  /* Stock: one ADC poll (sub_80062b4). No backlight settle / delay dance. */
+  bq24072_boot_resample();
+
+  if (bq24072_should_block_boot()) {
+    odroid_overlay_low_battery_power_off();
+  }
+
   switch (boot_mode) {
   case BOOT_MODE_APP:
   case BOOT_MODE_WARM:
@@ -416,6 +432,13 @@ int main(void)
   */
 void SystemClock_Config(uint8_t oc_level)
 {
+  /* Soft-SPI-over-OSPI SD (Yota9) is unstable when the core/OSPI PLL is
+   * boosted — refuse any OC request on that hardware and stay at stock. */
+#if SD_CARD == 1
+  if (oc_level != 0 && sdcard_hw_type == SDCARD_HW_OSPI1)
+    oc_level = 0;
+#endif
+
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
@@ -583,67 +606,62 @@ static void MX_NVIC_Init(void)
 }
 
 /**
-  * @brief ADC1 Initialization Function
+  * @brief ADC2 Initialization Function (stock Mario battery sense on PC4)
   * @param None
   * @retval None
   */
-static void MX_ADC1_Init(void)
+void MX_ADC2_Init(void)
 {
 
-  /* USER CODE BEGIN ADC1_Init 0 */
+  /* USER CODE BEGIN ADC2_Init 0 */
 
-  /* USER CODE END ADC1_Init 0 */
+  /* USER CODE END ADC2_Init 0 */
 
-  ADC_MultiModeTypeDef multimode = {0};
   ADC_ChannelConfTypeDef sConfig = {0};
 
-  /* USER CODE BEGIN ADC1_Init 1 */
+  /* USER CODE BEGIN ADC2_Init 1 */
 
-  /* USER CODE END ADC1_Init 1 */
-  /** Common config
-  */
-  hadc1.Instance = ADC1;
-  hadc1.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
-  hadc1.Init.Resolution = ADC_RESOLUTION_16B;
-  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-  hadc1.Init.LowPowerAutoWait = DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
-  hadc1.Init.NbrOfConversion = 1;
-  hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc1.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DR;
-  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc1.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
-  hadc1.Init.OversamplingMode = DISABLE;
-  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  /* USER CODE END ADC2_Init 1 */
+  /** Common config — stock Mario sub_800068c / Zelda sub_8000b98 */
+  hadc2.Instance = ADC2;
+  hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV4;
+  hadc2.Init.Resolution = ADC_RESOLUTION_16B;
+  hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  /* Stock handle field = 0x8 → EOS (seq complete), not single EOC. */
+  hadc2.Init.EOCSelection = ADC_EOC_SEQ_CONV;
+  hadc2.Init.LowPowerAutoWait = DISABLE;
+  hadc2.Init.ContinuousConvMode = DISABLE;
+  hadc2.Init.NbrOfConversion = 1;
+  hadc2.Init.DiscontinuousConvMode = DISABLE;
+  hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc2.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DR;
+  hadc2.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc2.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
+  hadc2.Init.OversamplingMode = ENABLE;
+  hadc2.Init.Oversampling.Ratio = 1024;
+  hadc2.Init.Oversampling.RightBitShift = ADC_RIGHTBITSHIFT_10;
+  hadc2.Init.Oversampling.TriggeredMode = ADC_TRIGGEREDMODE_SINGLE_TRIGGER;
+  hadc2.Init.Oversampling.OversamplingStopReset = ADC_REGOVERSAMPLING_CONTINUED_MODE;
+  if (HAL_ADC_Init(&hadc2) != HAL_OK)
   {
     Error_Handler();
   }
-  /** Configure the ADC multi-mode
-  */
-  multimode.Mode = ADC_MODE_INDEPENDENT;
-  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Configure Regular Channel
-  */
+  /** Configure Regular Channel — PC4 = ADC2_INP4 */
   sConfig.Channel = ADC_CHANNEL_4;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_810CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
   sConfig.OffsetSignedSaturation = DISABLE;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN ADC1_Init 2 */
+  /* USER CODE BEGIN ADC2_Init 2 */
 
-  /* USER CODE END ADC1_Init 2 */
+  /* USER CODE END ADC2_Init 2 */
 
 }
 
@@ -1137,9 +1155,16 @@ static void MX_DMA_Init(void)
   __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
-  /* DMA1_Stream0_IRQn interrupt configuration */
+  /* DMA1_Stream0_IRQn interrupt configuration (SAI) */
   HAL_NVIC_SetPriority(DMA1_Stream0_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream0_IRQn);
+#if SD_CARD == 1
+  /* DMA1_Stream1/2: SPI1 TX/RX — below SAI so audio half-fills win */
+  HAL_NVIC_SetPriority(DMA1_Stream1_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream1_IRQn);
+  HAL_NVIC_SetPriority(DMA1_Stream2_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream2_IRQn);
+#endif
 
 }
 
@@ -1262,11 +1287,27 @@ __attribute__((optimize("-O0"))) static void MPU_Config(void)
   /** Initializes and configures the Region and the memory to be protected
   */
   /* Last 8 KB of AHB SRAM: .audio DMA buffer (see __AHBRAM_AUDIO_RESERVE__ in
-   * the linker script). Must stay non-cacheable for SAI DMA coherence.
-   * The ~120 KB below is cacheable via PRIVDEF. */
+   * the linker script). Must stay non-cacheable for SAI DMA coherence. */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
   MPU_InitStruct.BaseAddress = (uint32_t)&__ahbram_audio_start__;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_8KB;
+  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_ENABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+  /* First 8 KB of AHB SRAM: .persistent pad (boot_magic / logbuf / remote
+   * input). Non-cacheable so gnwmanager/OCD see a coherent logbuf and so
+   * REMOTE_INPUT's shadow word cannot stick in DCache over GPIO polling. */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER7;
+  MPU_InitStruct.BaseAddress = (uint32_t)&__ahbram_start__;
   MPU_InitStruct.Size = MPU_REGION_SIZE_8KB;
   MPU_InitStruct.SubRegionDisable = 0x0;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
@@ -1304,7 +1345,7 @@ __attribute__((optimize("-O0"))) static void MPU_Config(void)
     MPU_InitStruct.Enable = MPU_REGION_ENABLE;
     MPU_InitStruct.Number = MPU_REGION_NUMBER2;
     MPU_InitStruct.BaseAddress = (uint32_t) &_stack_redzone;
-    /* 128B --> 0x06, 256B --> 0x07, 512B --> 0x08, ... */
+    /* 32B --> 0x04, 128B --> 0x06, 256B --> 0x07, ... */
     MPU_InitStruct.Size = ffs((size_t)&_Stack_Redzone_Size) - 2;
     MPU_InitStruct.SubRegionDisable = 0x0;
     MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
@@ -1337,8 +1378,8 @@ __attribute__((optimize("-O0"))) static void MPU_Config(void)
  * RAM_EMU above it.
  *
  * Power-of-2 decomposition is hand-coded for the two sizes we use:
- *   300 KB (RGB565) → 256 + 32 + 8 + 4
- *   154 KB (LUT8  ) → 128 + 16 + 8 + 2
+ *   300 KiB (RGB565) → 256 + 32 + 8 + 4
+ *   150 KiB (LUT8  ) → 128 + 16 + 4 + 2
  * Both consume exactly 4 MPU regions (3..6), so the live count never
  * changes. Caller is responsible for HAL_MPU_Disable/Enable bracket.
  *
@@ -1367,12 +1408,12 @@ void mpu_set_lcd_pool_uncached_range(uint32_t framebuffer_bytes)
     r5_size_kb =   8; r5_enum = MPU_REGION_SIZE_8KB;
                       r6_enum = MPU_REGION_SIZE_4KB;
   } else {
-    /* LUT8 — exactly 154 KB framebuffer footprint, leaves the 146 KB
-     * bonus area cacheable by default (CPU sees engine-accessible
-     * memory as Normal Write-back). */
+    /* LUT8 — exactly 150 KiB framebuffer footprint, so the entire
+     * 150 KiB bonus (__RAM_UC_CORE_START__) is cacheable Normal
+     * Write-back (executable core code / leftover heap). */
     r3_size_kb = 128; r3_enum = MPU_REGION_SIZE_128KB;
     r4_size_kb =  16; r4_enum = MPU_REGION_SIZE_16KB;
-    r5_size_kb =   8; r5_enum = MPU_REGION_SIZE_8KB;
+    r5_size_kb =   4; r5_enum = MPU_REGION_SIZE_4KB;
                       r6_enum = MPU_REGION_SIZE_2KB;
   }
 

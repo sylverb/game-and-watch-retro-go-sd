@@ -106,10 +106,18 @@ if [ "$USE_RESET" = "1" ]; then
     while IFS= read -r kv; do
         [ -n "$kv" ] && RESET_VARS+=("$kv")
     done < <(awk -F'=' '
-        $1 ~ /^(GNW_TARGET|SD_CARD|INTFLASH_BANK|EXTFLASH_OFFSET|EXTFLASH_SIZE_MB|COVERFLOW|CHEAT_CODES|SHARED_HIBERNATE_SAVESTATE|DISABLE_SPLASH_SCREEN) *$/ {
+        $1 ~ /^(GNW_TARGET|SD_CARD|INTFLASH_BANK|EXTFLASH_OFFSET|EXTFLASH_SIZE_MB|COVERFLOW|CHEAT_CODES|SHARED_HIBERNATE_SAVESTATE|DISABLE_SPLASH_SCREEN|HOMEBREW_BINS|CORE_BINS|MAPPED_BINS|CHECK_DIRTY_SUBMODULE|COMPRESS) *$/ {
             gsub(/ /, "", $1); gsub(/^ +| +$/, "", $2);
             if ($2 != "") print $1 "=" $2
         }' "$INFO")
+    # CHECK_DIRTY_SUBMODULE is replayed too: a build that deliberately runs
+    # against a patched submodule (CHECK_DIRTY_SUBMODULE=0) must not have
+    # --reset fail the rebuild on the very dirtiness it was told to ignore.
+    # HOMEBREW_BINS/CORE_BINS/MAPPED_BINS have to be replayed too. CORE_BINS and
+    # HOMEBREW_BINS stage into sd_content, which survives on disk, so dropping them
+    # looked harmless -- but MAPPED_BINS is handed straight to gen_frogfs_image.py
+    # and is staged nowhere, so a --reset without it silently rebuilt an image with
+    # the mapped sidecar missing, and the core died with "gba.xip missing".
     echo "Resetting emulator state (rebuilding with: ${RESET_VARS[*]})"
     rm -f build/sdcard.img build/extflash.bin build/qemu_bank1.bin build/qemu_bank2.bin
     make gwemu_release "${RESET_VARS[@]}"

@@ -73,6 +73,8 @@ extern sdcard_hw_type_t sdcard_hw_type;
 extern RTC_HandleTypeDef hrtc;
 extern OSPI_HandleTypeDef hospi1;
 extern SPI_HandleTypeDef hspi1;
+extern DMA_HandleTypeDef hdma_spi1_tx;
+extern DMA_HandleTypeDef hdma_spi1_rx;
 
 /* USER CODE END EC */
 
@@ -126,8 +128,12 @@ void uptime_inc(void);
 uint32_t uptime_get(void);
 
 /* USER CODE BEGIN EFP */
+/* Stock Mario/Zelda re-run ADC2 init on every fuel-gauge poll. */
+void MX_ADC2_Init(void);
 uint32_t GW_GetBootButtons(void);
 void wdog_refresh(void);
+/* Hold POWER ≥2s → NVIC_SystemReset (SysTick). Off during intentional sleep. */
+void panic_power_reset_set(bool enable);
 void MX_SPI1_Init(void);
 void app_logo(void);
 void app_sleep_logo(void);
@@ -195,7 +201,7 @@ int odroid_overlay_draw_text_line(uint16_t x_pos, uint16_t y_pos, uint16_t width
 #define GPIO_CHARGER_POWERGOOD_GPIO_Port GPIOA
 #define GPIO_CHARGER_POWERGOOD_EXTI_IRQn EXTI2_IRQn
 
-// ADC1_INP4
+// ADC2_INP4 (stock Mario battery sense)
 #define GPIO_CHARGER_BAT_LEVEL_Pin GPIO_PIN_4
 #define GPIO_CHARGER_BAT_LEVEL_GPIO_Port GPIOC
 
@@ -252,8 +258,8 @@ int odroid_overlay_draw_text_line(uint16_t x_pos, uint16_t y_pos, uint16_t width
  * the LCD bonus area freed when LUT8 shrinks the framebuffer footprint.
  *
  * Supported sizes (hand-decomposed into exactly 4 MPU regions):
- *   300 KB (RGB565, the full LCD pool)
- *   154 KB (LUT8, leaving 146 KB cacheable bonus)
+ *   300 KiB (RGB565, the full LCD pool)
+ *   150 KiB (LUT8, leaving 150 KiB cacheable bonus)
  *
  * Caller is responsible for HAL_MPU_Disable/Enable bracket — the function
  * only writes the region descriptors. */
