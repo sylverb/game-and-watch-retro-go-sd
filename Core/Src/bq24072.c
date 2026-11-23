@@ -291,13 +291,75 @@ static bool bq24072_read_adc_blocking(uint16_t *out)
     return true;
 }
 
+/*
+ * A conversion is 1024 oversampled samples of 810.5 + 8.5 ADC cycles: ~70 ms
+ * at the ~12 MHz ADC clock. The main-context readings (init, boot, wake,
+ * mode entry) wait for it; the periodic poll runs in the TIM1 interrupt,
+ * where waiting stalls whatever runs (an emulator loses a frame every 10 s),
+ * so it starts the conversion on one tick and collects it on a later one.
+ * ADC2 is initialised and calibrated by the blocking path, or once by the
+ * poll after boot / wake, not per sample.
+ */
+static volatile bool bq24072_async_pending;  /* the poll's conversion is running */
+static volatile bool bq24072_blocking;       /* a main-context conversion owns ADC2 */
+static volatile bool bq24072_adc_ready;      /* ADC2 initialised + calibrated */
+static uint32_t bq24072_async_start_ms;
+
 static bool bq24072_convert(uint16_t *out)
 {
+    bool ok;
+
+    bq24072_blocking = true;    /* the poll (TIM1) keeps off ADC2 from here */
+    if (bq24072_async_pending) {
+        HAL_ADC_Stop(&hadc2);
+        bq24072_async_pending = false;
+    }
     MX_ADC2_Init();
-    if (!bq24072_calibrate()) {
+    ok = bq24072_calibrate() && bq24072_read_adc_blocking(out);
+    bq24072_adc_ready = ok;
+    bq24072_blocking = false;
+    return ok;
+}
+
+/* The poll's conversion: true when *out holds a finished one; false while
+ * none is ready (just started, still running, or ADC2 busy elsewhere). */
+static bool bq24072_convert_async(uint16_t *out, uint32_t now)
+{
+    if (bq24072_blocking) {
         return false;
     }
-    return bq24072_read_adc_blocking(out);
+    if (!bq24072_async_pending) {
+        if (!bq24072_adc_ready) {
+            MX_ADC2_Init();
+            if (!bq24072_calibrate()) {
+                return false;
+            }
+            bq24072_adc_ready = true;
+        }
+        if (HAL_ADC_Start(&hadc2) != HAL_OK) {
+            bq24072_adc_ready = false;
+            return false;
+        }
+        bq24072_async_pending = true;
+        bq24072_async_start_ms = now;
+        return false;
+    }
+    /* the flag HAL_ADC_PollForConversion waits for (EOS: EOCSelection
+     * is ADC_EOC_SEQ_CONV) */
+    if (!__HAL_ADC_GET_FLAG(&hadc2, hadc2.Init.EOCSelection == ADC_EOC_SEQ_CONV
+                                        ? ADC_FLAG_EOS : ADC_FLAG_EOC)) {
+        if ((now - bq24072_async_start_ms) > (uint32_t)BQ24072_ADC_POLL_MS) {
+            /* the blocking path's timeout: give up, set up ADC2 again */
+            HAL_ADC_Stop(&hadc2);
+            bq24072_async_pending = false;
+            bq24072_adc_ready = false;
+        }
+        return false;
+    }
+    *out = (uint16_t)HAL_ADC_GetValue(&hadc2);
+    HAL_ADC_Stop(&hadc2);
+    bq24072_async_pending = false;
+    return true;
 }
 
 /*
@@ -534,6 +596,9 @@ void bq24072_wake_prepare(void)
     bq24072_data.have_first = false;
     bq24072_data.peek_count = 0;
     bq24072_clear_low_debounce("wake");
+    /* ADC2 after STOP2: set up again before the next poll conversion */
+    bq24072_async_pending = false;
+    bq24072_adc_ready = false;
 }
 
 void bq24072_wake_resample(void)
@@ -756,7 +821,8 @@ void bq24072_poll(void)
             && (now - bq24072_last_info_ms) < (uint32_t)BQ24072_DISCHARGE_REFRESH_MS) {
             return;
         }
-        if (bq24072_fuel_update()) {
+        if (bq24072_convert_async(&sample, now)) {
+            bq24072_sample_filter_latch(sample);
             bq24072_last_info_ms = now;
             last_logged_level = bq24072_data.level;
             bq24072_log_reading("charge");
@@ -775,7 +841,7 @@ void bq24072_poll(void)
         && (now - bq24072_last_info_ms) < (uint32_t)BQ24072_DISCHARGE_REFRESH_MS) {
         return;
     }
-    if (!bq24072_convert(&sample)) {
+    if (!bq24072_convert_async(&sample, now)) {
         return;
     }
     bq24072_last_info_ms = now;
