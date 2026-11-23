@@ -270,6 +270,151 @@ bool rg_emulator_validate_browse_path_for_tab(tab_t *tab)
     return true;
 }
 
+/* ---- display labels: <folder>/gamenames.txt ---------------------------
+ * One "stem=Label" per line: the file name without its extension, then the
+ * text the game list shows for it, e.g. "dragnblz=Dragon Blaze". Lines
+ * starting with '#' and lines without '=' are ignored; keys compare without
+ * case; spaces around the '=' are trimmed. Read after every scan of a folder
+ * (the list is rebuilt from a fresh scan each time) into one AHB buffer
+ * that the next scan replaces. The key is the stem of the file's PATH, not
+ * name, so a homebrew whose name holds its GWHB display name still matches
+ * its file. Only the list rows, the sort and the game dialog's title use
+ * the label. */
+#define GAMENAMES_FILE      "gamenames.txt"
+#define GAMENAMES_MAX_BYTES (32 * 1024)
+
+typedef struct { const char *key, *label; } gamename_t;
+static char *gamenames_text;         /* the file, split in place */
+static gamename_t *gamenames;        /* sorted by key */
+static int gamenames_count;
+
+static int gamename_cmp(const void *a, const void *b)
+{
+    return strcasecmp(((const gamename_t *)a)->key, ((const gamename_t *)b)->key);
+}
+
+static char *gamenames_trim(char *s, char *end)
+{
+    while (s < end && (*s == ' ' || *s == '\t'))
+        s++;
+    while (end > s && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r'))
+        end--;
+    *end = '\0';
+    return s;
+}
+
+static void gamenames_load(const char *folder)
+{
+    char path[RG_PATH_MAX];
+    FILE *f;
+    long size;
+
+    free(gamenames_text);
+    free(gamenames);
+    gamenames_text = NULL;
+    gamenames = NULL;
+    gamenames_count = 0;
+
+    snprintf(path, sizeof(path), "%s/" GAMENAMES_FILE, folder);
+    f = fopen(path, "rb");
+    if (f == NULL)
+        return;
+    if (fseek(f, 0, SEEK_END) != 0 || (size = ftell(f)) <= 0 || fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return;
+    }
+    if (size > GAMENAMES_MAX_BYTES) {
+        printf("Retro-Go: %s is %ld bytes, reading the first %d\n", path, size, GAMENAMES_MAX_BYTES);
+        size = GAMENAMES_MAX_BYTES;
+    }
+    gamenames_text = ahb_malloc((size_t)size + 1);
+    if (gamenames_text == NULL) {
+        fclose(f);
+        return;
+    }
+    size = (long)fread(gamenames_text, 1, (size_t)size, f);
+    fclose(f);
+    gamenames_text[size] = '\0';
+
+    int lines = 1;
+    for (long i = 0; i < size; i++)
+        lines += gamenames_text[i] == '\n';
+    gamenames = ahb_malloc((size_t)lines * sizeof(gamename_t));
+    if (gamenames == NULL) {
+        free(gamenames_text);
+        gamenames_text = NULL;
+        return;
+    }
+
+    char *p = gamenames_text, *end = gamenames_text + size;
+    while (p < end) {
+        char *nl = memchr(p, '\n', (size_t)(end - p));
+        char *line_end = nl ? nl : end;
+        char *eq = memchr(p, '=', (size_t)(line_end - p));
+        if (*p != '#' && eq != NULL) {
+            char *key = gamenames_trim(p, eq);
+            char *label = gamenames_trim(eq + 1, line_end);
+            if (key[0] && label[0]) {
+                gamenames[gamenames_count].key = key;
+                gamenames[gamenames_count].label = label;
+                gamenames_count++;
+            }
+        }
+        p = line_end + 1;
+    }
+    if (gamenames_count > 1)
+        qsort(gamenames, (size_t)gamenames_count, sizeof(gamename_t), gamename_cmp);
+    printf("Retro-Go: %d game names from %s\n", gamenames_count, path);
+}
+
+/* Give the AHB back before a game starts: the core gets the AHB heap that
+ * is left, and the launcher's list is rebuilt from a fresh scan afterwards.
+ * Every entry's label points into gamenames_text, so they are cleared too. */
+static void gamenames_release(void)
+{
+    if (emulators != NULL) {
+        for (int e = 0; e < emulators_count; e++)
+            for (int i = 0; i < emulators[e].roms.count; i++)
+                emulators[e].roms.files[i].label = NULL;
+    }
+    free(gamenames);
+    free(gamenames_text);
+    gamenames = NULL;
+    gamenames_text = NULL;
+    gamenames_count = 0;
+}
+
+/* the folder's labels onto the entries the scan just listed */
+static void gamenames_apply(retro_emulator_t *emu, const char *folder)
+{
+    gamenames_load(folder);
+    for (int i = 0; i < emu->roms.count; i++) {
+        retro_emulator_file_t *file = &emu->roms.files[i];
+        file->label = NULL;
+        if (gamenames_count == 0 || file->ext == NULL)
+            continue;
+        const char *base = strrchr(file->path, '/');
+        base = base ? base + 1 : file->path;
+        const char *dot = strrchr(base, '.');
+        char stem[128];
+        size_t len = dot ? (size_t)(dot - base) : strlen(base);
+        if (len >= sizeof(stem))
+            continue;
+        memcpy(stem, base, len);
+        stem[len] = '\0';
+        gamename_t key = { stem, NULL };
+        const gamename_t *hit = bsearch(&key, gamenames, (size_t)gamenames_count, sizeof(gamename_t), gamename_cmp);
+        if (hit)
+            file->label = hit->label;
+    }
+}
+
+/* what the list shows for an entry */
+static const char *rom_entry_display_name(const retro_emulator_file_t *f)
+{
+    return f->label ? f->label : f->name;
+}
+
 static int rom_entries_cmp(const void *a, const void *b)
 {
     const retro_emulator_file_t *fa = (const retro_emulator_file_t *)a;
@@ -278,7 +423,7 @@ static int rom_entries_cmp(const void *a, const void *b)
     const int db = (fb->ext == NULL);
     if (da != db)
         return db - da;
-    return strcasecmp(fa->name, fb->name);
+    return strcasecmp(rom_entry_display_name(fa), rom_entry_display_name(fb));
 }
 
 static void emulator_fill_tab_list(tab_t *tab, retro_emulator_t *emu)
@@ -318,7 +463,7 @@ static void emulator_fill_tab_list(tab_t *tab, retro_emulator_t *emu)
         }
         for (int i = 0; i < n; i++)
         {
-            tab->listbox.items[parent_row + i].text = emu->roms.files[i].name;
+            tab->listbox.items[parent_row + i].text = rom_entry_display_name(&emu->roms.files[i]);
             tab->listbox.items[parent_row + i].arg = (void *)&emu->roms.files[i];
         }
         tab->listbox.cursor = MIN(tab->listbox.cursor, tab->listbox.length - 1);
@@ -851,6 +996,7 @@ void emulator_init(retro_emulator_t *emu)
     else
 #endif
         rg_storage_scandir(folder, scan_folder_cb, emu, 0);
+    gamenames_apply(emu, folder);
 }
 
 void emulator_refresh_list(retro_emulator_t *emu)
@@ -870,6 +1016,7 @@ void emulator_refresh_list(retro_emulator_t *emu)
     else
 #endif
         rg_storage_scandir(folder, scan_folder_cb, emu, 0);
+    gamenames_apply(emu, folder);
 }
 
 #if SD_CARD == 1
@@ -1311,7 +1458,7 @@ bool emulator_show_file_menu(retro_emulator_file_t *file)
 #endif
     choices[rows++] = (odroid_dialog_choice_t)ODROID_DIALOG_CHOICE_LAST;
 
-    int sel = odroid_overlay_dialog(file->name, choices, has_save ? 0 : 1, &gui_redraw_callback, 0);
+    int sel = odroid_overlay_dialog(rom_entry_display_name(file), choices, has_save ? 0 : 1, &gui_redraw_callback, 0);
 
     if (sel == 0) { // Resume game
         if (has_save) {
@@ -2106,9 +2253,14 @@ void emulator_start(retro_emulator_file_t *file, bool load_state, bool start_pau
     // odroid_settings_StartAction_set(load_state ? ODROID_START_ACTION_RESUME : ODROID_START_ACTION_NEWGAME);
     // odroid_settings_commit();
 
+    /* first, before anything else takes AHB: the label buffer goes back to
+     * the heap (so it can merge with the free space above it) */
+    gamenames_release();
+
     // create a copy in heap ram as ram used by ram_malloc will be erase by emulator
     retro_emulator_file_t *newfile = calloc(sizeof(retro_emulator_file_t),1);
     memcpy(newfile,file,sizeof(retro_emulator_file_t));
+    newfile->label = NULL;
     strcpy((char *)newfile->name,file->name);
     strcpy(newfile->path,file->path);
     newfile->ext = get_extension(newfile->path);

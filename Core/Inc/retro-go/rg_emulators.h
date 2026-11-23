@@ -66,6 +66,12 @@ typedef struct {
     char** cheat_descs; // Cheat codes descriptions
     int cheat_count;
 #endif
+    /* What the game list shows instead of name, from the folder's
+     * gamenames.txt (NULL: show name). Display only: name stays the key the
+     * cores use (arcade's romset, MSX's mapper guess, ...). LAST on purpose:
+     * external cores read this struct through ACTIVE_FILE with the field
+     * offsets they were built with, so a new field goes after all others. */
+    const char *label;
 } retro_emulator_file_t;
 
 bool rg_rom_list_arg_is_parent(const void *arg);

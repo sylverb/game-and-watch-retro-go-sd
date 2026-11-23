@@ -181,6 +181,25 @@ CoverFlow needs optimized `.img` thumbnails (not full PNG/JPG on device).
 - Alternatives: `tools/gencovers.py` (see **Tools**), or [GameWatchCoverMaker](https://github.com/dadagm/GameWatchCoverMaker) (macOS/Windows)
 - Mixed cover sizes for one system can misalign **CoverLight H**
 
+### Game names
+
+The game list shows each file's name without its extension (`dragnblz`).
+To show a title instead, put a `gamenames.txt` in the folder, one
+`<file name without extension>=<title>` per line:
+
+```
+# /roms/arcade/gamenames.txt
+dragnblz=Dragon Blaze
+esprade=ESP Ra.De.
+```
+
+- Lines starting with `#` and lines without `=` are ignored; the file name
+  is matched without case, and spaces around `=` are trimmed.
+- The list is sorted by what it shows; files without a line keep their
+  file name. Each folder (and subfolder) reads its own file.
+- Only the list and the game's menu title change: covers, saves and cheats
+  still go by the file name.
+
 ### Cheat codes
 
 If the core is supporting cheat codes, place your cheat code files in /cheats folder. A cheat code file for /roms/gb/mario.gb shall be called /cheats/gb/mario.ggcodes . Check cores pages details to get details about cheats support (file format/extension).

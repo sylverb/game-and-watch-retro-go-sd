@@ -47,6 +47,12 @@
 #define COVER_MAX_HEIGHT (100)
 #define COVER_MAX_WIDTH (186)
 
+/* What the launcher shows for a file: its gamenames.txt label, or its name. */
+static const char *gui_file_title(const retro_emulator_file_t *file)
+{
+    return file->label ? file->label : file->name;
+}
+
 static listbox_item_t *global_items = NULL;
 
 #if COVERFLOW != 0
@@ -433,16 +439,17 @@ static void gui_draw_flash_cache_label(int x, int y, int w, int h)
 }
 #endif
 
-/* "* Name" when the ROM is in the flash cache; otherwise just the name. */
+/* "* Name" when the ROM is in the flash cache; otherwise just the name
+ * (the gamenames.txt label when the file has one). */
 static void gui_format_cached_title(const retro_emulator_file_t *file,
                                     char *buf, size_t buflen)
 {
     if (!file || !buf || buflen == 0)
         return;
     if (gui_flash_cache_show_text(file))
-        snprintf(buf, buflen, "* %s", file->name);
+        snprintf(buf, buflen, "* %s", gui_file_title(file));
     else
-        snprintf(buf, buflen, "%s", file->name);
+        snprintf(buf, buflen, "%s", gui_file_title(file));
 }
 #endif /* SD_CARD == 1 */
 
@@ -1365,7 +1372,7 @@ void gui_draw_coverlight_h(retro_emulator_file_t *file, int cover_position)
 #if SD_CARD == 1
         gui_format_cached_title(file, str_buffer, 128);
 #else
-        snprintf(str_buffer, 128, "%s", file->name);
+        snprintf(str_buffer, 128, "%s", gui_file_title(file));
 #endif
         draw_centered_local_text_line(169,
                                       str_buffer,
@@ -1631,7 +1638,7 @@ void gui_draw_coverflow_h(tab_t *tab)
 #if SD_CARD == 1
             gui_format_cached_title(selected_file, title, sizeof(title));
 #else
-            snprintf(title, sizeof(title), "%s", selected_file->name);
+            snprintf(title, sizeof(title), "%s", gui_file_title(selected_file));
 #endif
         else
             snprintf(title, sizeof(title), "%s", selected->text ? selected->text : "");
