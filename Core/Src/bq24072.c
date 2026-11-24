@@ -291,13 +291,35 @@ static bool bq24072_read_adc_blocking(uint16_t *out)
     return true;
 }
 
+/*
+ * Conversions run both from thread context (boot/wake/mode-entry resample)
+ * and from the TIM1 interrupt (bq24072_poll). Each one re-runs
+ * MX_ADC2_Init(), and HAL_ADC_Init() fails while a calibration or conversion
+ * is in progress, which ends in Error_Handler() (BSOD "Other", PC=0, LR in
+ * MX_ADC2_Init). Seen when TIM1 fired during emulator_start()'s
+ * mode-entry resample. The interrupt cannot be preempted by thread code, so
+ * only the interrupt can find this set: it then skips the sample, and
+ * bq24072_poll() retries on a later tick because it only stamps
+ * bq24072_last_info_ms after a successful conversion.
+ */
+static volatile bool bq24072_adc_busy;
+
 static bool bq24072_convert(uint16_t *out)
 {
-    MX_ADC2_Init();
-    if (!bq24072_calibrate()) {
+    bool ok = false;
+
+    if (bq24072_adc_busy) {
         return false;
     }
-    return bq24072_read_adc_blocking(out);
+    bq24072_adc_busy = true;
+
+    MX_ADC2_Init();
+    if (bq24072_calibrate()) {
+        ok = bq24072_read_adc_blocking(out);
+    }
+
+    bq24072_adc_busy = false;
+    return ok;
 }
 
 /*
