@@ -102,3 +102,22 @@ odroid_battery_state_t odroid_input_read_battery()
 
     return ret;
 }
+
+int odroid_battery_level(odroid_battery_state_t battery)
+{
+    int level = battery.percentage / 20;
+
+    if (level < 0) {
+        return 0;
+    }
+    if (level > 5) {
+        return 5;
+    }
+    return level;
+}
+
+bool odroid_battery_is_low(odroid_battery_state_t battery)
+{
+    return battery.state == ODROID_BATTERY_CHARGE_STATE_DISCHARGING
+        && odroid_battery_level(battery) < 2;
+}

@@ -144,7 +144,7 @@ if ($armApp -and $armApp.DisplayVersion -like "$targetArmVersion*") {
     }
     Write-Host "  Downloading toolchain (this may take a while)..."
     $msi = "$env:TEMP\arm-toolchain.msi"
-    curl.exe -L "https://developer.arm.com/-/media/Files/downloads/gnu/15.2.rel1/binrel/arm-gnu-toolchain-15.2.rel1-mingw-w64-i686-arm-none-eabi.msi" -o $msi
+    curl.exe -L "https://gitlab.arm.com/api/v4/projects/tooling%2Fgnu-toolchains-for-arm/packages/generic/gnu-toolchain/15.2.rel1/arm-gnu-toolchain-15.2.rel1-mingw-w64-i686-arm-none-eabi.msi" -o $msi
     Write-Host "  Running installer..."
     Start-Process msiexec.exe -Wait -NoNewWindow -ArgumentList "/i", "`"$msi`"", "EULA=1", "/quiet"
     Prepend-ToPath "C:\Program Files (x86)\Arm\GNU Toolchain mingw-w64-i686-arm-none-eabi\bin"

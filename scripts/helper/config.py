@@ -90,10 +90,6 @@ class BuildConfig:
         default=False,
         metadata={"group": "makefile", "prompt": "Enable cheat codes?"}
     )
-    msx_use_bank_2: bool = field(
-        default=False,
-        metadata={"group": "makefile"}
-    )
     enable_screenshot: bool = field(
         default=True,
         metadata={"group": "makefile", "prompt": "Enable screenshots?"}

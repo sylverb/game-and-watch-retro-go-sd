@@ -10,7 +10,9 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <signal.h>
+#if !defined(HOST_BUILD)
 #include <malloc.h>
+#endif
 #include <math.h>
 #include <limits.h>
 

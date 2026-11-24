@@ -11,9 +11,164 @@
 #include "config.h"
 #include "ff.h"
 #include "gw_linker.h"
+#include "gw_layout_superblock.h"
 #include "rg_frogfs.h"
+#include "frogfs_format.h"
 
 static frogfs_fs_t *s_frogfs;
+
+/* Allocation-free replacements for frogfs_get_entry() / frogfs_get_name().
+ *
+ * Both upstream calls allocate, and both fail badly once an emulator core is
+ * resident and the heap is nearly exhausted:
+ *
+ *   frogfs_get_entry() calls frogfs_get_path(), which calloc's PATH_MAX
+ *   (1024) bytes purely to rebuild a path string for comparison. On failure
+ *   it returns NULL and the caller strcmp()s against it unchecked, so the
+ *   lookup reports "not found" instead of "out of memory" -- a font open
+ *   then returns ENOENT and the glyph renders as the replacement character.
+ *
+ *   frogfs_get_name() malloc's seg_sz + 1 and memcpy's into it with no NULL
+ *   check. Address 0 is live ITCM holding executable code on this part, so a
+ *   failed malloc corrupts hot code rather than failing cleanly.
+ *
+ * These walk the memory-mapped image directly using the on-disk layout in
+ * frogfs_format.h. Nothing below allocates. */
+
+#define RG_FROGFS_MAGIC 0x474F5246u /* 'FROG', little-endian */
+
+typedef struct {
+    const frogfs_head_t *head;
+    const frogfs_hash_t *hash;
+    const void *root;
+    uint32_t num_entries;
+} rg_frogfs_image_t;
+
+static bool rg_frogfs_image(rg_frogfs_image_t *img)
+{
+    const frogfs_head_t *head =
+        (const frogfs_head_t *)(uintptr_t)gw_layout_frogfs_addr();
+
+    if (!head || head->magic != RG_FROGFS_MAGIC)
+        return false;
+
+    img->head = head;
+    img->num_entries = head->num_entries;
+    img->hash = (const frogfs_hash_t *)((const uint8_t *)head + sizeof(frogfs_head_t));
+    img->root = (const uint8_t *)img->hash +
+                (size_t)img->num_entries * sizeof(frogfs_hash_t);
+    return true;
+}
+
+static uint32_t rg_frogfs_djb2(const char *s)
+{
+    uint32_t hash = 5381;
+
+    while (*s)
+        hash = ((hash << 5) + hash) ^ (uint8_t)*s++;
+
+    return hash;
+}
+
+/* Path segment bytes for an entry. Not NUL-terminated in the image; the name
+ * follows the object header, whose size depends on the entry type. Mirrors
+ * get_name() in frogfs.c. */
+static const char *rg_frogfs_seg(const frogfs_entry_t *entry)
+{
+    if (FROGFS_IS_DIR(entry))
+        return (const char *)entry + 8 + (entry->child_count * 4);
+    if (FROGFS_IS_COMP(entry))
+        return (const char *)entry + 20;
+    return (const char *)entry + 16;
+}
+
+/* Compare an entry's full path against `path` by walking the parent chain
+ * backwards, consuming `path` from the end. `path` has no leading slash. */
+static bool rg_frogfs_path_matches(const rg_frogfs_image_t *img,
+                                   const frogfs_entry_t *entry,
+                                   const char *path)
+{
+    size_t remaining = strlen(path);
+
+    /* The root entry is the one whose parent offset is 0; it owns "". */
+    if (entry->parent == 0)
+        return remaining == 0;
+
+    for (;;) {
+        size_t seg_sz = entry->seg_sz;
+
+        if (remaining < seg_sz)
+            return false;
+        if (memcmp(path + remaining - seg_sz, rg_frogfs_seg(entry), seg_sz) != 0)
+            return false;
+        remaining -= seg_sz;
+
+        const frogfs_entry_t *parent =
+            (const frogfs_entry_t *)((const uint8_t *)img->head + entry->parent);
+
+        /* A child of root carries no leading separator, and ends the walk. */
+        if ((const void *)parent == img->root)
+            return remaining == 0;
+
+        if (remaining == 0 || path[remaining - 1] != '/')
+            return false;
+        remaining--;
+
+        entry = parent;
+        if (entry->parent == 0)
+            return false; /* malformed: reached root off the root chain */
+    }
+}
+
+const frogfs_entry_t *rg_frogfs_lookup(const char *path)
+{
+    rg_frogfs_image_t img;
+
+    if (!path || !rg_frogfs_image(&img))
+        return NULL;
+
+    while (*path == '/')
+        path++;
+
+    const uint32_t want = rg_frogfs_djb2(path);
+
+    /* mkfrogfs.py keys its entry table by hash, so a hash occurs at most once
+     * and one candidate is enough -- there is no collision chain to walk. */
+    int first = 0;
+    int last = (int)img.num_entries - 1;
+
+    while (first <= last) {
+        const int middle = first + (last - first) / 2;
+        const uint32_t got = img.hash[middle].hash;
+
+        if (got == want) {
+            const frogfs_entry_t *entry = (const frogfs_entry_t *)
+                ((const uint8_t *)img.head + img.hash[middle].offs);
+            return rg_frogfs_path_matches(&img, entry, path) ? entry : NULL;
+        }
+
+        if (got < want)
+            first = middle + 1;
+        else
+            last = middle - 1;
+    }
+
+    return NULL;
+}
+
+bool rg_frogfs_entry_name(const frogfs_entry_t *entry, char *buf, size_t buflen)
+{
+    if (!entry || !buf || buflen == 0)
+        return false;
+
+    const size_t seg_sz = entry->seg_sz;
+    if (seg_sz >= buflen)
+        return false;
+
+    memcpy(buf, rg_frogfs_seg(entry), seg_sz);
+    buf[seg_sz] = '\0';
+    return true;
+}
 
 frogfs_fs_t *rg_frogfs_get(void)
 {
@@ -21,8 +176,10 @@ frogfs_fs_t *rg_frogfs_get(void)
         return s_frogfs;
 
     frogfs_config_t config = {
-        /* Image is flashed at physical EXTFLASH_OFFSET → XiP address __EXTFLASH_START__ */
-        .addr = &__EXTFLASH_START__,
+        /* FrogFS XiP base. Default == &__EXTFLASH_START__ (0x90000000 +
+         * __EXTFLASH_OFFSET__); a patched layout superblock can override it so
+         * one prebuilt binary serves any extflash offset. See gw_layout_superblock.h. */
+        .addr = (const void *)(uintptr_t)gw_layout_frogfs_addr(),
     };
 
     s_frogfs = frogfs_init(&config);
@@ -41,7 +198,7 @@ bool rg_frogfs_get_file_data(const char *path, const uint8_t **data, uint32_t *s
     if (!fs)
         return false;
 
-    const frogfs_entry_t *entry = frogfs_get_entry(fs, path);
+    const frogfs_entry_t *entry = rg_frogfs_lookup(path);
     if (!entry || !frogfs_is_file(entry))
         return false;
 
@@ -115,7 +272,7 @@ FRESULT f_opendir(DIR *dp, const TCHAR *path)
     if (!fs)
         return FR_NOT_READY;
 
-    const frogfs_entry_t *entry = frogfs_get_entry(fs, normalized);
+    const frogfs_entry_t *entry = rg_frogfs_lookup(normalized);
     if (!entry)
         return FR_NO_PATH;
 
@@ -161,13 +318,8 @@ FRESULT f_readdir(DIR *dp, FILINFO *fno)
     if (!entry)
         return FR_OK;
 
-    char *name = frogfs_get_name(entry);
-    if (!name)
+    if (!rg_frogfs_entry_name(entry, fno->fname, sizeof(fno->fname)))
         return FR_INT_ERR;
-
-    strncpy(fno->fname, name, sizeof(fno->fname) - 1);
-    fno->fname[sizeof(fno->fname) - 1] = '\0';
-    free(name);
 
     frogfs_stat_t st;
     frogfs_stat((const frogfs_fs_t *)dh->fs, entry, &st);

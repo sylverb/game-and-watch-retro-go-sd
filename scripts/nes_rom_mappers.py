@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
-Discover which FCEUmm mapper blobs under sd_content/cores/mappers/ are needed
-for ROMs under roms/nes (and sd_content/roms/nes), using the same heuristics as
-external/fceumm-go/nesmapper.py (iNES / FDS / NSF) plus NSF expansion chips
-from external/fceumm-go/src/nsf.c (GNW rg_storage_copy_file_to_ram paths).
+Discover which FCEUmm mapper blobs under sd_content/cores/nes_fceumm_mappers/
+are needed for ROMs under roms/nes (and sd_content/roms/nes).
+
+Requires a FCEUmm/NES-core checkout providing ``gen_mappers_table.py`` and
+``nesmapper.py`` (set ``FCEUMM_GO``, or a leftover ``external/fceumm-go``).
+Without it, LittleFS ships the drop-in ``mappers.pak`` as-is.
 """
 from __future__ import annotations
 
 import io
 import lzma
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -20,12 +23,23 @@ NES_LZMA_FILTERS = (
     },
 )
 
-# NSF_HEADER.SoundChip (see external/fceumm-go/src/nsf.h); byte index 126.
+# NSF_HEADER.SoundChip; byte index 126.
 _NSF_SOUNDCHIP_OFF = 126
 
 
+def _fceumm_root(repo_root: Path) -> Path:
+    override = Path(os.environ["FCEUMM_GO"]) if "FCEUMM_GO" in os.environ else None
+    candidates = [override, repo_root / "external" / "fceumm-go"]
+    for c in candidates:
+        if c and (c / "gen_mappers_table.py").is_file() and (c / "nesmapper.py").is_file():
+            return c
+    raise FileNotFoundError(
+        "FCEUmm helpers not found (set FCEUMM_GO to the NES/fceumm checkout)"
+    )
+
+
 def load_mapper_dict(repo_root: Path) -> dict[int, str]:
-    p = repo_root / "external/fceumm-go/gen_mappers_table.py"
+    p = _fceumm_root(repo_root) / "gen_mappers_table.py"
     text = p.read_text(encoding="utf-8")
     marker = "\nn = len(sys.argv)"
     i = text.find(marker)
@@ -38,7 +52,7 @@ def load_mapper_dict(repo_root: Path) -> dict[int, str]:
 
 def load_analyze_rom(repo_root: Path) -> Callable:
     """Load nesmapper.analyzeRom without running nesmapper.py CLI tail (sys.exit)."""
-    p = repo_root / "external/fceumm-go/nesmapper.py"
+    p = _fceumm_root(repo_root) / "nesmapper.py"
     text = p.read_text(encoding="utf-8")
     marker = "\nn = len(sys.argv)"
     i = text.find(marker)
