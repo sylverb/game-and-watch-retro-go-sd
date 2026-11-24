@@ -8,7 +8,6 @@
 
 #include "gui.h"
 #include "gw_lcd.h"
-#include "gw_ofw.h"
 #include "bitmaps.h"
 #include "gw_linker.h"
 #include "main.h"
@@ -118,21 +117,39 @@ colors_t gui_colors[] = {
 
 };
 
-// Function to initialize colors based on OFW type
+/* Initialize / refresh theme colors from ConsoleType (Auto → OFW Mario detect).
+ * Always restores Mario reds first so switching Zelda → Mario works. */
 void gui_init_colors()
 {
-    // If Zelda version, replace colors that should be different
-    if (!get_ofw_is_mario()) {
-        // Zelda version: change mario red to zelda green
-        
-        // Update colors that use _2CC (positions that had red colors)
+    gui_colors[0].main_c = _2C_(0x600000);
+    gui_colors[1].main_c = _2C_(0x900000);
+    gui_colors[2].main_c = _2C_(0x300000);
+    gui_colors[3].main_c = _2C_(0x600000);
+    gui_colors[4].main_c = _2C_(0x900000);
+    gui_colors[5].main_c = _2C_(0x300000);
+
+    gui_colors[6].bg_c = _2C_(0x100000);
+    gui_colors[6].main_c = _2C_(0x600000);
+    gui_colors[7].bg_c = _2C_(0x100000);
+    gui_colors[7].main_c = _2C_(0x900000);
+    gui_colors[8].bg_c = _2C_(0x100000);
+    gui_colors[8].main_c = _2C_(0x600000);
+    gui_colors[9].bg_c = _2C_(0x100000);
+    gui_colors[9].main_c = _2C_(0x900000);
+
+    gui_colors[10].main_c = _2C_(0x600000);
+    gui_colors[11].main_c = _2C_(0x600000);
+    gui_colors[23].main_c = _2C_(0x801008);
+
+    if (!odroid_settings_ConsoleIsMario()) {
+        /* Zelda: _2CC swizzle turns these red-looking literals into green. */
         gui_colors[0].main_c = _2CC(0x600000);
         gui_colors[1].main_c = _2CC(0x900000);
         gui_colors[2].main_c = _2CC(0x300000);
         gui_colors[3].main_c = _2CC(0x600000);
         gui_colors[4].main_c = _2CC(0x900000);
         gui_colors[5].main_c = _2CC(0x300000);
-        
+
         gui_colors[6].bg_c = _2CC(0x100000);
         gui_colors[6].main_c = _2CC(0x600000);
         gui_colors[7].bg_c = _2CC(0x100000);
@@ -141,14 +158,10 @@ void gui_init_colors()
         gui_colors[8].main_c = _2CC(0x600000);
         gui_colors[9].bg_c = _2CC(0x100000);
         gui_colors[9].main_c = _2CC(0x900000);
-        
-        // Mario/Zelda specific themes (positions 10-11).
-        // _2CC is a swizzle: feed it the red-looking literal (as entries 0-9 do)
-        // to get green out. Passing 0x006000 here yields 0x6000 (red), not green.
-        gui_colors[10].main_c = _2CC(0x600000);  // Zelda green
-        gui_colors[11].main_c = _2CC(0x600000);  // Zelda green
-        
-        gui_colors[23].main_c = _2CC(0x801008);  // Other theme that had _2CC
+
+        gui_colors[10].main_c = _2CC(0x600000);
+        gui_colors[11].main_c = _2CC(0x600000);
+        gui_colors[23].main_c = _2CC(0x801008);
     }
 }
 

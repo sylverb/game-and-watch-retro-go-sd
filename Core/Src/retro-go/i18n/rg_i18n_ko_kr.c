@@ -186,6 +186,11 @@ const lang_t lang_ko_kr LANG_DATA = {
     .s_Flash_cache_Cover_text = "커버+텍스트",
     .s_Flash_cache_Text_only = "텍스트만",
     .s_Show_FPS = "FPS 표시",
+
+    .s_Console_Type = "본체",
+    .s_Console_Auto = "자동",
+    .s_Console_Mario = "Mario",
+    .s_Console_Zelda = "Zelda",
     .fmt_Title_Date_Format = ko_kr_fmt_Title_Date_Format,
     .fmtDate = ko_kr_fmt_Date,
     .fmtTime = ko_kr_fmt_Time,

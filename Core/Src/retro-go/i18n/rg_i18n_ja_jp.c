@@ -195,6 +195,11 @@ const lang_t lang_ja_jp LANG_DATA = {
     .s_Flash_cache_Cover_text = "カバー+文字",
     .s_Flash_cache_Text_only = "文字のみ",
     .s_Show_FPS = "FPS表示",
+
+    .s_Console_Type = "本体",
+    .s_Console_Auto = "自動",
+    .s_Console_Mario = "Mario",
+    .s_Console_Zelda = "Zelda",
     .fmt_Title_Date_Format = ja_jp_fmt_Title_Date_Format,
     .fmtDate = ja_jp_fmt_Date,
     .fmtTime = ja_jp_fmt_Time,

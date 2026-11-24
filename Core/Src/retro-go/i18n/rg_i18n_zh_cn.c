@@ -186,6 +186,11 @@ const lang_t lang_zh_cn LANG_DATA = {
     .s_Flash_cache_Cover_text = "封面+文字",
     .s_Flash_cache_Text_only = "仅文字",
     .s_Show_FPS = "显示帧率",
+
+    .s_Console_Type = "主机",
+    .s_Console_Auto = "自动",
+    .s_Console_Mario = "Mario",
+    .s_Console_Zelda = "Zelda",
     .fmt_Title_Date_Format = zh_cn_fmt_Title_Date_Format,
     .fmtDate = zh_cn_fmt_Date,
     .fmtTime = zh_cn_fmt_Time,

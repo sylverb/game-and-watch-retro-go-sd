@@ -15,6 +15,7 @@
 #include "gui.h"
 #include "rom_manager.h"
 #include "gw_sdcard.h"
+#include "gw_ofw.h"
 #include "crc32.h"
 
 #define CONFIG_MAGIC 0xcafef00d
@@ -115,7 +116,9 @@ typedef struct persistent_config {
     uint8_t flash_cache_info_hidden;
     /* 0 = off (default), 1 = continuous FPS/CPU HUD during emulation. */
     uint8_t show_fps;
-    uint8_t reserved_app[30];
+    /* 0 = Auto (OFW metadata), 1 = Mario, 2 = Zelda. */
+    uint8_t console_type;
+    uint8_t reserved_app[29];
 
     uint32_t crc32;
 } persistent_config_t;
@@ -179,6 +182,7 @@ static const persistent_config_t persistent_config_default = {
     .welcome_prompt = 0,
     .flash_cache_info_hidden = ODROID_FLASH_CACHE_INFO_COVER_TEXT,
     .show_fps = 0,                /* FPS HUD off by default */
+    .console_type = ODROID_CONSOLE_AUTO,
     .reserved_app = {0},
 };
 
@@ -380,7 +384,8 @@ void odroid_settings_init()
         odroid_settings_reset();
         return;
     }
-    //set colors;
+    /* Apply Mario/Zelda theme after /CONFIG is loaded (console_type). */
+    gui_init_colors();
     curr_colors = (colors_t *)(&gui_colors[persistent_config_ram.colors]);
     gui_apply_colors_to_overlay_clut();
     //set font
@@ -984,6 +989,34 @@ bool odroid_settings_ShowFPS_get(void)
 void odroid_settings_ShowFPS_set(bool show)
 {
     persistent_config_ram.show_fps = show ? 1 : 0;
+}
+
+odroid_console_type_t odroid_settings_ConsoleType_get(void)
+{
+    uint8_t v = persistent_config_ram.console_type;
+    if (v == ODROID_CONSOLE_MARIO || v == ODROID_CONSOLE_ZELDA)
+        return (odroid_console_type_t)v;
+    return ODROID_CONSOLE_AUTO;
+}
+
+void odroid_settings_ConsoleType_set(odroid_console_type_t type)
+{
+    if (type != ODROID_CONSOLE_MARIO && type != ODROID_CONSOLE_ZELDA)
+        type = ODROID_CONSOLE_AUTO;
+    persistent_config_ram.console_type = (uint8_t)type;
+}
+
+bool odroid_settings_ConsoleIsMario(void)
+{
+    switch (odroid_settings_ConsoleType_get()) {
+    case ODROID_CONSOLE_MARIO:
+        return true;
+    case ODROID_CONSOLE_ZELDA:
+        return false;
+    case ODROID_CONSOLE_AUTO:
+    default:
+        return get_ofw_is_mario();
+    }
 }
 
 uint32_t odroid_settings_WelcomePrompt_get(void)

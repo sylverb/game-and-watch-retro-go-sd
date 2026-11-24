@@ -173,6 +173,11 @@ const lang_t lang_es_es LANG_DATA = {
     .s_Flash_cache_Cover_text = "Cover + texto",
     .s_Flash_cache_Text_only = "Solo texto",
     .s_Show_FPS = "Mostrar FPS",
+
+    .s_Console_Type = "Consola",
+    .s_Console_Auto = "Auto",
+    .s_Console_Mario = "Mario",
+    .s_Console_Zelda = "Zelda",
     .fmt_Title_Date_Format = es_es_fmt_Title_Date_Format,
     .fmtDate = es_es_fmt_Date,
     .fmtTime = es_es_fmt_Time,

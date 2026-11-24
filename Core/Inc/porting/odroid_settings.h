@@ -113,6 +113,19 @@ void odroid_settings_FlashCacheInfo_set(odroid_flash_cache_info_t mode);
 bool odroid_settings_ShowFPS_get(void);
 void odroid_settings_ShowFPS_set(bool show);
 
+/* Hardware console variant for UI theme (and similar). Default Auto =
+ * detect from OFW bank1 metadata via get_ofw_is_mario(). */
+typedef enum {
+    ODROID_CONSOLE_AUTO = 0,
+    ODROID_CONSOLE_MARIO = 1,
+    ODROID_CONSOLE_ZELDA = 2,
+} odroid_console_type_t;
+
+odroid_console_type_t odroid_settings_ConsoleType_get(void);
+void odroid_settings_ConsoleType_set(odroid_console_type_t type);
+/** Effective Mario vs Zelda after applying ConsoleType (Auto → OFW). */
+bool odroid_settings_ConsoleIsMario(void);
+
 /** Welcome prompt state: 0 = not anchored, 1 = shown, else YYYYMMDD anchor date. */
 uint32_t odroid_settings_WelcomePrompt_get(void);
 void odroid_settings_WelcomePrompt_set(uint32_t value);

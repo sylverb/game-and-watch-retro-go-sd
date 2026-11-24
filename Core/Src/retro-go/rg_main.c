@@ -136,6 +136,41 @@ static bool GLOBAL_DATA flash_cache_info_cb(odroid_dialog_choice_t *option, odro
 }
 #endif
 
+static bool GLOBAL_DATA console_type_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
+{
+    static const odroid_console_type_t order[] = {
+        ODROID_CONSOLE_AUTO,
+        ODROID_CONSOLE_MARIO,
+        ODROID_CONSOLE_ZELDA,
+    };
+    odroid_console_type_t type = odroid_settings_ConsoleType_get();
+    int idx = 0;
+    for (int i = 0; i < 3; i++) {
+        if (order[i] == type) {
+            idx = i;
+            break;
+        }
+    }
+    if (event == ODROID_DIALOG_NEXT)
+        idx = (idx + 1) % 3;
+    else if (event == ODROID_DIALOG_PREV)
+        idx = (idx + 2) % 3;
+    if (event == ODROID_DIALOG_PREV || event == ODROID_DIALOG_NEXT) {
+        odroid_settings_ConsoleType_set(order[idx]);
+        gui_init_colors();
+        curr_colors = (colors_t *)(&gui_colors[odroid_settings_colors_get()]);
+        gui_apply_colors_to_overlay_clut();
+    }
+    type = order[idx];
+    if (type == ODROID_CONSOLE_MARIO)
+        strcpy(option->value, curr_lang->s_Console_Mario);
+    else if (type == ODROID_CONSOLE_ZELDA)
+        strcpy(option->value, curr_lang->s_Console_Zelda);
+    else
+        strcpy(option->value, curr_lang->s_Console_Auto);
+    return event == ODROID_DIALOG_ENTER;
+}
+
 static bool GLOBAL_DATA show_fps_cb(odroid_dialog_choice_t *option, odroid_dialog_event_t event, uint32_t repeat)
 {
     bool show = odroid_settings_ShowFPS_get();
@@ -436,6 +471,7 @@ static void GLOBAL_DATA handle_debug_menu()
     char dbgmcu_cr_str[16];
     char dbgmcu_clock_str[16];
     char show_fps_value[8];
+    char console_type_value[16];
 
     // Read jedec id and status register from the external flash
     OSPI_DisableMemoryMappedMode();
@@ -463,6 +499,7 @@ static void GLOBAL_DATA handle_debug_menu()
             {-1, curr_lang->s_DBGMCU_CR, dbgmcu_cr_str, 0, debug_menu_debug_cr_cb},
             {1, curr_lang->s_DBGMCU_clock, dbgmcu_clock_str, 1, debug_menu_debug_clock_cb},
             {2, curr_lang->s_Show_FPS, show_fps_value, 1, show_fps_cb},
+            {3, curr_lang->s_Console_Type, console_type_value, 1, console_type_cb},
             ODROID_DIALOG_CHOICE_SEPARATOR,
             {0, curr_lang->s_Close, "", 1, NULL},
             ODROID_DIALOG_CHOICE_LAST};
@@ -1078,7 +1115,7 @@ void GLOBAL_DATA app_main(uint8_t boot_mode)
     dtc_init();
     ram_start = (uint32_t)&__RAM_EMU_START__;
 
-    // Initialize GUI colors based on OFW type
+    // Theme colors from ConsoleType (Auto → OFW); re-applied after /CONFIG load
     gui_init_colors();
 
 #if SD_CARD == 1
