@@ -27,6 +27,7 @@ static void SleepModeEnterAndResume(sleep_pre_wakeup_callback_t pre_wakeup_callb
 
   HAL_PWREx_ClearWakeupFlag(PWR_FLAG_WKUP1);
   HAL_TIM_Base_Stop_IT(&htim1);
+  /* Do not HAL_SuspendTick() before STOP2 — it prevents wake on this platform. */
   HAL_PWREx_EnterSTOP2Mode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
   wdog_refresh();
   printf("[Sleep] Waking up\n");
@@ -102,6 +103,11 @@ void GW_EnterDeepSleep(bool standby, sleep_pre_wakeup_callback_t pre_wakeup_call
   /* POWER is often still held when entering sleep; keep panic reset off until
    * we come back (or forever for standby). */
   panic_power_reset_set(false);
+
+  /* DBGMCU keep-alive in STOP draws mA if left set. */
+  DBGMCU->CR &= ~(DBGMCU_CR_DBG_STOPCD | DBGMCU_CR_DBG_STANDBYCD |
+                  DBGMCU_CR_DBG_TRACECKEN | DBGMCU_CR_DBG_CKCDEN |
+                  DBGMCU_CR_DBG_CKSRDEN);
 
   // Turn off speaker
   HAL_GPIO_WritePin(GPIO_Speaker_enable_GPIO_Port, GPIO_Speaker_enable_Pin, GPIO_PIN_RESET);

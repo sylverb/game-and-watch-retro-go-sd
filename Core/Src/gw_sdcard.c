@@ -186,6 +186,11 @@ void sdcard_deinit_spi1() {
     /* SD Card disable CS  */
     HAL_GPIO_WritePin(SD_CS_GPIO_Port, SD_CS_Pin, GPIO_PIN_SET);
 
+    /* Finish any in-flight DMA before the dummy clock. */
+    if (hspi1.State != HAL_SPI_STATE_RESET) {
+        HAL_SPI_Abort(&hspi1);
+    }
+
     /* 8 clock cycles with CS high so the card releases MISO before we shut down SPI */
     uint8_t dummy = 0xFF;
     HAL_SPI_Transmit(&hspi1, &dummy, 1, 100);
@@ -200,7 +205,7 @@ void sdcard_deinit_spi1() {
     // We can now put CS signal to 0 to prevent power consumption
     // if system goes to sleep mode.
     HAL_GPIO_WritePin(SD_CS_GPIO_Port, SD_CS_Pin, GPIO_PIN_RESET);
-  }
+}
 
 void sdcard_init_ospi1() {
 }

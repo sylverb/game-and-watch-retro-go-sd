@@ -34,6 +34,9 @@ uint32_t active_framebuffer;
 uint32_t frame_counter;
 uint32_t last_frequency = 60;
 
+/* After rail cut, float LTDC/SPI2 for STOP2 (avoid back-powering the panel). */
+static bool lcd_bus_floated;
+
 /* Staged CLUT flush: HAL_LTDC_ReloadEventCallback applies it at vblank.
  * Definition lives with the CLUT helpers further down. */
 static uint8_t clut_hw_dirty;
@@ -104,10 +107,19 @@ static void gw_lcd_spi_tx(SPI_HandleTypeDef *spi, uint8_t *pData) {
 
 void lcd_deinit(SPI_HandleTypeDef *spi) {
   __HAL_LTDC_DISABLE_IT(&hltdc, LTDC_IT_LI | LTDC_IT_RR);
+  __HAL_LTDC_DISABLE(&hltdc);
 
   // Power off
   gw_set_power_1V8(0);
   gw_set_power_3V3(0);
+
+  /* Float LTDC + SPI2 so STOP2 does not back-power the unpowered panel. */
+  HAL_Delay(2);
+  HAL_LTDC_MspDeInit(&hltdc);
+  if (spi) {
+    HAL_SPI_MspDeInit(spi);
+  }
+  lcd_bus_floated = true;
 }
 
 void *lcd_clear_active_buffer() {
@@ -129,6 +141,15 @@ void lcd_clear_buffers() {
 }
 
 void lcd_init(SPI_HandleTypeDef *spi, LTDC_HandleTypeDef *ltdc, lcd_init_flags_t flags) {
+  if (lcd_bus_floated) {
+    HAL_LTDC_MspInit(&hltdc);
+    if (spi) {
+      HAL_SPI_MspInit(spi);
+    }
+    __HAL_LTDC_ENABLE(&hltdc);
+    lcd_bus_floated = false;
+  }
+
   // Disable LCD Chip select
   gw_lcd_set_chipselect(0);
 
