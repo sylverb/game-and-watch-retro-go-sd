@@ -201,6 +201,14 @@ void gui_apply_colors_to_overlay_clut(void)
     rgb888[LCD_OVERLAY_CLUT_WHITE] = 0x00FFFFFFu;
     rgb888[LCD_OVERLAY_CLUT_GRAY]  = 0x00404040u;
     rgb888[LCD_OVERLAY_CLUT_GRAY_DARK] = 0x00202020u;
+    /* Battery bars use fixed colours, not theme ones. Without their own
+     * slots a LUT8 core nearest-matches them to the cart palette, and the
+     * green often lands on the theme's header colour: the bars vanish and
+     * the header icon looks empty. Keep in sync with MARIO_BATT_GREEN /
+     * MARIO_BATT_CRITICAL in odroid_overlay.c (RGB565 0x07C0 / 0xD940),
+     * expanded the way lcd_pack_color() does so the lookup is exact. */
+    rgb888[LCD_OVERLAY_CLUT_BATT_OK]  = 0x0000FA00u;
+    rgb888[LCD_OVERLAY_CLUT_BATT_LOW] = 0x00DE2800u;
     lcd_set_overlay_clut(rgb888, LCD_OVERLAY_CLUT_MAX);
 }
 

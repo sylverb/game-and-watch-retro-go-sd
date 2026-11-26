@@ -153,12 +153,15 @@ void lcd_convert_lut8_to_rgb565(const uint8_t *src, uint16_t *dst, size_t count,
  * No darkened twins are stored for the menu — menu pixels are drawn
  * AFTER odroid_overlay_darken_all(), so they never need a "darkened
  * menu pixel" lookup.
- * MAX is theme (4) + HUD white + panel gray + empty-bar darker gray. */
+ * MAX is theme (4) + HUD white + panel gray + empty-bar darker gray +
+ * the two battery bar colours. */
 #define LCD_OVERLAY_CLUT_BASE  0x40   /* index 64 */
-#define LCD_OVERLAY_CLUT_MAX   7
+#define LCD_OVERLAY_CLUT_MAX   9
 #define LCD_OVERLAY_CLUT_WHITE 4      /* pure white — volume/brightness bars */
 #define LCD_OVERLAY_CLUT_GRAY  5      /* ~25% gray — HUD panel fallback */
 #define LCD_OVERLAY_CLUT_GRAY_DARK 6  /* ~12% gray — empty level boxes */
+#define LCD_OVERLAY_CLUT_BATT_OK   7  /* battery bars (MARIO_BATT_GREEN) */
+#define LCD_OVERLAY_CLUT_BATT_LOW  8  /* last battery bar (MARIO_BATT_CRITICAL) */
 
 /* Register the overlay theme colors (RGB888 0x00RRGGBB). Saves them for
  * lcd_pack_color() exact-match and for begin/end. When overlay slots sit
