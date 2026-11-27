@@ -810,7 +810,9 @@ void gui_draw_status(tab_t *tab)
     odroid_battery_state_t battery_state = odroid_input_read_battery();
     /* Icon only (no %): blink when stock Mario would warn (bar < 2). */
     if (!odroid_battery_is_low(battery_state) || odroid_overlay_battery_blink_on())
-        odroid_overlay_draw_battery(battery_state, ODROID_SCREEN_WIDTH - 28, 17);
+        /* Icon is 12 px tall, clock digits 10: start 1 px higher so
+         * both share the same vertical centre. */
+        odroid_overlay_draw_battery(battery_state, ODROID_SCREEN_WIDTH - 28, 16);
 
     odroid_overlay_clock(ODROID_SCREEN_WIDTH - 74, 17);
 }
