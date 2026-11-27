@@ -1802,6 +1802,7 @@ distclean: clean
 #######################################
 # dependencies
 #######################################
--include $(wildcard $(BUILD_DIR)/*.d)
+# Objects are built into $(BUILD_DIR)/<dir>/, so their .d files are there too.
+-include $(wildcard $(BUILD_DIR)/*.d $(BUILD_DIR)/*/*.d)
 
 # *** EOF ***
